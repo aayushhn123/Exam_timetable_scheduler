@@ -43,6 +43,44 @@ st.markdown("""
         opacity: 0.9;
     }
 
+    .stats-section {
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+    }
+
+    /* Updated metric card with icons */
+    .metric-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        border-radius: 8px;
+        color: white;
+        text-align: center;
+        margin: 0.5rem;
+        transition: transform 0.2s;
+    }
+
+    .metric-card:hover {
+        transform: scale(1.05);
+    }
+
+    .metric-card h3 {
+        margin: 0;
+        font-size: 1.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .metric-card p {
+        margin: 0.3rem 0 0 0;
+        font-size: 1rem;
+        opacity: 0.9;
+    }
+
     /* Light mode styles */
     @media (prefers-color-scheme: light) {
         .main-header {
@@ -63,6 +101,11 @@ st.markdown("""
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             margin: 1rem 0;
+        }
+
+        .stats-section {
+            background: #f8f9fa;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
         .status-success {
@@ -100,11 +143,6 @@ st.markdown("""
 
         .metric-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 8px;
-            text-align: center;
-            margin: 0.5rem;
         }
 
         .footer {
@@ -134,6 +172,11 @@ st.markdown("""
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             margin: 1rem 0;
+        }
+
+        .stats-section {
+            background: #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
         }
 
         .status-success {
@@ -171,11 +214,6 @@ st.markdown("""
 
         .metric-card {
             background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 8px;
-            text-align: center;
-            margin: 0.5rem;
         }
 
         .footer {
@@ -202,7 +240,6 @@ LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
 # Cache for text wrapping results
 wrap_text_cache = {}
 
-
 # PDF generation utilities
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
@@ -222,7 +259,6 @@ def wrap_text(pdf, text, col_width):
         lines.append(current_line)
     wrap_text_cache[cache_key] = lines
     return lines
-
 
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
@@ -269,7 +305,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-
 def print_table_custom(pdf, df, columns, col_widths, line_height=5):
     if df.empty:
         return
@@ -279,7 +314,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
         if any(cell.strip() for cell in row):
             print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
-
 
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
@@ -344,7 +378,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height)
     pdf.output(pdf_path)
 
-
 def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
     excel_data = save_to_excel(semester_wise_timetable)
@@ -383,7 +416,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf):
     except Exception as e:
         st.error(f"Error during PDF post-processing: {str(e)}")
 
-
 def read_timetable(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine='openpyxl')
@@ -394,11 +426,12 @@ def read_timetable(uploaded_file):
             "Module Description": "SubjectName",
             "Module Abbreviation": "ModuleCode",
             "Campus Name": "Campus",
-            "Difficulty Score": "Difficulty"  # Added support for Difficulty column
+            "Difficulty Score": "Difficulty"
         })
 
         def convert_sem(sem):
-            if pd.isna(sem): return 0
+            if pd.isna(sem):
+                return 0
             m = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
                 "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
@@ -435,7 +468,6 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None
 
-
 def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_difficulty=False):
     df_sem['SubjectCode'] = df_sem['Subject'].str.extract(r'\((.*?)\)', expand=False)
 
@@ -451,10 +483,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     exam_days = {branch: set() for branch in all_branches}
 
     def find_next_valid_day(start_day, for_branches):
-        """
-        Find the next valid day for scheduling exams for the given branches.
-        Ensures no Sundays, holidays, and maintains a 2-day gap between exams.
-        """
         day = start_day
         while True:
             day_date = day.date()
@@ -471,7 +499,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
 
     if schedule_by_difficulty:
         # Precompute mappings using vectorized operations
-        # Map SubjectCode to Difficulty and Branches
         subject_info = df_sem.groupby('SubjectCode').agg({
             'Difficulty': 'first',
             'Branch': set
@@ -479,10 +506,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
         subject_to_difficulty = dict(zip(subject_info['SubjectCode'], subject_info['Difficulty']))
         subject_to_branches = dict(zip(subject_info['SubjectCode'], subject_info['Branch']))
 
-        # Identify common subjects (shared by multiple branches)
         common_subject_codes = {sc for sc, branches in subject_to_branches.items() if len(branches) > 1}
 
-        # Schedule common subjects with difficulty alternation globally
         common_subjects = {'easy': [], 'difficult': [], 'neutral': []}
         for subj_code in common_subject_codes:
             difficulty = subject_to_difficulty.get(subj_code)
@@ -493,13 +518,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             else:
                 common_subjects['neutral'].append(subj_code)
 
-        # Sort common subjects to alternate difficulty
         common_schedule_order = []
         last_difficulty = None
         easy, difficult, neutral = common_subjects['easy'], common_subjects['difficult'], common_subjects['neutral']
         while easy or difficult or neutral:
             if last_difficulty is None or last_difficulty == 1:
-                # Prefer easy or neutral
                 if easy:
                     subj_code = easy.pop(0)
                     common_schedule_order.append(subj_code)
@@ -513,7 +536,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                     common_schedule_order.append(subj_code)
                     last_difficulty = 1
             else:
-                # Prefer difficult or neutral
                 if difficult:
                     subj_code = difficult.pop(0)
                     common_schedule_order.append(subj_code)
@@ -527,7 +549,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                     common_schedule_order.append(subj_code)
                     last_difficulty = 0
 
-        # Schedule common subjects
         current_day = base_date
         for subj_code in common_schedule_order:
             branches = subject_to_branches[subj_code]
@@ -539,21 +560,18 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 last_exam[branch] = exam_day
             current_day = exam_day + timedelta(days=1)
 
-        # Precompute remaining subjects per branch
         scheduled_subjects = set(df_sem[df_sem['Exam Date'] != '']['Subject'])
         remaining_subjects_per_branch = {}
         for branch in all_branches:
             branch_subjects = set(df_sem[df_sem['Branch'] == branch]['Subject'])
             remaining_subjects_per_branch[branch] = list(branch_subjects - scheduled_subjects)
 
-        # Organize remaining subjects by difficulty using vectorized operations
         remaining_df = df_sem[df_sem['Exam Date'] == ''].copy()
         remaining_df['DifficultyCategory'] = remaining_df['Difficulty'].map({0: 'easy', 1: 'difficult'}).fillna(
             'neutral')
         subjects_by_difficulty = remaining_df.groupby(['Branch', 'DifficultyCategory'])['Subject'].apply(list).unstack(
             fill_value=[])
 
-        # Initialize remaining subjects by difficulty for each branch
         remaining_by_difficulty = {branch: {'easy': deque(), 'difficult': deque(), 'neutral': deque()} for branch in
                                    all_branches}
         for branch in all_branches:
@@ -562,18 +580,15 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                     subjects = subjects_by_difficulty.loc[branch].get(cat, [])
                     remaining_by_difficulty[branch][cat].extend(subjects)
 
-        # Track the earliest possible next exam date for each branch
         next_available_date = {branch: current_day for branch in all_branches}
         last_difficulty_branch = {branch: None for branch in all_branches}
 
-        # Schedule individual subjects by advancing each branch independently
         while any(
                 len(remaining_by_difficulty[branch]['easy']) > 0 or
                 len(remaining_by_difficulty[branch]['difficult']) > 0 or
                 len(remaining_by_difficulty[branch]['neutral']) > 0
                 for branch in all_branches
         ):
-            # Find the earliest date among all branches that still have subjects to schedule
             branches_with_subjects = [
                 branch for branch in all_branches
                 if (remaining_by_difficulty[branch]['easy'] or
@@ -583,17 +598,14 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             if not branches_with_subjects:
                 break
 
-            # Get the earliest possible date among branches that need scheduling
             earliest_date = min(next_available_date[branch] for branch in branches_with_subjects)
             branches_to_schedule = [
                 branch for branch in branches_with_subjects
                 if next_available_date[branch] == earliest_date
             ]
 
-            # Schedule for these branches on the earliest date
             individual_assignments = []
             for branch in branches_to_schedule:
-                # Skip if no subjects to schedule
                 if not (remaining_by_difficulty[branch]['easy'] or
                         remaining_by_difficulty[branch]['difficult'] or
                         remaining_by_difficulty[branch]['neutral']):
@@ -629,15 +641,12 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 exam_days[branch].add(exam_day)
                 last_exam[branch] = exam_day
                 last_difficulty_branch[branch] = difficulty
-                # Update the next available date for this branch (minimum 2 days gap)
                 next_available_date[branch] = exam_day + timedelta(days=2)
 
-            # Apply the assignments
             for branch, subj, exam_date in individual_assignments:
                 df_sem.loc[(df_sem['Branch'] == branch) & (df_sem['Subject'] == subj), 'Exam Date'] = exam_date
 
     else:
-        # Original scheduling logic (without difficulty)
         subject_branch_count = df_sem.groupby('SubjectCode')['Branch'].nunique()
         common_subject_codes = subject_branch_count[subject_branch_count > 1].index.tolist()
         common_subject_branches = {}
@@ -657,7 +666,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
                 exam_days[branch].add(exam_day)
                 last_exam[branch] = exam_day
 
-        # Initialize remaining subjects for each branch
         remaining_subjects = {}
         for branch in all_branches:
             branch_df = df_sem[df_sem['Branch'] == branch]
@@ -666,7 +674,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
             remaining = [subj for subj in all_subjs if subj not in scheduled_subjs]
             remaining_subjects[branch] = list(remaining)
 
-        # Schedule remaining subjects for each branch
         current_day = base_date
         while any(remaining_subjects[branch] for branch in all_branches):
             current_day_date = current_day.date()
@@ -692,7 +699,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, schedule_by_dif
     df_sem['Time Slot'] = slot_str
     return df_sem
 
-
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     final_list = []
     for sem in sorted(df["Semester"].unique()):
@@ -711,7 +717,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
     return sem_dict
 
-
 def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_days=90):
     sub_branches = df_elec["SubBranch"].unique().tolist()
     oe_to_subjects = df_elec.groupby("OE")["Subject"].apply(list).to_dict()
@@ -724,11 +729,9 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
     schedule_oe_date = {}
     day = elective_base_date
 
-    # Convert elective_base_date to datetime if it's a date object
     if isinstance(day, date) and not isinstance(day, datetime):
         day = datetime.combine(day, datetime.min.time())
 
-    # Convert holidays to a set of dates for comparison
     holidays_dates = {h.date() for h in holidays}
 
     def advance_to_next_valid(d):
@@ -762,7 +765,6 @@ def schedule_electives_mainbranch(df_elec, elective_base_date, holidays, max_day
             df_elec.at[idx, "Time Slot"] = "N/A"
     return df_elec
 
-
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
         return None
@@ -772,7 +774,6 @@ def save_to_excel(semester_wise_timetable):
         for sem, df_sem in semester_wise_timetable.items():
             for main_branch in df_sem["MainBranch"].unique():
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                # Add difficulty labels to SubjectDisplay
                 has_oe = df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")
                 difficulty_str = df_mb['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                 difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -801,7 +802,6 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
 
 def main():
     # Header section
@@ -987,31 +987,120 @@ def main():
     if hasattr(st.session_state, 'processing_complete') and st.session_state.processing_complete:
         st.markdown("---")
 
-        # Statistics
+        # Enhanced Statistics Section
         sem_dict = st.session_state.timetable_data
         total_exams = sum(len(df) for df in sem_dict.values())
         total_semesters = len(sem_dict)
         total_branches = len(set(branch for df in sem_dict.values() for branch in df['MainBranch'].unique()))
 
+        # Combine all semester data into a single DataFrame for analysis
+        all_data = pd.concat(sem_dict.values(), ignore_index=True)
+
+        # Overall date range
+        all_dates = pd.to_datetime(all_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+        overall_date_range = (max(all_dates) - min(all_dates)).days if all_dates.size > 0 else 0
+
+        # 1. Date range of non-elective exams (OE is NaN or empty)
+        non_elective_data = all_data[all_data['OE'].isna() | (all_data['OE'].str.strip() == "")]
+        non_elective_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+        non_elective_range = "N/A"
+        if non_elective_dates.size > 0:
+            non_elective_start = min(non_elective_dates).strftime("%d %b %Y")
+            non_elective_end = max(non_elective_dates).strftime("%d %b %Y")
+            non_elective_range = f"{non_elective_start} to {non_elective_end}"
+
+        # 2. Dates of elective exams (OE is not NaN and not empty)
+        elective_data = all_data[all_data['OE'].notna() & (all_data['OE'].str.strip() != "")]
+        elective_dates = pd.to_datetime(elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
+        elective_dates_list = sorted(set(elective_dates.dt.strftime("%d %b %Y")))
+        elective_dates_str = ", ".join(elective_dates_list) if elective_dates_list else "N/A"
+
+        # 3. Number of subjects per stream (MainBranch + SubBranch)
+        stream_counts = all_data.groupby(['MainBranch', 'SubBranch'])['Subject'].nunique().reset_index()
+        stream_counts['Stream'] = stream_counts['MainBranch'] + " " + stream_counts['SubBranch']
+        stream_counts = stream_counts[['Stream', 'Subject']].rename(columns={'Subject': 'Subject Count'}).sort_values('Stream')
+
+        # Download section
+        st.markdown("---")
+        st.markdown("### 📥 Download Options")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # Excel download
+            excel_data = save_to_excel(sem_dict)
+            if excel_data:
+                st.download_button(
+                    label="📊 Download Excel File",
+                    data=excel_data.getvalue(),
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+        with col2:
+            # PDF download
+            if sem_dict:
+                pdf_output = io.BytesIO()
+                temp_pdf_path = "temp_timetable.pdf"
+                generate_pdf_timetable(sem_dict, temp_pdf_path)
+                with open(temp_pdf_path, "rb") as f:
+                    pdf_output.write(f.read())
+                pdf_output.seek(0)
+                if os.path.exists(temp_pdf_path):
+                    os.remove(temp_pdf_path)
+                st.download_button(
+                    label="📄 Download PDF File",
+                    data=pdf_output.getvalue(),
+                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+        with col3:
+            if st.button("🔄 Generate New Timetable", use_container_width=True):
+                if hasattr(st.session_state, 'processing_complete'):
+                    del st.session_state.processing_complete
+                if hasattr(st.session_state, 'timetable_data'):
+                    del st.session_state.timetable_data
+                st.rerun()
+
+        st.markdown("""
+        <div class="stats-section">
+            <h2>📈 Statistics Overview</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Display basic stats in cards
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.markdown(f'<div class="metric-card"><h3>{total_exams}</h3><p>Total Exams</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>📝 {total_exams}</h3><p>Total Exams</p></div>',
                         unsafe_allow_html=True)
         with col2:
-            st.markdown(f'<div class="metric-card"><h3>{total_semesters}</h3><p>Semesters</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>🎓 {total_semesters}</h3><p>Semesters</p></div>',
                         unsafe_allow_html=True)
         with col3:
-            st.markdown(f'<div class="metric-card"><h3>{total_branches}</h3><p>Branches</p></div>',
+            st.markdown(f'<div class="metric-card"><h3>🏫 {total_branches}</h3><p>Branches</p></div>',
                         unsafe_allow_html=True)
         with col4:
-            all_dates = []
-            for df in sem_dict.values():
-                dates = pd.to_datetime(df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                all_dates.extend(dates.tolist())
-            if all_dates:
-                date_range = (max(all_dates) - min(all_dates)).days
-                st.markdown(f'<div class="metric-card"><h3>{date_range}</h3><p>Days Span</p></div>',
-                            unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><h3>📅 {overall_date_range}</h3><p>Days Span</p></div>',
+                        unsafe_allow_html=True)
+
+        # Display new stats in cards
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f'<div class="metric-card"><h3>📆 {non_elective_range}</h3><p>Non-Elective Exam Range</p></div>',
+                        unsafe_allow_html=True)
+        with col2:
+            st.markdown(f'<div class="metric-card"><h3>📆 {elective_dates_str}</h3><p>Elective Exam Dates</p></div>',
+                        unsafe_allow_html=True)
+
+        # Display subjects per stream using st.dataframe
+        st.markdown("#### Subjects Per Stream")
+        if not stream_counts.empty:
+            st.dataframe(stream_counts, use_container_width=True)
+        else:
+            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
@@ -1062,50 +1151,7 @@ def main():
 
                     st.dataframe(formatted_pivot, use_container_width=True)
 
-        # Download section
-        st.markdown("---")
-        st.markdown("### 📥 Download Options")
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Excel download
-            excel_data = save_to_excel(sem_dict)
-            if excel_data:
-                st.download_button(
-                    label="📊 Download Excel File",
-                    data=excel_data.getvalue(),
-                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-
-        with col2:
-            # PDF download
-            if sem_dict:
-                pdf_output = io.BytesIO()
-                temp_pdf_path = "temp_timetable.pdf"
-                generate_pdf_timetable(sem_dict, temp_pdf_path)
-                with open(temp_pdf_path, "rb") as f:
-                    pdf_output.write(f.read())
-                pdf_output.seek(0)
-                if os.path.exists(temp_pdf_path):
-                    os.remove(temp_pdf_path)
-                st.download_button(
-                    label="📄 Download PDF File",
-                    data=pdf_output.getvalue(),
-                    file_name=f"timetable_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-
-        with col2:
-            if st.button("🔄 Generate New Timetable", use_container_width=True):
-                if hasattr(st.session_state, 'processing_complete'):
-                    del st.session_state.processing_complete
-                if hasattr(st.session_state, 'timetable_data'):
-                    del st.session_state.timetable_data
-                st.rerun()
 
     # Footer
     st.markdown("---")
@@ -1116,7 +1162,6 @@ def main():
         <p style="font-size: 0.9em;">Streamlined scheduling • Conflict-free timetables • Multiple export formats</p>
     </div>
     """, unsafe_allow_html=True)
-
 
 if __name__ == "__main__":
     main()
