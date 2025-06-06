@@ -1107,45 +1107,12 @@ def main():
             </table>
         </div>
         """.format(non_elective_range=non_elective_range, elective_dates_str=elective_dates_str), unsafe_allow_html=True)
-
-        # Display subjects per stream in a styled card with an HTML table
+        # Display subjects per stream using st.dataframe
         st.markdown("#### Subjects Per Stream")
         if not stream_counts.empty:
-            # Build the HTML table rows
-            table_rows = []
-            for _, row in stream_counts.iterrows():
-                table_rows.append(
-                    f'<tr>'
-                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Stream"]}</td>'
-                    f'<td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">{row["Subject Count"]}</td>'
-                    f'</tr>'
-                )
-            table_html = "".join(table_rows)
-
-            # Render the card with the HTML table
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-                        <tr style="background: rgba(255, 255, 255, 0.1);">
-                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Stream</th>
-                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #ddd;">Subject Count</th>
-                        </tr>
-                        {table_html}
-                    </table>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            st.dataframe(stream_counts, hide_index=True,use_container_width=True)
         else:
-            st.markdown(
-                """
-                <div class="metric-card">
-                    <div class="status-info" style="margin: 0.5rem;">ℹ️ No stream data available.</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            st.markdown('<div class="status-info">ℹ️ No stream data available.</div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
