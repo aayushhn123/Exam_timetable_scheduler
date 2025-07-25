@@ -802,6 +802,9 @@ def read_timetable(uploaded_file):
 import pandas as pd
 from datetime import timedelta
 
+import pandas as pd
+from datetime import timedelta
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, last_exam_date):
         """
@@ -821,10 +824,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
                 continue
             # Check if date is free for all required branches
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                # Ensure the date is within max_gap of the last exam date, if applicable
+                # Ensure the date is within max_gap of the last exam date
                 if max_allowed_date is None or day_date <= max_allowed_date:
                     return day
-            # If we exceed the max allowed date, return None to indicate failure
+            # If we exceed max_allowed_date, return None to trigger rescheduling
             if max_allowed_date and day_date > max_allowed_date:
                 return None
             day += timedelta(days=1)
@@ -835,31 +838,46 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         """
         current_date = start_day
         result = find_next_valid_day(current_date, for_branches, last_exam_date)
-        if result is None:
-            # If no valid slot is found within max_gap, try from the last exam date
-            if last_exam_date:
-                current_date = last_exam_date + timedelta(days=1)
-                result = find_next_valid_day(current_date, for_branches, last_exam_date)
+        if result is None and last_exam_date:
+            # Attempt to reschedule by finding a slot within 2 days from last_exam_date
+            current_date = last_exam_date + timedelta(days=1)
+            valid_days = 0
+            while valid_days < max_gap and current_date.date() <= (last_exam_date + timedelta(days=max_gap)).date():
+                current_date_only = current_date.date()
+                if current_date.weekday() < 6 and current_date_only not in holidays and \
+                   all(current_date_only not in exam_days[branch] for branch in for_branches):
+                    return current_date
+                current_date += timedelta(days=1)
+                if current_date.weekday() < 6 and current_date_only not in holidays:
+                    valid_days += 1
+            # If no slot found within 2 days, return None to indicate unfeasible
+            return None
         return result if result else current_date
 
     # Schedule remaining COMP subjects
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
-        # Get the last exam date for this branch
-        last_exam_date = max(exam_days[branch], default=None)
+        last_exam_date = max((pd.to_datetime(d, format="%d-%m-%Y") for d in exam_days[branch]), default=None)
         exam_day = find_earliest_available_slot(base_date, [branch], last_exam_date)
-        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-        exam_days[branch].add(exam_day.date())
+        if exam_day is None:
+            # Handle unfeasible case (e.g., log warning or adjust previous schedule)
+            df_sem.at[idx, 'Exam Date'] = "Unfeasible"
+        else:
+            df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            exam_days[branch].add(exam_day.date())
 
     # Schedule remaining ELEC subjects
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
-        last_exam_date = max(exam_days[branch], default=None)
+        last_exam_date = max((pd.to_datetime(d, format="%d-%m-%Y") for d in exam_days[branch]), default=None)
         exam_day = find_earliest_available_slot(base_date, [branch], last_exam_date)
-        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-        exam_days[branch].add(exam_day.date())
+        if exam_day is None:
+            df_sem.at[idx, 'Exam Date'] = "Unfeasible"
+        else:
+            df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            exam_days[branch].add(exam_day.date())
 
     # Assign time slot based on semester
     sem = df_sem["Semester"].iloc[0]
@@ -883,7 +901,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         Find the earliest available slot from start_day onwards, respecting max_gap
         """
         current_date = start_day
-        max_gap = 2  # Enforce maximum gap of 2 days
+        max_gap = 2
         if last_exam_date:
             max_allowed_date = last_exam_date + timedelta(days=max_gap)
         else:
@@ -897,52 +915,64 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 continue
             # Check if this date is free for all required branches
             if all(current_date_only not in exam_days[branch] for branch in for_branches):
-                # Ensure the date is within max_gap of the last exam date, if applicable
                 if max_allowed_date is None or current_date_only <= max_allowed_date:
                     return current_date
-            # If we exceed the max allowed date, try from the last exam date
             if max_allowed_date and current_date_only > max_allowed_date:
+                # Attempt to find a slot within 2 days from last_exam_date
                 current_date = last_exam_date + timedelta(days=1)
-                max_allowed_date = current_date.date() + timedelta(days=max_gap)
-                continue
+                valid_days = 0
+                while valid_days < max_gap and current_date.date() <= max_allowed_date:
+                    current_date_only = current_date.date()
+                    if current_date.weekday() < 6 and current_date_only not in holidays and \
+                       all(current_date_only not in exam_days[branch] for branch in for_branches):
+                        return current_date
+                    current_date += timedelta(days=1)
+                    if current_date.weekday() < 6 and current_date_only not in holidays:
+                        valid_days += 1
+                return None  # Indicate unfeasible if no slot found
             current_date += timedelta(days=1)
 
     # Schedule common COMP subjects
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        # Get the latest exam date among all branches involved
-        last_exam_date = max([max(exam_days[branch], default=base_date.date()) for branch in branches], default=base_date.date())
+        last_exam_date = max((max((pd.to_datetime(d, format="%d-%m-%Y") for d in exam_days[branch]), default=base_date) for branch in branches), default=base_date)
         exam_day = find_earliest_available_slot(base_date, branches, last_exam_date)
-        min_sem = group['Semester'].min()
-        if min_sem % 2 != 0:
-            odd_sem_position = (min_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        if exam_day is None:
+            df.loc[group.index, 'Exam Date'] = "Unfeasible"
         else:
-            even_sem_position = min_sem // 2
-            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-        df.loc[group.index, 'Time Slot'] = slot_str
-        for branch in branches:
-            exam_days[branch].add(exam_day.date())
+            min_sem = group['Semester'].min()
+            if min_sem % 2 != 0:
+                odd_sem_position = (min_sem + 1) // 2
+                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            else:
+                even_sem_position = min_sem // 2
+                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            df.loc[group.index, 'Time Slot'] = slot_str
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
 
     # Schedule common ELEC subjects
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        last_exam_date = max([max(exam_days[branch], default=base_date.date()) for branch in branches], default=base_date.date())
+        last_exam_date = max((max((pd.to_datetime(d, format="%d-%m-%Y") for d in exam_days[branch]), default=base_date) for branch in branches), default=base_date)
         exam_day = find_earliest_available_slot(base_date, branches, last_exam_date)
-        min_sem = group['Semester'].min()
-        if min_sem % 2 != 0:
-            odd_sem_position = (min_sem + 1) // 2
-            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        if exam_day is None:
+            df.loc[group.index, 'Exam Date'] = "Unfeasible"
         else:
-            even_sem_position = min_sem // 2
-            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-        df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-        df.loc[group.index, 'Time Slot'] = slot_str
-        for branch in branches:
-            exam_days[branch].add(exam_day.date())
+            min_sem = group['Semester'].min()
+            if min_sem % 2 != 0:
+                odd_sem_position = (min_sem + 1) // 2
+                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            else:
+                even_sem_position = min_sem // 2
+                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+            df.loc[group.index, 'Time Slot'] = slot_str
+            for branch in branches:
+                exam_days[branch].add(exam_day.date())
 
     # Schedule remaining subjects per semester
     final_list = []
