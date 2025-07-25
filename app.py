@@ -806,29 +806,28 @@ import streamlit as st
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     end_date = (base_date + timedelta(days=19)).date()
 
-    def find_next_valid_day(start_day, for_branches):
-        """
-        Find the next valid day that doesn't conflict with existing exams within 20 days.
-        """
-        day = start_day
-        while day.date() <= end_date:
-            day_date = day.date()
-            if day.weekday() == 6 or day_date in holidays:
-                day += timedelta(days=1)
-                continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
-                return day
+    def find_next_valid_day(start_day, exam_days, branches):
+    day = start_day
+    while True:
+        day_date = day.date()
+        if day.weekday() == 6 or day_date in holidays_set:
             day += timedelta(days=1)
-        # Fallback to force a slot if none found (should not occur with proper window)
-        current_date = base_date
-        while current_date.date() <= end_date:
-            current_date_only = current_date.date()
-            if (current_date.weekday() < 5 and
-                current_date_only not in holidays and
-                all(current_date_only not in exam_days[branch] for branch in for_branches)):
-                return current_date
-            current_date += timedelta(days=1)
-        return current_date  # Return last day as a last resort
+            continue
+        # Check if the day is free of non-elective exams for all branches
+        if all(day_date not in exam_days[branch] for branch in branches):
+            return day
+        day += timedelta(days=1)
+    return day  # Fallback (should not reach here with proper window)
+
+# Update in main function
+if df_ele is not None and not df_ele.empty:
+    all_branches = df_ele['Branch'].unique()  # Get all branches for electives
+    elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), exam_days, all_branches)
+    elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1), exam_days, all_branches)
+    df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1.strftime("%d-%m-%Y")
+    df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
+    df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2.strftime("%d-%m-%Y")
+    df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"  # Return last day as a last resort
 
     def find_earliest_available_slot(start_day, for_branches):
         """
