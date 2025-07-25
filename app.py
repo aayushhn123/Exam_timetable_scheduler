@@ -815,32 +815,17 @@ def find_earliest_common_date(start_date, branches, exam_days, holidays, end_dat
         current_date += timedelta(days=1)
     return None
 
-def find_next_valid_day(start_day, branch, exam_days, holidays, end_date, max_gap=None):
+def find_next_valid_day(start_day, branch, exam_days, holidays, end_date):
     """
-    Find the next valid day for a branch, optionally within max_gap days.
+    Find the next valid day for a branch within the 20-day window.
     """
     current_date = start_day
-    if max_gap is not None and start_day.date() <= end_date:
-        max_allowed_date = min(start_day.date() + timedelta(days=max_gap), end_date)
-    else:
-        max_allowed_date = end_date
-
-    while current_date.date() <= max_allowed_date:
+    while current_date.date() <= end_date:
         if (current_date.weekday() < 5 and
             current_date.date() not in holidays and
             current_date.date() not in exam_days.get(branch, set())):
             return current_date
         current_date += timedelta(days=1)
-    
-    # Fallback to any slot within the 20-day window if max_gap fails
-    if max_gap is not None:
-        current_date = start_day
-        while current_date.date() <= end_date:
-            if (current_date.weekday() < 5 and
-                current_date.date() not in holidays and
-                current_date.date() not in exam_days.get(branch, set())):
-                return current_date
-            current_date += timedelta(days=1)
     return None
 
 def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
@@ -878,28 +863,62 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 for branch in branches:
                     exam_days[branch].add(exam_day.date())
             else:
-                df_sem.loc[group.index, 'Exam Date'] = "Unfeasible"
-                st.write(f"Unfeasible common subject {module_code} for branches {branches}")
+                # Force schedule at the last available slot
+                current_date = base_date
+                while current_date.date() <= end_date:
+                    if (current_date.weekday() < 5 and
+                        current_date.date() not in holidays and
+                        all(current_date.date() not in exam_days.get(branch, set()) for branch in branches)):
+                        exam_day = current_date
+                        break
+                    current_date += timedelta(days=1)
+                if exam_day:
+                    df_sem.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+                    if sem % 2 != 0:
+                        odd_sem_position = (sem + 1) // 2
+                        slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                    else:
+                        even_sem_position = sem // 2
+                        slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+                    df_sem.loc[group.index, 'Time Slot'] = slot_str
+                    for branch in branches:
+                        exam_days[branch].add(exam_day.date())
+                else:
+                    df_sem.loc[group.index, 'Exam Date'] = "Unfeasible"
+                    st.write(f"Unfeasible common subject {module_code} for branches {branches}")
 
-        # Schedule uncommon subjects in gaps
+        # Schedule uncommon subjects
         remaining_uncommon = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
         for idx, row in remaining_uncommon.iterrows():
             branch = row['Branch']
             if branch not in exam_days:
                 exam_days[branch] = set()
-            # Find last scheduled exam date for this branch, handling NaT
+            # Find last scheduled exam date for this branch
             last_exam_dates = [d for d in pd.to_datetime(df_sem[df_sem['Branch'] == branch]['Exam Date'].dropna(), 
                                                        format="%d-%m-%Y", errors='coerce').dt.date 
                              if pd.notna(d)]
-            last_exam_date = max(last_exam_dates, default=(base_date - timedelta(days=1)).date()) if last_exam_dates else (base_date - timedelta(days=1)).date()
-            start_date = pd.to_datetime(last_exam_date, format="%d-%m-%Y") + timedelta(days=1)
-            next_slot = find_next_valid_day(start_date, branch, exam_days, holidays, end_date, max_gap=2)
+            last_exam_date = max(last_exam_dates, default=base_date.date()) if last_exam_dates else base_date.date()
+            start_date = datetime.combine(last_exam_date, datetime.min.time()) + timedelta(days=1)
+            next_slot = find_next_valid_day(start_date, branch, exam_days, holidays, end_date)
             if next_slot:
                 df_sem.at[idx, 'Exam Date'] = next_slot.strftime("%d-%m-%Y")
                 exam_days[branch].add(next_slot.date())
             else:
-                df_sem.at[idx, 'Exam Date'] = "Unfeasible"
-                st.write(f"Unfeasible uncommon subject {row['Subject']} for {branch} on {start_date.strftime('%d-%m-%Y')}")
+                # Force schedule at the last available slot
+                current_date = start_date
+                while current_date.date() <= end_date:
+                    if (current_date.weekday() < 5 and
+                        current_date.date() not in holidays and
+                        current_date.date() not in exam_days.get(branch, set())):
+                        next_slot = current_date
+                        break
+                    current_date += timedelta(days=1)
+                if next_slot:
+                    df_sem.at[idx, 'Exam Date'] = next_slot.strftime("%d-%m-%Y")
+                    exam_days[branch].add(next_slot.date())
+                else:
+                    df_sem.at[idx, 'Exam Date'] = "Unfeasible"
+                    st.write(f"Unfeasible uncommon subject {row['Subject']} for {branch}")
 
         # Assign time slot for remaining subjects
         if sem % 2 != 0:
