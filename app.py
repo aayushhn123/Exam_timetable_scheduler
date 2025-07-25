@@ -808,6 +808,9 @@ from datetime import timedelta
 import pandas as pd
 from datetime import timedelta, datetime
 
+import pandas as pd
+from datetime import timedelta, datetime
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, last_exam_date):
         """
@@ -871,7 +874,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
             exam_days[branch].add(exam_day.date())
 
     # Schedule remaining ELEC subjects
-    remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
+    remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
         last_exam_date = max((pd.to_datetime(d.strftime("%d-%m-%Y"), format="%d-%m-%Y") for d in exam_days[branch]), default=None) if exam_days[branch] else None
@@ -997,7 +1000,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
 
     return sem_dict
-
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
