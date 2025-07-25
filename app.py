@@ -808,6 +808,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         Find the next valid day within the 20-day window
         """
         day = start_day
+        for_branches = for_branches
         while day.date() <= end_date:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
