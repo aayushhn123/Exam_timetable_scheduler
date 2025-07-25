@@ -799,6 +799,9 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
+import pandas as pd
+from datetime import timedelta, datetime
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, last_exam_date, end_date):
         """
@@ -848,8 +851,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
             return None
         return result if result else current_date
 
-    # Calculate the 20-day window end date
-    end_date = base_date + timedelta(days=19)
+    # Calculate the 20-day window end date as a date object
+    end_date = (base_date + timedelta(days=19)).date()
 
     # Schedule remaining uncommon subjects (IsCommon == 'NO')
     remaining_uncommon = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
@@ -899,8 +902,8 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             current_date += timedelta(days=1)
         return None
 
-    # Calculate the 20-day window end date
-    end_date = base_date + timedelta(days=19)
+    # Calculate the 20-day window end date as a date object
+    end_date = (base_date + timedelta(days=19)).date()
 
     # Schedule common subjects (IsCommon == 'YES')
     common_subjects = df[df['IsCommon'] == 'YES']
