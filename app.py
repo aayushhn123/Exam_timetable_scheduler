@@ -149,7 +149,7 @@ def optimize_timetable(non_elec_dfs, elec_dfs, holidays, base_date):
                 new_row = {'Exam Date': current_date_dt, 'Time Slot': slot_str}
                 for col in sub_branches:
                     new_row[col] = subject['Subject'] if col == sub_branch else '---'
-                new_df = new_df.append(new_row, ignore_index=True)
+                new_df = pd.concat([new_df, pd.DataFrame([new_row])], ignore_index=True)
 
             exam_days[sub_branch].add(current_date.date())
             all_dates.append(current_date_dt)
@@ -282,8 +282,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     x = pdf.w - 10 - text_width
     pdf.set_xy(x, 5)
     pdf.cell(text_width, 10, f"Generated on: {current_date}", 0, 0, 'R')
-    logo_width = 45
-    logo_x = (pdf.w - logo_width) / 2
     pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
