@@ -887,10 +887,11 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             branch = row['Branch']
             if branch not in exam_days:
                 exam_days[branch] = set()
-            # Find last scheduled exam date for this branch
-            last_exam_dates = [pd.to_datetime(d, format="%d-%m-%Y").date() 
-                             for d in df_sem[df_sem['Branch'] == branch]['Exam Date'].dropna().unique()]
-            last_exam_date = max(last_exam_dates, default=(base_date - timedelta(days=1)).date())
+            # Find last scheduled exam date for this branch, handling NaT
+            last_exam_dates = [d for d in pd.to_datetime(df_sem[df_sem['Branch'] == branch]['Exam Date'].dropna(), 
+                                                       format="%d-%m-%Y", errors='coerce').dt.date 
+                             if pd.notna(d)]
+            last_exam_date = max(last_exam_dates, default=(base_date - timedelta(days=1)).date()) if last_exam_dates else (base_date - timedelta(days=1)).date()
             start_date = pd.to_datetime(last_exam_date, format="%d-%m-%Y") + timedelta(days=1)
             next_slot = find_next_valid_day(start_date, branch, exam_days, holidays, end_date, max_gap=2)
             if next_slot:
@@ -920,7 +921,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         sem_dict[sem] = df_combined[df_combined["Semester"] == sem].copy()
 
     return sem_dict
-
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
