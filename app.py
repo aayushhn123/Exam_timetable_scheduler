@@ -802,21 +802,20 @@ def read_timetable(uploaded_file):
 import pandas as pd
 from datetime import timedelta, datetime
 
-import pandas as pd
-from datetime import timedelta, datetime
-
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, end_date):
         """
         Find the next valid day within the 20-day window
         """
+        if not for_branches:
+            return None
         day = start_day
         while day.date() <= end_date:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
                 day += timedelta(days=1)
                 continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
+            if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
                 return day
             day += timedelta(days=1)
         return None
@@ -825,6 +824,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         """
         Find a slot in the gap after last_exam_date, respecting max_gap if possible
         """
+        if not for_branches:
+            return None
         if not last_exam_date:
             return find_next_valid_day(start_day, for_branches, end_date)
         current_date = last_exam_date + timedelta(days=1)
@@ -832,7 +833,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         while current_date.date() <= end_date:
             day_date = current_date.date()
             if (day_date not in holidays and current_date.weekday() < 6 and
-                all(day_date not in exam_days[branch] for branch in for_branches)):
+                all(day_date not in exam_days.get(branch, set()) for branch in for_branches)):
                 if day_date <= max_allowed_date:
                     return current_date
             current_date += timedelta(days=1)
@@ -846,8 +847,10 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
     remaining_uncommon = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_uncommon.iterrows():
         branch = row['Branch']
+        # Ensure exam_days[branch] is initialized
+        if branch not in exam_days:
+            exam_days[branch] = set()
         last_exam_date = None
-        # Find the last scheduled exam date for this branch
         if exam_days[branch]:
             try:
                 last_exam_date = max((pd.to_datetime(d.strftime("%d-%m-%Y"), format="%d-%m-%Y") for d in exam_days[branch]), default=None)
@@ -860,7 +863,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
             while current_date.date() <= end_date:
                 day_date = current_date.date()
                 if (day_date not in holidays and current_date.weekday() < 6 and
-                    day_date not in exam_days[branch]):
+                    day_date not in exam_days.get(branch, set())):
                     exam_day = current_date
                     break
                 current_date += timedelta(days=1)
@@ -891,11 +894,13 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         """
         Find the earliest available day within the 20-day window
         """
+        if not for_branches:
+            return None
         current_date = start_day
         while current_date.date() <= end_date:
             day_date = current_date.date()
             if (day_date not in holidays and current_date.weekday() < 6 and
-                all(day_date not in exam_days[branch] for branch in for_branches)):
+                all(day_date not in exam_days.get(branch, set()) for branch in for_branches)):
                 return current_date
             current_date += timedelta(days=1)
         return None
@@ -914,7 +919,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             while current_date.date() <= end_date:
                 day_date = current_date.date()
                 if (day_date not in holidays and current_date.weekday() < 6 and
-                    all(day_date not in exam_days[branch] for branch in for_branches)):
+                    all(day_date not in exam_days.get(branch, set()) for branch in branches)):
                     exam_day = current_date
                     break
                 current_date += timedelta(days=1)
