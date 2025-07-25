@@ -856,7 +856,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
 
     # Schedule remaining COMP subjects with optimization
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
-    last_exam_date = max((pd.to_datetime(d, format="%d-%m-%Y").date() for d in df_sem['Exam Date'].dropna()), default=base_date.date())
+    last_exam_dates = [d for d in pd.to_datetime(df_sem['Exam Date'].dropna(), format="%d-%m-%Y", errors='coerce').dt.date if pd.notna(d)]
+    last_exam_date = max(last_exam_dates, default=base_date.date()) if last_exam_dates else base_date.date()
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
         start_date = datetime.combine(last_exam_date, datetime.min.time()) + timedelta(days=1)
@@ -867,7 +868,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
 
     # Schedule remaining ELEC subjects with optimization
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
-    last_exam_date = max((pd.to_datetime(d, format="%d-%m-%Y").date() for d in df_sem['Exam Date'].dropna()), default=base_date.date())
+    last_exam_dates = [d for d in pd.to_datetime(df_sem['Exam Date'].dropna(), format="%d-%m-%Y", errors='coerce').dt.date if pd.notna(d)]
+    last_exam_date = max(last_exam_dates, default=base_date.date()) if last_exam_dates else base_date.date()
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
         start_date = datetime.combine(last_exam_date, datetime.min.time()) + timedelta(days=1)
