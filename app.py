@@ -905,7 +905,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         branches = group['Branch'].unique()
         exam_day = find_earliest_available_slot(base_date, branches)
         min_sem = group['Semester'].min()
-        slot_str = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else2:00 PM - 5:00 PM"
+        slot_str = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else "2:00 PM - 5:00 PM"
         df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
