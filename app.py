@@ -1044,7 +1044,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         if issues:
             st.warning(f"⚠️ Found {len(issues)} gaps exceeding 2 days:\n" + "\n".join(issues[:5]))
             if len(issues) > 5:
-                st.warning(f"... and {len(issues) - 5) more gaps")
+                st.warning(f"... and {len(issues} - 5) more gaps")
         
         return df_combined
     
