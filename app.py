@@ -809,7 +809,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, all_
         Find the next valid day that doesn't conflict with existing exams
         """
         day = start_day
-        max_date = base_date + timedelta(days=30)  # Hard limit to prevent out-of-range dates
+        max_date = base_date + timedelta(days=60)  # Extended limit to ensure all exams are scheduled
         while day <= max_date:
             day_date = day.date()
             # Skip weekends and holidays
@@ -822,21 +822,17 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, all_
                 continue
             # Ensure no conflicts for specific branches
             if all(day_date not in exam_days[branch] for branch in for_branches):
-                # Check if adding this date keeps total span within 20 days
-                if not all_dates or (day_date <= max(all_dates) or (day_date - min(all_dates)).days <= 20):
-                    return day
+                return day
             day += timedelta(days=1)
-        # If no valid date is found, return None to indicate failure
-        return None
+        # If no valid date is found, use the next day after max_date
+        st.warning(f"⚠️ Scheduling beyond 60 days for {for_branches} in semester {df_sem['Semester'].iloc[0]}. Using fallback date.")
+        return max_date + timedelta(days=1)
 
     # Schedule remaining COMP subjects
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
         exam_day = find_next_valid_day(base_date, [branch])
-        if exam_day is None:
-            st.error(f"❌ Unable to schedule COMP subject for {branch} in semester {df_sem['Semester'].iloc[0]} within 20-day limit.")
-            return df_sem  # Return early to avoid further scheduling
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
         all_dates.add(exam_day.date())
@@ -846,9 +842,6 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, all_
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
         exam_day = find_next_valid_day(base_date, [branch])
-        if exam_day is None:
-            st.error(f"❌ Unable to schedule ELEC subject for {branch} in semester {df_sem['Semester'].iloc[0]} within 20-day limit.")
-            return df_sem  # Return early to avoid further scheduling
         df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         exam_days[branch].add(exam_day.date())
         all_dates.add(exam_day.date())
@@ -866,12 +859,15 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     exam_days = {branch: set() for branch in all_branches}
     all_dates = set()  # Track all scheduled exam dates
 
+    # Ensure Exam Date column is initialized
+    df['Exam Date'] = df['Exam Date'].fillna("")
+
     def find_earliest_available_slot(start_day, for_branches, allow_common_elec=False):
         """
         Find the earliest available slot ensuring no overlaps (except for common electives)
         """
         current_date = start_day
-        max_date = base_date + timedelta(days=30)  # Hard limit to prevent out-of-range dates
+        max_date = base_date + timedelta(days=60)  # Extended limit to ensure all exams are scheduled
         while current_date <= max_date:
             current_date_only = current_date.date()
             # Skip weekends and holidays
@@ -884,21 +880,17 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 continue
             # Ensure no conflicts for specific branches
             if all(current_date_only not in exam_days[branch] for branch in for_branches):
-                # Check if adding this date keeps total span within 20 days
-                if not all_dates or (current_date_only <= max(all_dates) or (current_date_only - min(all_dates)).days <= 20):
-                    return current_date
+                return current_date
             current_date += timedelta(days=1)
-        # If no valid date is found, return None to indicate failure
-        return None
+        # If no valid date is found, use the next day after max_date
+        st.warning(f"⚠️ Scheduling beyond 60 days for common subject for branches {for_branches}. Using fallback date.")
+        return max_date + timedelta(days=1)
 
     # Schedule common INTD (elective) subjects first (allowed to share dates)
     common_elec = df[(df['Category'] == 'INTD') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_earliest_available_slot(base_date, branches, allow_common_elec=True)
-        if exam_day is None:
-            st.error(f"❌ Unable to schedule common INTD subject {module_code} within 20-day limit.")
-            return {}
         min_sem = group['Semester'].min()
         slot_str = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else "2:00 PM - 5:00 PM"
         df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
@@ -912,11 +904,8 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_earliest_available_slot(base_date, branches)
-        if exam_day is None:
-            st.error(f"❌ Unable to schedule common COMP subject {module_code} within 20-day limit.")
-            return {}
         min_sem = group['Semester'].min()
-        slot_str = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else "2:00 PM - 5:00 PM"
+        slot_str = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else2:00 PM - 5:00 PM"
         df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
         df.loc[group.index, 'Time Slot'] = slot_str
         for branch in branches:
@@ -935,14 +924,20 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         final_list.append(scheduled_sem)
 
     if not final_list:
+        st.error("❌ No valid semesters to schedule.")
         return {}
 
     df_combined = pd.concat(final_list, ignore_index=True)
 
+    # Validate Exam Date column
+    if df_combined['Exam Date'].isna().any() or (df_combined['Exam Date'] == "").any():
+        st.error("❌ Some exams could not be scheduled. Check input data for completeness.")
+        return {}
+
     # Validate total span
-    all_dates_series = pd.to_datetime(df_combined['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-    if all_dates_series.empty:
-        st.warning("⚠️ No valid exam dates scheduled.")
+    all_dates_series = pd.to_datetime(df_combined['Exam Date'], format="%d-%m-%Y", errors='coerce')
+    if all_dates_series.isna().any():
+        st.error("❌ Invalid exam dates detected in the schedule. Please check input data.")
         return {}
 
     start_date = min(all_dates_series)
@@ -950,8 +945,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     total_span = (end_date - start_date).days + 1
 
     if total_span > 20:
-        st.error(f"❌ Schedule exceeds 20-day limit: {total_span} days. Please adjust constraints or reduce number of exams.")
-        return {}
+        st.warning(f"⚠️ Schedule exceeds 20-day limit: {total_span} days. All exams scheduled, but please review.")
     elif total_span <= 16:
         st.success(f"✅ Timetable optimized successfully! Total span: {total_span} days (within 16-day target)")
     else:
