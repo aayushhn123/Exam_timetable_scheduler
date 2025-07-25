@@ -828,9 +828,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
             day += timedelta(days=1)
 
     def find_earliest_available_slot(start_day, for_branches, last_exam_date):
-    """
-    Find the earliest available slot from start_day onwards, respecting max_gap
-    """
+    
         current_date = start_day
         result = find_next_valid_day(current_date, for_branches, last_exam_date)
         if result is None and last_exam_date:
@@ -888,9 +886,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     exam_days = {branch: set() for branch in all_branches}
 
     def find_earliest_available_slot(start_day, for_branches, last_exam_date):
-        """
-        Find the earliest available slot from start_day onwards, respecting max_gap
-        """
+        
         current_date = start_day
         max_gap = 2
         if last_exam_date:
