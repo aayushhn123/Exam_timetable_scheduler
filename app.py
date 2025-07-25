@@ -819,9 +819,15 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 continue
             # Allow only one non-ELEC (COMP) per day per branch
             if category != 'ELEC':
-                if all(day_date not in exam_days.get(branch, set()) or
-                       any(df_sem[df_sem['Exam Date'] == day.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                           for branch in for_branches if day_date in exam_days.get(branch, set()))):
+                is_valid = True
+                for branch in for_branches:
+                    if day_date in exam_days.get(branch, set()):
+                        # Check if the day is occupied by a non-ELEC subject
+                        exams_on_day = df_sem[df_sem['Exam Date'] == day.strftime("%d-%m-%Y")]
+                        if not exams_on_day.empty and not exams_on_day['Category'].eq('ELEC').all():
+                            is_valid = False
+                            break
+                if is_valid:
                     return day
             else:
                 if all(day_date not in exam_days.get(branch, set()) for branch in for_branches):
@@ -833,11 +839,13 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             current_date_only = current_date.date()
             if (current_date.weekday() < 5 and
                 current_date_only not in holidays and
-                ((category != 'ELEC' and (current_date_only not in exam_days.get(branch, set()) or
-                                         any(df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                                             for branch in for_branches if current_date_only in exam_days.get(branch, set()))))
-                 for branch in for_branches) or
-                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches))):
+                ((category != 'ELEC' and
+                  all(current_date_only not in exam_days.get(branch, set()) or
+                      (df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")].empty or
+                       df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').all())
+                      for branch in for_branches))
+                 or
+                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches)))):
                 return current_date
             current_date += timedelta(days=1)
         return current_date  # Return last day as a last resort
@@ -854,9 +862,15 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 continue
             # Allow only one non-ELEC (COMP) per day per branch
             if category != 'ELEC':
-                if all(current_date_only not in exam_days.get(branch, set()) or
-                       any(df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                           for branch in for_branches if current_date_only in exam_days.get(branch, set()))):
+                is_valid = True
+                for branch in for_branches:
+                    if current_date_only in exam_days.get(branch, set()):
+                        # Check if the day is occupied by a non-ELEC subject
+                        exams_on_day = df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]
+                        if not exams_on_day.empty and not exams_on_day['Category'].eq('ELEC').all():
+                            is_valid = False
+                            break
+                if is_valid:
                     return current_date
             else:
                 if all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches):
@@ -868,11 +882,13 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             current_date_only = current_date.date()
             if (current_date.weekday() < 5 and
                 current_date_only not in holidays and
-                ((category != 'ELEC' and (current_date_only not in exam_days.get(branch, set()) or
-                                         any(df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                                             for branch in for_branches if current_date_only in exam_days.get(branch, set()))))
-                 for branch in for_branches) or
-                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches))):
+                ((category != 'ELEC' and
+                  all(current_date_only not in exam_days.get(branch, set()) or
+                      (df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")].empty or
+                       df_sem[df_sem['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').all())
+                      for branch in for_branches))
+                 or
+                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches)))):
                 return current_date
             current_date += timedelta(days=1)
         return current_date  # Return last day as a last resort
@@ -932,9 +948,15 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 continue
             # Allow only one non-ELEC (COMP) per day per branch
             if category != 'ELEC':
-                if all(current_date_only not in exam_days.get(branch, set()) or
-                       any(df[df['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                           for branch in for_branches if current_date_only in exam_days.get(branch, set()))):
+                is_valid = True
+                for branch in for_branches:
+                    if current_date_only in exam_days.get(branch, set()):
+                        # Check if the day is occupied by a non-ELEC subject
+                        exams_on_day = df[df['Exam Date'] == current_date.strftime("%d-%m-%Y")]
+                        if not exams_on_day.empty and not exams_on_day['Category'].eq('ELEC').all():
+                            is_valid = False
+                            break
+                if is_valid:
                     return current_date
             else:
                 if all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches):
@@ -946,11 +968,13 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             current_date_only = current_date.date()
             if (current_date.weekday() < 5 and
                 current_date_only not in holidays and
-                ((category != 'ELEC' and (current_date_only not in exam_days.get(branch, set()) or
-                                         any(df[df['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').any()
-                                             for branch in for_branches if current_date_only in exam_days.get(branch, set()))))
-                 for branch in for_branches) or
-                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches))):
+                ((category != 'ELEC' and
+                  all(current_date_only not in exam_days.get(branch, set()) or
+                      (df[df['Exam Date'] == current_date.strftime("%d-%m-%Y")].empty or
+                       df[df['Exam Date'] == current_date.strftime("%d-%m-%Y")]['Category'].eq('ELEC').all())
+                      for branch in for_branches))
+                 or
+                 (category == 'ELEC' and all(current_date_only not in exam_days.get(branch, set()) for branch in for_branches)))):
                 return current_date
             current_date += timedelta(days=1)
         return current_date  # Return last day as a last resort
@@ -1031,7 +1055,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         if issues:
             st.warning(f"⚠️ Found {len(issues)} gaps exceeding 2 days:\n" + "\n".join(issues[:5]))
             if len(issues) > 5:
-                st.warning(f"... and {len(issues) - 5} more gaps")
+                st.warning(f"... and {len(issues) - 5) more gaps")
         
         return df_combined
     
