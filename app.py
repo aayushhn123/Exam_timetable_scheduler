@@ -746,18 +746,20 @@ def read_timetable(uploaded_file):
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
 
-def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
-    def find_next_valid_day(start_day, for_branches):
-        day = start_day
-        while True:
-            day_date = day.date()
-            if day.weekday() == 6 or day_date in holidays:
-                day += timedelta(days=1)
-                continue
-            if all(day_date not in exam_days[branch] for branch in for_branches):
-                return day
+def find_next_valid_day(start_day, for_branches=None, holidays=None, exam_days=None):
+    day = start_day
+    while True:
+        day_date = day.date()
+        if day.weekday() == 6 or (holidays and day_date in holidays):
             day += timedelta(days=1)
+            continue
+        if for_branches and exam_days and all(day_date not in exam_days[branch] for branch in for_branches):
+            return day
+        if not for_branches or not exam_days:
+            return day
+        day += timedelta(days=1)
 
+def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, schedule_by_difficulty=False):
     # Initialize priority queue for subjects
     subjects = []
     for idx, row in df_sem.iterrows():
@@ -783,7 +785,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
 
         day_offset = 0
         for idx, _ in subjects_to_schedule:
-            exam_day = find_next_valid_day(current_date + timedelta(days=day_offset), [branch])
+            exam_day = find_next_valid_day(current_date + timedelta(days=day_offset), [branch], holidays, exam_days)
             df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
             df_sem.at[idx, 'Time Slot'] = time_slot
             exam_days[branch].add(exam_day.date())
@@ -796,22 +798,13 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     exam_days = {branch: set() for branch in all_branches}
     available_days = defaultdict(set)  # Track available days per branch
 
-    def find_next_valid_day(start_day):
-        day = start_day
-        while True:
-            day_date = day.date()
-            if day.weekday() == 6 or day_date in holidays:
-                day += timedelta(days=1)
-                continue
-            return day
-
     # Schedule common subjects first
     current_date = base_date
     for category in ['COMP', 'ELEC']:
         common_subjects = df[(df['Category'] == category) & (df['IsCommon'] == 'YES')]
         for module_code, group in common_subjects.groupby('ModuleCode'):
             branches = group['Branch'].unique()
-            exam_day = find_next_valid_day(current_date)
+            exam_day = find_next_valid_day(current_date, holidays=holidays)
             min_sem = group['Semester'].min()
             time_slot = "10:00 AM - 1:00 PM" if (min_sem + 1) // 2 % 2 == 1 else "2:00 PM - 5:00 PM"
             df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
@@ -855,7 +848,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         
         for branch, idx, gap, prev_date, curr_date in issues:
             target_date = prev_date + timedelta(days=1)
-            target_date = find_next_valid_day(target_date)
+            target_date = find_next_valid_day(target_date, [branch], holidays, exam_days)
             if target_date.date() < curr_date.date() and all(target_date.date() not in exam_days[b] for b in [branch]):
                 mask = (df_combined['Branch'] == branch) & (df_combined['Exam Date Parsed'] == curr_date)
                 df_combined.loc[mask, 'Exam Date'] = target_date.strftime("%d-%m-%Y")
@@ -1179,7 +1172,7 @@ def main():
                         if not df_ele.empty:
                             all_dates = pd.to_datetime(df_non_elec['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             max_non_elec_date = max(all_dates).date() if not all_dates.empty else base_date.date()
-                            elective_day = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()))
+                            elective_day = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()), holidays=holidays_set)
                             df_ele['Exam Date'] = elective_day.strftime("%d-%m-%Y")
                             df_ele['Time Slot'] = "10:00 AM - 1:00 PM"
                             final_df = pd.concat([df_non_elec, df_ele], ignore_index=True)
@@ -1349,7 +1342,7 @@ def main():
                 </tr>
                 <tr>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Non-Elective Range</td>
-                    <td operative_range}</td>
+                    <td style="padding: 0.5rem;">{non_elective_range}</td>
                 </tr>
                 <tr>
                     <td style="padding: 0.5rem;">Elective Dates</td>
@@ -1387,8 +1380,7 @@ def main():
                     difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_non_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])}"
-                        if row['Exam Duration'] != 3 else '', axis=1
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})" if row['Exam Duration'] != 3 else '', axis=1
                     )
                     df_non_elec["SubjectDisplay"] = df_non_elec["Subject"] + time_range_suffix + difficulty_suffix
                     df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
@@ -1404,8 +1396,7 @@ def main():
                         st.markdown(f"#### {main_branch_full} - Core Subjects")
                         formatted_pivot = pivot_df.copy()
                         if len(formatted_pivot.index.levels) > 0:
-                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in
-                                               formatted_pivot.index.levels[0]]
+                            formatted_dates = [d.strftime("%d-%m-%Y") if pd.notna(d) else "" for d in formatted_pivot.index.levels[0]]
                             formatted_pivot.index = formatted_pivot.index.set_levels(formatted_dates, level=0)
                         st.dataframe(formatted_pivot, use_container_width=True)
 
@@ -1413,10 +1404,9 @@ def main():
                     difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                     difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
                     time_range_suffix = df_elec.apply(
-                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])}"
-                        if row['Exam Duration'] != 3 else '', axis=1
+                        lambda row: f" ({row['Time Slot'].split(' - ')[0]} to {calculate_end_time(row['Time Slot'].split(' - ')[0], row['Exam Duration'])})" if row['Exam Duration'] != 3 else '', axis=1
                     )
-                    df_elec["SubjectDisplayinfty
+                    df_elec["SubjectDisplay"] = df_elec["Subject"] + time_range_suffix + difficulty_suffix
                     df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                     df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                     elec_pivot = df_elec.groupby(['OE', 'Exam Date', 'Time Slot'])['SubjectDisplay'].apply(
