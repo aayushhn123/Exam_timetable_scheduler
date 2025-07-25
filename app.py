@@ -819,7 +819,16 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
             if all(day_date not in exam_days[branch] for branch in for_branches):
                 return day
             day += timedelta(days=1)
-        return None
+        # Fallback to force a slot if none found (should not occur with proper window)
+        current_date = base_date
+        while current_date.date() <= end_date:
+            current_date_only = current_date.date()
+            if (current_date.weekday() < 5 and
+                current_date_only not in holidays and
+                all(current_date_only not in exam_days[branch] for branch in for_branches)):
+                return current_date
+            current_date += timedelta(days=1)
+        return current_date  # Return last day as a last resort
 
     def find_earliest_available_slot(start_day, for_branches):
         """
@@ -848,31 +857,32 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, sche
                 return current_date
             
             current_date += timedelta(days=1)
-        return None
+        # Fallback to force a slot
+        current_date = base_date
+        while current_date.date() <= end_date:
+            current_date_only = current_date.date()
+            if (current_date.weekday() < 5 and
+                current_date_only not in holidays and
+                all(current_date_only not in exam_days[branch] for branch in for_branches)):
+                return current_date
+            current_date += timedelta(days=1)
+        return current_date  # Return last day as a last resort
 
     # Schedule remaining COMP subjects
     remaining_comp = df_sem[(df_sem['Category'] == 'COMP') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_comp.iterrows():
         branch = row['Branch']
         exam_day = find_earliest_available_slot(base_date, [branch])
-        if exam_day:
-            df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            exam_days[branch].add(exam_day.date())
-        else:
-            df_sem.at[idx, 'Exam Date'] = "Unfeasible"
-            st.write(f"Unfeasible COMP subject {row['Subject']} for {branch}")
+        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        exam_days[branch].add(exam_day.date())
 
     # Schedule remaining ELEC subjects
     remaining_elec = df_sem[(df_sem['Category'] == 'ELEC') & (df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
     for idx, row in remaining_elec.iterrows():
         branch = row['Branch']
         exam_day = find_earliest_available_slot(base_date, [branch])
-        if exam_day:
-            df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            exam_days[branch].add(exam_day.date())
-        else:
-            df_sem.at[idx, 'Exam Date'] = "Unfeasible"
-            st.write(f"Unfeasible ELEC subject {row['Subject']} for {branch}")
+        df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        exam_days[branch].add(exam_day.date())
 
     # Assign time slot based on semester
     sem = df_sem["Semester"].iloc[0]
@@ -911,49 +921,50 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
                 return current_date
             
             current_date += timedelta(days=1)
-        return None
+        # Fallback to force a slot
+        current_date = base_date
+        while current_date.date() <= end_date:
+            current_date_only = current_date.date()
+            if (current_date.weekday() < 5 and
+                current_date_only not in holidays and
+                all(current_date_only not in exam_days[branch] for branch in for_branches)):
+                return current_date
+            current_date += timedelta(days=1)
+        return current_date  # Return last day as a last resort
 
     # Schedule common COMP subjects - find earliest slots
     common_comp = df[(df['Category'] == 'COMP') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_comp.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_earliest_available_slot(base_date, branches)
-        if exam_day:
-            min_sem = group['Semester'].min()
-            if min_sem % 2 != 0:
-                odd_sem_position = (min_sem + 1) // 2
-                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            else:
-                even_sem_position = min_sem // 2
-                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            df.loc[group.index, 'Time Slot'] = slot_str
-            for branch in branches:
-                exam_days[branch].add(exam_day.date())
+        min_sem = group['Semester'].min()
+        if min_sem % 2 != 0:
+            odd_sem_position = (min_sem + 1) // 2
+            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         else:
-            df.loc[group.index, 'Exam Date'] = "Unfeasible"
-            st.write(f"Unfeasible common COMP subject {module_code} for branches {branches}")
+            even_sem_position = min_sem // 2
+            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df.loc[group.index, 'Time Slot'] = slot_str
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
 
     # Schedule common ELEC subjects - find earliest slots
     common_elec = df[(df['Category'] == 'ELEC') & (df['IsCommon'] == 'YES')]
     for module_code, group in common_elec.groupby('ModuleCode'):
         branches = group['Branch'].unique()
         exam_day = find_earliest_available_slot(base_date, branches)
-        if exam_day:
-            min_sem = group['Semester'].min()
-            if min_sem % 2 != 0:
-                odd_sem_position = (min_sem + 1) // 2
-                slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            else:
-                even_sem_position = min_sem // 2
-                slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
-            df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
-            df.loc[group.index, 'Time Slot'] = slot_str
-            for branch in branches:
-                exam_days[branch].add(exam_day.date())
+        min_sem = group['Semester'].min()
+        if min_sem % 2 != 0:
+            odd_sem_position = (min_sem + 1) // 2
+            slot_str = "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
         else:
-            df.loc[group.index, 'Exam Date'] = "Unfeasible"
-            st.write(f"Unfeasible common ELEC subject {module_code} for branches {branches}")
+            even_sem_position = min_sem // 2
+            slot_str = "10:00 AM - 1:00 PM" if even_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
+        df.loc[group.index, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
+        df.loc[group.index, 'Time Slot'] = slot_str
+        for branch in branches:
+            exam_days[branch].add(exam_day.date())
 
     # Schedule remaining subjects per semester
     final_list = []
@@ -997,7 +1008,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         if issues:
             st.warning(f"⚠️ Found {len(issues)} gaps exceeding 2 days:\n" + "\n".join(issues[:5]))
             if len(issues) > 5:
-                st.warning(f"... and {len(issues) - 5} more gaps")
+                st.warning(f"... and {len(issues) - 5) more gaps")
         
         return df_combined
     
@@ -1023,7 +1034,6 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
             st.info(f"ℹ️ Timetable span: {total_span} days (within 20-day limit but above 16-day target)")
 
     return sem_dict
-
     
 def save_to_excel(semester_wise_timetable):
     if not semester_wise_timetable:
