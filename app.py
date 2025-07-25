@@ -802,13 +802,16 @@ def read_timetable(uploaded_file):
 import pandas as pd
 from datetime import timedelta, datetime
 
+import pandas as pd
+from datetime import timedelta, datetime
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, last_exam_date, end_date):
         """
         Find the next valid day within the 20-day window, respecting max_gap
         """
         day = start_day
-        end_date = end_date.date()  # Convert end_date to date for comparison
+        # end_date is already a date object, no need to convert again
         if last_exam_date:
             max_allowed_date = min(last_exam_date.date() + timedelta(days=max_gap), end_date)
             if day.date() > max_allowed_date:
@@ -834,7 +837,7 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         Find the earliest available slot within the 20-day window, respecting max_gap
         """
         current_date = start_day
-        end_date = end_date.date()  # Convert end_date to date for comparison
+        # end_date is already a date object, no need to convert again
         result = find_next_valid_day(current_date, for_branches, last_exam_date, end_date)
         if result is None and last_exam_date:
             current_date = last_exam_date + timedelta(days=1)
@@ -893,7 +896,7 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
         Find the earliest available day within the 20-day window
         """
         current_date = start_day
-        end_date = end_date.date()  # Convert end_date to date for comparison
+        # end_date is already a date object, no need to convert again
         while current_date.date() <= end_date:
             day_date = current_date.date()
             if (day_date not in holidays and current_date.weekday() < 6 and
