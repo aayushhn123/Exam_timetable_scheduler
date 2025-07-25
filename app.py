@@ -802,13 +802,15 @@ def read_timetable(uploaded_file):
 import pandas as pd
 from datetime import timedelta, datetime
 
+import pandas as pd
+from datetime import timedelta, datetime
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, end_date):
         """
         Find the next valid day within the 20-day window
         """
         day = start_day
-        for_branches = for_branches
         while day.date() <= end_date:
             day_date = day.date()
             if day.weekday() == 6 or day_date in holidays:
