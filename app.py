@@ -803,20 +803,23 @@ def read_timetable(uploaded_file):
 import pandas as pd
 from datetime import timedelta, datetime
 
+import pandas as pd
+from datetime import timedelta, datetime
+
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
-    def find_next_valid_day(start_day, for_branches, last_exam_date):
+    def find_next_valid_day(start_day, for_branches, last_exam_date, end_date):
         """
-        Find the next valid day that doesn't conflict with existing exams and respects max_gap
+        Find the next valid day within the 20-day window, respecting max_gap
         """
         day = start_day
         if last_exam_date:
-            max_allowed_date = last_exam_date.date() + timedelta(days=max_gap)
+            max_allowed_date = min(last_exam_date.date() + timedelta(days=max_gap), end_date)
             if day.date() > max_allowed_date:
                 return None
         else:
-            max_allowed_date = None
+            max_allowed_date = end_date
              
-        while True:
+        while day.date() <= end_date:
             day_date = day.date()
             # Skip weekends and holidays
             if day.weekday() == 6 or day_date in holidays:
@@ -826,21 +829,20 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
             if all(day_date not in exam_days[branch] for branch in for_branches):
                 if max_allowed_date is None or day_date <= max_allowed_date:
                     return day
-            if max_allowed_date and day_date > max_allowed_date:
-                return None
             day += timedelta(days=1)
+        return None
 
-    def find_earliest_available_slot(start_day, for_branches, last_exam_date):
+    def find_earliest_available_slot(start_day, for_branches, last_exam_date, end_date):
         """
-        Find the earliest available slot from start_day onwards, respecting max_gap
+        Find the earliest available slot within the 20-day window, respecting max_gap
         """
         current_date = start_day
-        result = find_next_valid_day(current_date, for_branches, last_exam_date)
+        result = find_next_valid_day(current_date, for_branches, last_exam_date, end_date)
         if result is None and last_exam_date:
             current_date = last_exam_date + timedelta(days=1)
-            max_allowed_date = last_exam_date.date() + timedelta(days=max_gap)
+            max_allowed_date = min(last_exam_date.date() + timedelta(days=max_gap), end_date)
             effective_days = 0
-            while effective_days <= max_gap:
+            while current_date.date() <= end_date and effective_days <= max_gap:
                 day_date = current_date.date()
                 if (day_date not in holidays and current_date.weekday() < 6 and
                     all(day_date not in exam_days[branch] for branch in for_branches)):
@@ -848,10 +850,11 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
                 current_date += timedelta(days=1)
                 if day_date not in holidays and current_date.weekday() < 6:
                     effective_days += 1
-                if current_date.date() > max_allowed_date:
-                    break
             return None
         return result if result else current_date
+
+    # Calculate the 20-day window end date
+    end_date = base_date + timedelta(days=19)
 
     # Schedule remaining uncommon subjects (IsCommon == 'NO')
     remaining_uncommon = df_sem[(df_sem['IsCommon'] == 'NO') & (df_sem['Exam Date'] == "")]
@@ -863,8 +866,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
                 last_exam_date = max((pd.to_datetime(d.strftime("%d-%m-%Y"), format="%d-%m-%Y") for d in exam_days[branch]), default=None)
             except ValueError:
                 last_exam_date = None
-        exam_day = find_earliest_available_slot(base_date, [branch], last_exam_date)
-        if exam_day is None:
+        exam_day = find_earliest_available_slot(base_date, [branch], last_exam_date, end_date)
+        if exam_day is None or exam_day.date() > end_date:
             df_sem.at[idx, 'Exam Date'] = "Unfeasible"
         else:
             df_sem.at[idx, 'Exam Date'] = exam_day.strftime("%d-%m-%Y")
@@ -887,25 +890,29 @@ def process_constraints(df, holidays, base_date, schedule_by_difficulty=False):
     all_branches = df['Branch'].unique()
     exam_days = {branch: set() for branch in all_branches}
 
-    def find_earliest_available_day(start_day, for_branches):
+    def find_earliest_available_day(start_day, for_branches, end_date):
         """
-        Find the earliest available day across all branches, ignoring gap constraints
+        Find the earliest available day within the 20-day window
         """
         current_date = start_day
-        while True:
+        while current_date.date() <= end_date:
             day_date = current_date.date()
             if (day_date not in holidays and current_date.weekday() < 6 and
                 all(day_date not in exam_days[branch] for branch in for_branches)):
                 return current_date
             current_date += timedelta(days=1)
+        return None
+
+    # Calculate the 20-day window end date
+    end_date = base_date + timedelta(days=19)
 
     # Schedule common subjects (IsCommon == 'YES')
     common_subjects = df[df['IsCommon'] == 'YES']
     for module_code, group in common_subjects.groupby('ModuleCode'):
         branches = group['Branch'].unique()
-        # Find the earliest available day for all branches
-        exam_day = find_earliest_available_day(base_date, branches)
-        if exam_day is None:
+        # Find the earliest available day for all branches within the 20-day window
+        exam_day = find_earliest_available_day(base_date, branches, end_date)
+        if exam_day is None or exam_day.date() > end_date:
             df.loc[group.index, 'Exam Date'] = "Unfeasible"
         else:
             min_sem = group['Semester'].min()
