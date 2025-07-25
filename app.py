@@ -802,9 +802,7 @@ def read_timetable(uploaded_file):
 
 def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_gap=2, schedule_by_difficulty=False):
     def find_next_valid_day(start_day, for_branches, last_exam_date):
-    """
-    Find the next valid day that doesn't conflict with existing exams and respects max_gap
-    """
+    
         day = start_day
         if last_exam_date:
             max_allowed_date = last_exam_date.date() + timedelta(days=max_gap)
