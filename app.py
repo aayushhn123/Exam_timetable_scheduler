@@ -798,7 +798,6 @@ def read_timetable(uploaded_file):
     except Exception as e:
         st.error(f"Error reading the Excel file: {str(e)}")
         return None, None, None
-
 import pandas as pd
 from datetime import timedelta, datetime
 
@@ -853,7 +852,8 @@ def schedule_semester_non_electives(df_sem, holidays, base_date, exam_days, max_
         last_exam_date = None
         if exam_days[branch]:
             try:
-                last_exam_date = max((pd.to_datetime(d.strftime("%d-%m-%Y"), format="%d-%m-%Y") for d in exam_days[branch]), default=None)
+                # Ensure exam_days[branch] contains date objects
+                last_exam_date = max((d.date() if hasattr(d, 'date') else pd.to_datetime(d, format="%d-%m-%Y").date() for d in exam_days[branch]), default=None)
             except ValueError:
                 last_exam_date = None
         exam_day = find_gap_slot(base_date if not last_exam_date else last_exam_date, [branch], last_exam_date, end_date)
