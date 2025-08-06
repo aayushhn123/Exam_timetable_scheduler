@@ -1503,7 +1503,7 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
                     readable_date = parsed_date.strftime("%d %B %Y")
                     st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (should be {readable_date})")
                 except:
-                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe the1_oe5_date_after} (parsing failed)")
+                    st.write(f"🔍 Debug - OE1/OE5 final date: {oe1_oe5_date_after} (parsing failed)")
             
             if not oe2_after.empty:
                 oe2_date_after = oe2_after['Exam Date'].iloc[0]
@@ -2196,3 +2196,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
