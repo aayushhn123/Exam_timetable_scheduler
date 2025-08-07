@@ -1912,72 +1912,72 @@ def main():
         st.session_state.stream_counts = pd.DataFrame()
 
     with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
-    st.markdown("#### 📅 Base Date for Scheduling")
-    base_date = st.date_input("Start date for exams", value=datetime(2025, 4, 1))
-    base_date = datetime.combine(base_date, datetime.min.time())
+        st.markdown("### ⚙️ Configuration")
+        st.markdown("#### 📅 Base Date for Scheduling")
+        base_date = st.date_input("Start date for exams", value=datetime(2025, 4, 1))
+        base_date = datetime.combine(base_date, datetime.min.time())
 
-    st.markdown("#### 🛠️ Scheduling Mode")
-    schedule_by_difficulty = st.checkbox("Schedule by Difficulty (Alternate Easy/Difficult)", value=False)
-    if schedule_by_difficulty:
-        st.markdown('<div class="status-info">ℹ️ Exams will alternate between Easy and Difficult subjects.</div>',
+        st.markdown("#### 🛠️ Scheduling Mode")
+        schedule_by_difficulty = st.checkbox("Schedule by Difficulty (Alternate Easy/Difficult)", value=False)
+        if schedule_by_difficulty:
+            st.markdown('<div class="status-info">ℹ️ Exams will alternate between Easy and Difficult subjects.</div>',
                     unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="status-info">ℹ️ Normal scheduling without considering difficulty.</div>',
+        else:
+            st.markdown('<div class="status-info">ℹ️ Normal scheduling without considering difficulty.</div>',
                     unsafe_allow_html=True)
 
-    st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
 
-    with st.expander("Holiday Configuration", expanded=True):
-        st.markdown("#### 📅 Select Predefined Holidays")
+        with st.expander("Holiday Configuration", expanded=True):
+            st.markdown("#### 📅 Select Predefined Holidays")
         
-        # Initialize holiday_dates list
-        holiday_dates = []
+            # Initialize holiday_dates list
+            holiday_dates = []
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.checkbox("April 14, 2025", value=True):
-                holiday_dates.append(datetime(2025, 4, 14).date())
-        with col2:
-            if st.checkbox("May 1, 2025", value=True):
-                holiday_dates.append(datetime(2025, 5, 1).date())
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.checkbox("April 14, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 4, 14).date())
+            with col2:
+                if st.checkbox("May 1, 2025", value=True):
+                    holiday_dates.append(datetime(2025, 5, 1).date())
 
-        if st.checkbox("August 15, 2025", value=True):
-            holiday_dates.append(datetime(2025, 8, 15).date())
+            if st.checkbox("August 15, 2025", value=True):
+                holiday_dates.append(datetime(2025, 8, 15).date())
 
-        st.markdown("#### 📅 Add Custom Holidays")
-        if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
-            st.session_state.custom_holidays.extend(
-                [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
-            )
+            st.markdown("#### 📅 Add Custom Holidays")
+            if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
+                st.session_state.custom_holidays.extend(
+                    [None] * (st.session_state.num_custom_holidays - len(st.session_state.custom_holidays))
+                )
 
-        for i in range(st.session_state.num_custom_holidays):
-            st.session_state.custom_holidays[i] = st.date_input(
-                f"Custom Holiday {i + 1}",
-                value=st.session_state.custom_holidays[i],
-                key=f"custom_holiday_{i}"
-            )
+            for i in range(st.session_state.num_custom_holidays):
+                st.session_state.custom_holidays[i] = st.date_input(
+                    f"Custom Holiday {i + 1}",
+                    value=st.session_state.custom_holidays[i],
+                    key=f"custom_holiday_{i}"
+                )
 
-        if st.button("➕ Add Another Holiday"):
-            st.session_state.num_custom_holidays += 1
-            st.session_state.custom_holidays.append(None)
-            st.rerun()
+            if st.button("➕ Add Another Holiday"):
+                st.session_state.num_custom_holidays += 1
+                st.session_state.custom_holidays.append(None)
+                st.rerun()
 
-        # Add custom holidays to the main list
-        custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
-        for custom_holiday in custom_holidays:
-            holiday_dates.append(custom_holiday)
+            # Add custom holidays to the main list
+            custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
+            for custom_holiday in custom_holidays:
+                holiday_dates.append(custom_holiday)
 
-        # Create the final holidays set - ensure all are date objects
-        holidays_set = set(holiday_dates)
+            # Create the final holidays set - ensure all are date objects
+            holidays_set = set(holiday_dates)
         
-        # Store in session state so it's accessible throughout the app
-        st.session_state.holidays_set = holidays_set
+            # Store in session state so it's accessible throughout the app
+            st.session_state.holidays_set = holidays_set
 
-        if holidays_set:
-            st.markdown("#### Selected Holidays:")
-            for holiday in sorted(holidays_set):
-                st.write(f"• {holiday.strftime('%B %d, %Y')}")
+            if holidays_set:
+                st.markdown("#### Selected Holidays:")
+                for holiday in sorted(holidays_set):
+                    st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     col1, col2 = st.columns([2, 1])
 
@@ -2406,4 +2406,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
