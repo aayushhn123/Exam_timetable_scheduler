@@ -1921,29 +1921,27 @@ def main():
         schedule_by_difficulty = st.checkbox("Schedule by Difficulty (Alternate Easy/Difficult)", value=False)
         if schedule_by_difficulty:
             st.markdown('<div class="status-info">ℹ️ Exams will alternate between Easy and Difficult subjects.</div>',
-                    unsafe_allow_html=True)
+                        unsafe_allow_html=True)
         else:
             st.markdown('<div class="status-info">ℹ️ Normal scheduling without considering difficulty.</div>',
-                    unsafe_allow_html=True)
+                        unsafe_allow_html=True)
 
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
 
         with st.expander("Holiday Configuration", expanded=True):
             st.markdown("#### 📅 Select Predefined Holidays")
-        
-            # Initialize holiday_dates list
             holiday_dates = []
 
             col1, col2 = st.columns(2)
             with col1:
                 if st.checkbox("April 14, 2025", value=True):
-                    holiday_dates.append(datetime(2025, 4, 14).date())
+                    holiday_dates.append(datetime(2025, 4, 14))
             with col2:
                 if st.checkbox("May 1, 2025", value=True):
-                    holiday_dates.append(datetime(2025, 5, 1).date())
+                    holiday_dates.append(datetime(2025, 5, 1))
 
             if st.checkbox("August 15, 2025", value=True):
-                holiday_dates.append(datetime(2025, 8, 15).date())
+                holiday_dates.append(datetime(2025, 8, 15))
 
             st.markdown("#### 📅 Add Custom Holidays")
             if len(st.session_state.custom_holidays) < st.session_state.num_custom_holidays:
@@ -1963,20 +1961,13 @@ def main():
                 st.session_state.custom_holidays.append(None)
                 st.rerun()
 
-            # Add custom holidays to the main list
             custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
             for custom_holiday in custom_holidays:
-                holiday_dates.append(custom_holiday)
+                holiday_dates.append(datetime.combine(custom_holiday, datetime.min.time()))
 
-            # Create the final holidays set - ensure all are date objects
-            holidays_set = set(holiday_dates)
-        
-            # Store in session state so it's accessible throughout the app
-            st.session_state.holidays_set = holidays_set
-
-            if holidays_set:
+            if holiday_dates:
                 st.markdown("#### Selected Holidays:")
-                for holiday in sorted(holidays_set):
+                for holiday in sorted(holiday_dates):
                     st.write(f"• {holiday.strftime('%B %d, %Y')}")
 
     col1, col2 = st.columns([2, 1])
@@ -2026,16 +2017,16 @@ def main():
         if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
             with st.spinner("Processing your timetable... Please wait..."):
                 try:
-                    # Use holidays from session state
-                    holidays_set = st.session_state.get('holidays_set', set())
-                    st.write(f"🗓️ Using {len(holidays_set)} holidays: {[h.strftime('%d-%m-%Y') for h in sorted(holidays_set)]}")
-                
+                    holidays_set = set(holiday_dates)
                     st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
+                    #st.write(f"df_non_elec shape: {df_non_elec.shape if df_non_elec is not None else 'None'}")
+                    #st.write(f"df_ele shape: {df_ele.shape if df_ele is not None else 'None'}")
 
                     if df_non_elec is not None and df_ele is not None:
                         st.write("Processing constraints...")
                         non_elec_sched = process_constraints_with_real_time_optimization(df_non_elec, holidays_set, base_date, schedule_by_difficulty)
+                        #st.write(f"non_elec_sched keys: {list(non_elec_sched.keys())}")
 
                         # Find the maximum date from non-elective exams
                         non_elec_df = pd.concat(non_elec_sched.values(), ignore_index=True) if non_elec_sched else pd.DataFrame()
@@ -2059,10 +2050,10 @@ def main():
                             elective_day1 = find_next_valid_day(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1))
                             elective_day2 = find_next_valid_day(elective_day1 + timedelta(days=1))
 
-                            # Rest of the elective scheduling code remains the same...
+                            # FIXED: Ensure proper date format assignment
                             elective_day1_str = elective_day1.strftime("%d-%m-%Y")
                             elective_day2_str = elective_day2.strftime("%d-%m-%Y")
-                    
+                        
                             # Schedule OE1 and OE5 together on the first elective day
                             df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1_str
                             df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
@@ -2073,7 +2064,7 @@ def main():
 
                             st.write(f"✅ OE1 and OE5 scheduled together on {elective_day1_str} at 10:00 AM - 1:00 PM")
                             st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
-                    
+                        
                             # Debug: Show the actual dates being assigned
                             st.write(f"🔍 Debug - OE1/OE5 date: {elective_day1_str} (should be {elective_day1.strftime('%d %B %Y')})")
                             st.write(f"🔍 Debug - OE2 date: {elective_day2_str} (should be {elective_day2.strftime('%d %B %Y')})")
@@ -2084,15 +2075,14 @@ def main():
                             final_df = non_elec_df
                             st.write("No electives to schedule.")
 
-                        # Continue with rest of the processing...
                         final_df = final_df.sort_values(["Semester", "MainBranch"], ascending=True, na_position='last')
-                    
-                        # Create semester dictionary
+                        # Create semester dictionary while keeping dates as strings
                         sem_dict = {}
                         for s in sorted(final_df["Semester"].unique()):
                             sem_data = final_df[final_df["Semester"] == s].copy()
+                            # Sort by date for display purposes only
                             sem_data_with_dates = sem_data.copy()
-
+    
                             # Convert dates to datetime for sorting, but keep original string format in sem_dict
                             sem_data_with_dates["Exam Date Parsed"] = pd.to_datetime(
                             sem_data_with_dates["Exam Date"], 
@@ -2101,11 +2091,11 @@ def main():
                             errors='coerce'
                             )
                             sem_data_with_dates = sem_data_with_dates.sort_values(["Exam Date Parsed", "MainBranch"], ascending=True, na_position='last')
-
+    
                             # Store in sem_dict without the parsed date column
                             sem_dict[s] = sem_data_with_dates.drop('Exam Date Parsed', axis=1, errors='ignore').copy()
 
-                        # Now optimize OE subjects - pass holidays_set
+                        # Now optimize OE subjects - this will handle date normalization internally
                         sem_dict = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)
                         st.write(f"Semesters in sem_dict: {list(sem_dict.keys())}")
 
@@ -2406,5 +2396,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
