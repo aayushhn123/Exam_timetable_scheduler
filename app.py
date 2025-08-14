@@ -323,7 +323,7 @@ def schedule_common_subjects_first(df, holidays, base_date):
     for module_code, group in common_subjects.groupby('ModuleCode'):
         branches_for_this_subject = group['Branch'].unique()
         common_subject_groups[module_code] = group
-        st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
+        #st.write(f"  📋 Found common subject {group['Subject'].iloc[0]} across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
     
     # Create a list of unscheduled common subject groups
     unscheduled_groups = list(common_subject_groups.keys())
@@ -345,7 +345,7 @@ def schedule_common_subjects_first(df, holidays, base_date):
         available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
         subjects_scheduled_today = 0
         
-        st.write(f"  📅 Attempting to schedule common subjects on {date_str} (Attempt {scheduling_attempts})")
+        #st.write(f"  📅 Attempting to schedule common subjects on {date_str} (Attempt {scheduling_attempts})")
         
         # Try to schedule as many common subjects as possible on this day
         day_had_scheduling = False
@@ -353,7 +353,7 @@ def schedule_common_subjects_first(df, holidays, base_date):
         for time_slot in available_slots:
             groups_scheduled_in_slot = []
             
-            st.write(f"    🕐 Checking {time_slot} slot")
+            #st.write(f"    🕐 Checking {time_slot} slot")
             
             # Check which groups can be scheduled in this time slot
             for module_code in unscheduled_groups[:]:
@@ -394,23 +394,24 @@ def schedule_common_subjects_first(df, holidays, base_date):
                     subjects_scheduled_today += 1
                     day_had_scheduling = True
                     
-                    st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
+                    #st.write(f"      ✅ Scheduled common subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
                 else:
-                    st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
+                    pass
+                    #st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
             
             # Remove scheduled groups from unscheduled list
             for module_code in groups_scheduled_in_slot:
                 unscheduled_groups.remove(module_code)
         
         total_scheduled_today = subjects_scheduled_today
-        st.write(f"  📊 Total common subjects scheduled on {date_str}: {total_scheduled_today}")
+        #st.write(f"  📊 Total common subjects scheduled on {date_str}: {total_scheduled_today}")
         
         # Move to next day
         current_scheduling_date = find_next_valid_day(exam_date + timedelta(days=1), holidays)
         
         # If no scheduling happened this day and we still have unscheduled groups, continue to next day
         if not day_had_scheduling and unscheduled_groups:
-            st.write(f"  ⚠️ No common subjects could be scheduled on {date_str}, moving to next day")
+            #st.write(f"  ⚠️ No common subjects could be scheduled on {date_str}, moving to next day")
             continue
     
     st.success(f"✅ Successfully scheduled {scheduled_count} common subjects FIRST")
@@ -465,10 +466,10 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
         
         return df
     
-    st.write(f"Found {len(candidate_subjects)} candidate subjects for common-within-semester scheduling")
+    #st.write(f"Found {len(candidate_subjects)} candidate subjects for common-within-semester scheduling")
     
     # Show sample of candidates
-    st.write("📋 **Sample candidate subjects:**")
+    #st.write("📋 **Sample candidate subjects:**")
     sample_candidates = candidate_subjects[['Subject', 'Branch', 'Semester', 'Category', 'IsCommon']].head(3)
     st.dataframe(sample_candidates)
     
@@ -507,15 +508,15 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
         if len(branches_for_this_subject) > 1:
             group_key = f"sem_{semester}_{module_code}"
             common_within_sem_groups[group_key] = group
-            st.write(f"  📋 Found common-within-semester subject {group['Subject'].iloc[0]} (Sem {semester}) across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
+            #st.write(f"  📋 Found common-within-semester subject {group['Subject'].iloc[0]} (Sem {semester}) across {len(branches_for_this_subject)} branches: {', '.join(branches_for_this_subject)}")
         else:
             # Even if only in one branch but marked as IsCommon=YES, include it
             group_key = f"sem_{semester}_{module_code}"
             common_within_sem_groups[group_key] = group
-            st.write(f"  📋 Found marked common subject {group['Subject'].iloc[0]} (Sem {semester}) in branch: {branches_for_this_subject[0]}")
+            #st.write(f"  📋 Found marked common subject {group['Subject'].iloc[0]} (Sem {semester}) in branch: {branches_for_this_subject[0]}")
     
     if not common_within_sem_groups:
-        st.info("No subjects found that are common within their semester")
+        #st.info("No subjects found that are common within their semester")
         return df
     
     st.write(f"📊 Total common-within-semester groups to schedule: {len(common_within_sem_groups)}")
@@ -525,7 +526,7 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
         scheduled_dates = pd.to_datetime(scheduled_subjects['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if not scheduled_dates.empty:
             latest_scheduled_date = max(scheduled_dates).date()
-            st.write(f"📅 Latest scheduled date from previous subjects: {latest_scheduled_date}")
+            #st.write(f"📅 Latest scheduled date from previous subjects: {latest_scheduled_date}")
         else:
             latest_scheduled_date = start_date.date()
     else:
@@ -542,7 +543,7 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
         current_date += timedelta(days=1)
     
     available_dates.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
-    st.write(f"📊 Created {len(available_dates)} available dates for common-within-semester scheduling")
+    #st.write(f"📊 Created {len(available_dates)} available dates for common-within-semester scheduling")
     
     # Schedule common-within-semester subjects
     scheduled_count = 0
@@ -553,7 +554,7 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
         if not unscheduled_groups:
             break
             
-        st.write(f"  📅 Attempting to schedule common-within-semester subjects on {date_str}")
+        #st.write(f"  📅 Attempting to schedule common-within-semester subjects on {date_str}")
         
         # Available time slots for this date
         available_slots = ["10:00 AM - 1:00 PM", "2:00 PM - 5:00 PM"]
@@ -602,9 +603,10 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
                     
                     groups_scheduled_in_slot.append(group_key)
                     
-                    st.write(f"      ✅ Scheduled common-within-semester subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
+                    #st.write(f"      ✅ Scheduled common-within-semester subject {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {actual_slot}")
                 else:
-                    st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
+                    pass
+                    #st.write(f"      ❌ Cannot schedule {group['Subject'].iloc[0]} - conflicts with subbranches: {', '.join(conflicting_subbranches)}")
             
             # Remove scheduled groups from unscheduled list
             for group_key in groups_scheduled_in_slot:
@@ -612,7 +614,7 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
     
     # If there are still unscheduled groups, extend the schedule
     if unscheduled_groups:
-        st.write(f"  🔄 {len(unscheduled_groups)} common-within-semester groups remaining, extending schedule...")
+        #st.write(f"  🔄 {len(unscheduled_groups)} common-within-semester groups remaining, extending schedule...")
         
         # Find next available date after gap filling
         if available_dates:
@@ -664,12 +666,12 @@ def schedule_common_within_semester_subjects(df, holidays, start_date):
                 scheduled_dates_per_subbranch_sem[subbranch_sem_key].add(date_str)
                 subbranches_scheduled.append(f"{group.loc[idx, 'SubBranch']} (Sem {group.loc[idx, 'Semester']})")
             
-            st.write(f"    ✅ Extended: {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {preferred_slot}")
+            #st.write(f"    ✅ Extended: {group['Subject'].iloc[0]} for subbranches: {', '.join(subbranches_scheduled)} on {date_str} at {preferred_slot}")
             
             # Move to next day for next group
             next_extension_date = exam_date + timedelta(days=1)
     
-    st.success(f"✅ Successfully scheduled {scheduled_count} common-within-semester subjects")
+    #st.success(f"✅ Successfully scheduled {scheduled_count} common-within-semester subjects")
     
     # Verify no double bookings
     verify_no_double_bookings(df)
@@ -724,10 +726,10 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
         
         return df
     
-    st.write(f"Found {len(uncommon_subjects)} truly uncommon subjects to schedule after common subjects")
+    #st.write(f"Found {len(uncommon_subjects)} truly uncommon subjects to schedule after common subjects")
     
     # Show sample of uncommon subjects
-    st.write("📋 **Sample uncommon subjects:**")
+    #st.write("📋 **Sample uncommon subjects:**")
     sample_uncommon = uncommon_subjects[['Subject', 'Branch', 'Semester', 'Category', 'IsCommon']].head(3)
     st.dataframe(sample_uncommon)
     
@@ -762,7 +764,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
         scheduled_dates = pd.to_datetime(scheduled_common['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if not scheduled_dates.empty:
             latest_scheduled_date = max(scheduled_dates).date()
-            st.write(f"📅 Latest scheduled date from common subjects: {latest_scheduled_date}")
+            #st.write(f"📅 Latest scheduled date from common subjects: {latest_scheduled_date}")
         else:
             latest_scheduled_date = start_date.date()
     else:
@@ -780,14 +782,14 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
     
     available_dates.sort(key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
     
-    st.write(f"📊 Created {len(available_dates)} available dates for gap-filling")
+    #st.write(f"📊 Created {len(available_dates)} available dates for gap-filling")
     
     # Sort uncommon subjects by semester for consistent scheduling
     scheduled_count = 0
     
     for semester in sorted(uncommon_subjects['Semester'].unique()):
         semester_data = uncommon_subjects[uncommon_subjects['Semester'] == semester].copy()
-        st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
+        #st.write(f"📚 Scheduling Semester {semester} uncommon subjects...")
         
         # Get preferred time slot for this semester
         preferred_slot = get_preferred_slot(semester)
@@ -795,7 +797,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
         # Group by branch within this semester
         for branch in sorted(semester_data['Branch'].unique()):
             branch_subjects = semester_data[semester_data['Branch'] == branch].copy()
-            st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
+            #st.write(f"  🔧 Scheduling {len(branch_subjects)} subjects for {branch}")
             
             # Get the subbranch for this branch
             if not branch_subjects.empty:
@@ -807,7 +809,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
                     scheduled_dates_per_subbranch_sem[subbranch_sem_key] = set()
                 
                 # PHASE 1: Fill gaps first
-                st.write(f"    🔍 PHASE 1: Filling gaps for {branch} from base date")
+                #st.write(f"    🔍 PHASE 1: Filling gaps for {branch} from base date")
                 
                 subjects_to_schedule = list(branch_subjects.iterrows())
                 scheduled_in_gaps = 0
@@ -831,9 +833,9 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
                         scheduled_count += 1
                         scheduled_in_gaps += 1
                         
-                        st.write(f"    ✅ Gap filled: {row['Subject']} on {date_str} at {preferred_slot}")
+                        #st.write(f"    ✅ Gap filled: {row['Subject']} on {date_str} at {preferred_slot}")
                 
-                st.write(f"    📊 Filled {scheduled_in_gaps} subjects in existing gaps for {branch}")
+                #st.write(f"    📊 Filled {scheduled_in_gaps} subjects in existing gaps for {branch}")
                 
                 # PHASE 2: If subjects remain, extend the schedule
                 if subjects_to_schedule:
@@ -882,7 +884,7 @@ def schedule_uncommon_subjects_after_common(df, holidays, start_date):
 
 def verify_no_double_bookings(df):
     """Verify that no subbranch-semester has more than one exam per day"""
-    st.write("🔍 Verifying no double bookings...")
+    #st.write("🔍 Verifying no double bookings...")
     
     scheduled_df = df[df['Exam Date'] != ""].copy()
     if scheduled_df.empty:
@@ -893,11 +895,13 @@ def verify_no_double_bookings(df):
     double_bookings = grouped[grouped > 1]
     
     if not double_bookings.empty:
-        st.error("❌ Double bookings detected:")
+        #st.error("❌ Double bookings detected:")
         for (subbranch, semester, date), count in double_bookings.items():
-            st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
+            pass
+            #st.error(f"  - {subbranch} Semester {semester} has {count} exams on {date}")
     else:
-        st.success("✅ No double bookings found - one exam per day per subbranch-semester")
+        pass
+        #st.success("✅ No double bookings found - one exam per day per subbranch-semester")
 
 def schedule_remaining_individual_subjects(df, holidays, start_date):
     """
@@ -1426,7 +1430,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
     sheets_processed = 0
     
     for sheet_name, sheet_df in df_dict.items():
-        st.write(f"🔄 Processing sheet: {sheet_name}")
+        #st.write(f"🔄 Processing sheet: {sheet_name}")
         
         if sheet_df.empty:
             st.warning(f"⚠️ Sheet {sheet_name} is empty, skipping")
@@ -1505,7 +1509,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
+                #st.write(f"📄 Creating PDF page for {sheet_name} with {len(chunk_df)} exam dates")
 
                 # Get the default time slot for this semester
                 default_time_slot = get_semester_default_time_slot(semester, main_branch)
@@ -1560,11 +1564,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                                  header_content=header_content, branches=chunk, time_slot=default_time_slot)
                 
                 sheets_processed += 1
-                st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
+                #st.write(f"✅ Added PDF page for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
 
         # Handle electives
         elif sheet_name.endswith('_Electives'):
-            st.write(f"🎓 Processing electives for {sheet_name}")
+            #st.write(f"🎓 Processing electives for {sheet_name}")
             
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -2111,7 +2115,7 @@ def save_to_excel(semester_wise_timetable):
                         sheet_name = sheet_name[:31]
                     
                     if not df_non_elec.empty:
-                        st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_non_elec)} non-elective subjects for {sheet_name}")
                         
                         # Add difficulty and duration info
                         difficulty_str = df_non_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
@@ -2154,11 +2158,11 @@ def save_to_excel(semester_wise_timetable):
                         
                         # Save to Excel
                         pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                        st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
+                        #st.write(f"✅ Created sheet {sheet_name} with {len(pivot_df)} exam dates")
                         
                     else:
                         # CRITICAL FIX: Create empty sheet structure for branches with no subjects
-                        st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
+                        #st.write(f"⚠️ No non-elective subjects for {sheet_name}, creating empty structure")
                         
                         # Get all possible subbranches for this main branch from the semester
                         all_subbranches = df_sem[df_sem["MainBranch"] == main_branch]["SubBranch"].unique()
@@ -2175,7 +2179,7 @@ def save_to_excel(semester_wise_timetable):
                             
                             empty_df = pd.DataFrame(empty_data)
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
+                            #st.write(f"✅ Created empty sheet {sheet_name} with structure for subbranches: {', '.join(all_subbranches)}")
                         else:
                             # If no subbranches, create minimal structure
                             empty_df = pd.DataFrame({
@@ -2183,11 +2187,11 @@ def save_to_excel(semester_wise_timetable):
                                 'Subjects': ['No subjects available']
                             })
                             empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            st.write(f"✅ Created minimal empty sheet {sheet_name}")
+                            #st.write(f"✅ Created minimal empty sheet {sheet_name}")
 
                     # Process electives in a separate sheet (only if electives exist)
                     if not df_elec.empty:
-                        st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
+                        #st.write(f"📊 Processing {len(df_elec)} elective subjects for {sheet_name}")
                         
                         difficulty_str = df_elec['Difficulty'].map({0: 'Easy', 1: 'Difficult'}).fillna('')
                         difficulty_suffix = difficulty_str.apply(lambda x: f" ({x})" if x else '')
@@ -2214,7 +2218,7 @@ def save_to_excel(semester_wise_timetable):
                         if len(elective_sheet_name) > 31:
                             elective_sheet_name = elective_sheet_name[:31]
                         elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
-                        st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
+                        #st.write(f"✅ Created electives sheet {elective_sheet_name} with {len(elec_pivot)} entries")
 
         output.seek(0)
         st.success("✅ Excel file created successfully with all required sheets")
@@ -3090,6 +3094,12 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
 
 
 
