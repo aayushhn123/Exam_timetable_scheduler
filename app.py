@@ -3158,15 +3158,6 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
-        # Show efficiency metrics
-        if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
-            efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
-            if efficiency > 80:
-                st.success(f"🎯 **HAAAA efff:** {efficiency:.1f}% (Excellent - most days are utilized)")
-            elif efficiency > 60:
-                st.info(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Good)")
-            else:
-                st.warning(f"🎯 **Scheduling Efficiency:** {efficiency:.1f}% (Could be improved)")
 
         # Show gap-filling efficiency
         total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
@@ -3330,3 +3321,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
