@@ -266,7 +266,8 @@ BRANCH_FULL_FORM = {
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
     "M TECH": "MASTER OF TECHNOLOGY",
     "MBA TECH": "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT",
-    "MCA": "MASTER OF COMPUTER APPLICATIONS"
+    "MCA": "MASTER OF COMPUTER APPLICATIONS",
+    "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
 
 # Define logo path (adjust as needed for your environment)
@@ -319,7 +320,6 @@ def find_next_valid_day_in_range(start_date, end_date, holidays_set):
     return None
 
 def get_preferred_slot(semester):
-    """Calculate preferred time slot based on semester number"""
     if semester % 2 != 0:  # Odd semester
         odd_sem_position = (semester + 1) // 2
         return "10:00 AM - 1:00 PM" if odd_sem_position % 2 == 1 else "2:00 PM - 5:00 PM"
@@ -720,22 +720,41 @@ def read_timetable(uploaded_file):
         st.write("📋 **Actual columns in uploaded file:**")
         st.write(list(df.columns))
         
-        # Create a flexible column mapping that handles variations
+        # Enhanced column mapping to handle more variations
         column_mapping = {
             "Program": "Program",
+            "Programme": "Program",  # Alternative spelling
             "Stream": "Stream", 
+            "Specialization": "Stream",  # Alternative name
+            "Branch": "Stream",  # Some files might use Branch for Stream
             "Current Session": "Semester",
+            "Academic Session": "Semester",
+            "Session": "Semester",
             "Module Description": "SubjectName",
+            "Subject Name": "SubjectName",
+            "Subject Description": "SubjectName",
             "Module Abbreviation": "ModuleCode",
+            "Module Code": "ModuleCode",
+            "Subject Code": "ModuleCode",
+            "Code": "ModuleCode",
             "Campus Name": "Campus",
+            "Campus": "Campus",
             "Difficulty Score": "Difficulty",
+            "Difficulty": "Difficulty",
             "Exam Duration": "Exam Duration",
+            "Duration": "Exam Duration",
             "Student count": "StudentCount",
-            "Common across sems": "CommonAcrossSems"
+            "Student Count": "StudentCount",
+            "Enrollment": "StudentCount",
+            "Count": "StudentCount",
+            "Common across sems": "CommonAcrossSems",
+            "Common Across Sems": "CommonAcrossSems",
+            "Cross Semester": "CommonAcrossSems",
+            "Common Across Semesters": "CommonAcrossSems"
         }
         
         # Handle the "Is Common" column with flexible naming
-        is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common"]
+        is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"]
         for variation in is_common_variations:
             if variation in df.columns:
                 column_mapping[variation] = "IsCommon"
@@ -750,15 +769,40 @@ def read_timetable(uploaded_file):
         def convert_sem(sem):
             if pd.isna(sem):
                 return 0
-            m = {
+            
+            sem_str = str(sem).strip()
+            
+            # Handle different semester formats including DIPLOMA and M TECH
+            semester_mappings = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
                 "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
-                "Sem IX": 9, "Sem X": 10, "Sem XI": 11
+                "Sem IX": 9, "Sem X": 10, "Sem XI": 11, "Sem XII": 12,
+                # DIPLOMA variations
+                "DIPLOMA Sem I": 1, "DIPLOMA Sem II": 2, "DIPLOMA Sem III": 3,
+                "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
+                # M TECH variations  
+                "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4,
+                # Direct numeric
+                "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, 
+                "9": 9, "10": 10, "11": 11, "12": 12
             }
-            return m.get(sem.strip(), 0)
-        
+            
+            return semester_mappings.get(sem_str, 0)
+
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
-        df["Branch"] = df["Program"].astype(str).str.strip() + "-" + df["Stream"].astype(str).str.strip()
+        
+        # Create enhanced branch identifier that considers program type
+        def create_branch_identifier(row):
+            program = str(row.get("Program", "")).strip()
+            stream = str(row.get("Stream", "")).strip()
+            
+            # Handle cases where stream might be empty or same as program
+            if not stream or stream == "nan" or stream == program:
+                return program
+            else:
+                return f"{program}-{stream}"
+        
+        df["Branch"] = df.apply(create_branch_identifier, axis=1)
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
         
         comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
@@ -773,18 +817,19 @@ def read_timetable(uploaded_file):
         
         # Handle IsCommon column - create if it doesn't exist
         if "IsCommon" not in df.columns:
-            st.info("ℹ️ Creating 'IsCommon' column with default values")
-            # Default logic: if CommonAcrossSems is True, then IsCommon should be YES
-            # Otherwise, check if the subject appears in multiple branches within the same semester
+            st.info("ℹ️ Creating 'IsCommon' column with enhanced logic for all program types")
             df["IsCommon"] = "NO"  # Default value
             
             # Set YES for subjects that are common across semesters
             df.loc[df["CommonAcrossSems"] == True, "IsCommon"] = "YES"
             
-            # Check for subjects common within semester
+            # Enhanced logic to check for subjects common within semester across different programs
             for (semester, module_code), group in df.groupby(['Semester', 'ModuleCode']):
-                if len(group['Branch'].unique()) > 1:
-                    # This subject appears in multiple branches within the same semester
+                unique_branches = group['Branch'].unique()
+                unique_programs = group['Program'].unique() if 'Program' in group.columns else []
+                
+                # If subject appears in multiple branches or programs within same semester
+                if len(unique_branches) > 1 or len(unique_programs) > 1:
                     df.loc[group.index, "IsCommon"] = "YES"
         else:
             # Clean up the IsCommon column values
@@ -796,14 +841,18 @@ def read_timetable(uploaded_file):
         df_ele = df[df["Category"] == "INTD"].copy()
         
         def split_br(b):
-            p = b.split("-", 1)
-            return pd.Series([p[0].strip(), p[1].strip() if len(p) > 1 else ""])
+            p = str(b).split("-", 1)
+            if len(p) == 1:
+                # Single program case (like DIPLOMA, M TECH without stream)
+                return pd.Series([p[0].strip(), ""])
+            else:
+                return pd.Series([p[0].strip(), p[1].strip()])
         
         for d in (df_non, df_ele):
             d[["MainBranch", "SubBranch"]] = d["Branch"].apply(split_br)
         
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
-                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon"]
+                "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon", "Program"]
         
         # Ensure all required columns exist before selecting
         available_cols = [col for col in cols if col in df_non.columns]
@@ -811,6 +860,20 @@ def read_timetable(uploaded_file):
         
         if missing_cols:
             st.warning(f"⚠️ Missing columns: {missing_cols}")
+            # Add missing columns with default values
+            for missing_col in missing_cols:
+                if missing_col == "Program":
+                    df_non[missing_col] = "B TECH"  # Default program
+                    df_ele[missing_col] = "B TECH"
+                else:
+                    df_non[missing_col] = None
+                    df_ele[missing_col] = None
+        
+        # Update available_cols after adding missing columns
+        available_cols = [col for col in cols if col in df_non.columns]
+        
+        # STORE ORIGINAL DATA FOR FILTER OPTIONS
+        st.session_state.original_data_df = df.copy()
         
         return df_non[available_cols], df_ele[available_cols] if available_cols else df_ele, df
         
@@ -1101,12 +1164,23 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 num -= value
         return result
 
-    def get_semester_default_time_slot(semester, branch):
-        # Get default time slot based on semester
-        if semester.isdigit():
-            sem_num = int(semester)
-            return get_preferred_slot(sem_num)
-        return "10:00 AM - 1:00 PM"  # Default fallback
+    def get_semester_program_time_slot(semester, program_type):
+        """Get correct time slot based on semester and program type"""
+        if isinstance(semester, str):
+            # Extract numeric semester from string
+            if semester.isdigit():
+                sem_num = int(semester)
+            else:
+                # Handle roman numerals or semester strings
+                roman_to_num = {
+                    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
+                    'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
+                }
+                sem_num = roman_to_num.get(semester, 1)
+        else:
+            sem_num = int(semester) if semester else 1
+        
+        return get_preferred_slot(sem_num)
 
     sheets_processed = 0
     
@@ -1119,9 +1193,25 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
         if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
             sheet_df = sheet_df.reset_index()
         
-        # Parse sheet name
+        # Enhanced sheet name parsing to extract program type
         parts = sheet_name.split('_Sem_')
         main_branch = parts[0]
+        
+        # Determine program type from sheet name
+        program_type = "B TECH"  # default
+        if sheet_name.startswith("DIPL_"):
+            program_type = "DIPLOMA"
+            main_branch = main_branch.replace("DIPL_", "")
+        elif sheet_name.startswith("MTECH_"):
+            program_type = "M TECH"
+            main_branch = main_branch.replace("MTECH_", "")
+        elif "M TECH" in main_branch:
+            program_type = "M TECH"
+        elif "DIPLOMA" in main_branch:
+            program_type = "DIPLOMA"
+        elif "MCA" in main_branch:
+            program_type = "MCA"
+        
         main_branch_full = BRANCH_FULL_FORM.get(main_branch, main_branch)
         semester = parts[1] if len(parts) > 1 else ""
         
@@ -1186,8 +1276,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.info(f"ℹ️ No valid exam data found for {sheet_name} chunk {start//sub_branch_cols_per_page + 1}")
                     continue
 
-                # Get the default time slot for this semester
-                default_time_slot = get_semester_default_time_slot(semester, main_branch)
+                # FIXED: Get the correct time slot for this semester and program
+                correct_time_slot = get_semester_program_time_slot(semester, program_type)
 
                 # Convert Exam Date to desired format
                 try:
@@ -1196,9 +1286,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                     st.warning(f"Date conversion error in {sheet_name}: {e}")
                     # Try alternative date parsing
                     chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
-
-                # NOTE: The subjects in the Excel already contain the exam times where needed
-                # due to the changes in save_to_excel function, so no additional processing needed here
 
                 # Calculate column widths
                 page_width = pdf.w - 2 * pdf.l_margin
@@ -1215,12 +1302,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                 footer_height = 25
                 add_footer_with_page_number(pdf, footer_height)
                 
+                # FIXED: Pass the correct time slot
                 print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=line_height, 
-                                 header_content=header_content, branches=chunk, time_slot=default_time_slot)
+                                 header_content=header_content, branches=chunk, time_slot=correct_time_slot)
                 
                 sheets_processed += 1
 
-        # Handle electives (similar logic - exam times already included in Excel)
+        # Handle electives (similar logic)
         elif sheet_name.endswith('_Electives'):
             # Ensure we have the required columns
             required_cols = ['Exam Date', 'OE', 'SubjectDisplay']
@@ -1247,7 +1335,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
                st.warning(f"Date conversion error in electives {sheet_name}: {e}")
                elective_data["Exam Date"] = elective_data["Exam Date"].astype(str)
 
-            # NOTE: Elective subjects already contain exam times where needed from save_to_excel function
             # Clean subject display if SubjectDisplay column exists
             if 'SubjectDisplay' in elective_data.columns and 'OE' in elective_data.columns:
                # Remove OE tags that might be duplicated since they're already in the subject display
@@ -1283,11 +1370,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
             footer_height = 25
             add_footer_with_page_number(pdf, footer_height)
            
-            # Get default time slot for electives
-            default_time_slot = get_semester_default_time_slot(semester, main_branch)
+            # FIXED: Get correct time slot for electives based on program
+            elective_time_slot = get_semester_program_time_slot(semester, program_type)
            
             print_table_custom(pdf, elective_data, cols_to_print, col_widths, line_height=10, 
-                            header_content=header_content, branches=['All Streams'], time_slot=default_time_slot)
+                            header_content=header_content, branches=['All Streams'], time_slot=elective_time_slot)
            
             sheets_processed += 1
 
@@ -1297,7 +1384,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4):
    
     try:
        pdf.output(pdf_path)
-       st.success(f"✅ PDF generated successfully with {sheets_processed} pages")
+       st.success(f"✅ PDF generated successfully with {sheets_processed} pages and correct time slots")
     except Exception as e:
        st.error(f"❌ Error saving PDF: {e}")
        import traceback
@@ -3319,4 +3406,8 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+
+
+
 
