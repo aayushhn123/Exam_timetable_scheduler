@@ -820,7 +820,7 @@ def create_excel_sheets_for_pdf(df):
             
             # Group OE by OE Type and Date
             oe_on_date = group_df[group_df['Exam Date'] == exam_date]
-            for (oe_type, _), oe_group in oe_on_date.groupby('OE'):
+            for oe_type, oe_group in oe_on_date.groupby('OE'):
                 subjects = []
                 for _, row in oe_group.iterrows():
                     subject_name = str(row['Module Description'])
