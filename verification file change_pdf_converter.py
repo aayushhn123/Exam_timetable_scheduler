@@ -497,7 +497,7 @@ def read_verification_excel(uploaded_file):
         df['Current Session'] = df['Current Session'].astype(str).str.strip()
         df['Module Description'] = df['Module Description'].astype(str).str.strip()
         df['Exam Date'] = df['Exam Date'].astype(str).str.strip()
-        df['Exam Time'] = df['Exam Time'].astype(str).str.strip()
+        df['Configured Slot'] = df['Configured Slot'].astype(str).str.strip()
         
         # Handle optional columns
         if 'Module Abbreviation' in df.columns:
@@ -513,7 +513,7 @@ def read_verification_excel(uploaded_file):
         
         # Show sample
         st.write("📋 Sample of loaded data:")
-        display_cols = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Exam Time']
+        display_cols = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
         available_display_cols = [col for col in display_cols if col in df.columns]
         st.dataframe(df[available_display_cols].head(3))
         
@@ -594,94 +594,103 @@ def create_excel_sheets_for_pdf(df):
     for (main_branch, semester), group_df in df.groupby(['MainBranch', 'Semester']):
         
         # Get all unique sub-branches (streams)
-        sub_branches = sorted(group_df['SubBranch'].unique())
+        all_sub_branches = sorted(group_df['SubBranch'].unique())
         
-        # Create sheet name
-        roman_sem = int_to_roman(semester)
-        sheet_name = f"{main_branch}_Sem_{roman_sem}"
+        # Split into groups of 4 branches per page
+        branches_per_page = 4
         
-        if len(sheet_name) > 31:
-            sheet_name = sheet_name[:31]
-        
-        # Get all unique exam dates
-        all_dates = sorted(group_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-        
-        processed_data = []
-        
-        for exam_date in all_dates:
-            # Format date
-            try:
-                parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
-                if pd.notna(parsed_date):
-                    formatted_date = parsed_date.strftime("%A, %d %B, %Y")
-                else:
+        for page_num, i in enumerate(range(0, len(all_sub_branches), branches_per_page), start=1):
+            sub_branches = all_sub_branches[i:i + branches_per_page]
+            
+            # Create sheet name
+            roman_sem = int_to_roman(semester)
+            if len(all_sub_branches) > branches_per_page:
+                sheet_name = f"{main_branch}_Sem_{roman_sem}_Part{page_num}"
+            else:
+                sheet_name = f"{main_branch}_Sem_{roman_sem}"
+            
+            if len(sheet_name) > 31:
+                sheet_name = sheet_name[:31]
+            
+            # Get all unique exam dates for this group
+            all_dates = sorted(group_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
+            
+            processed_data = []
+            
+            for exam_date in all_dates:
+                # Format date
+                try:
+                    parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
+                    if pd.notna(parsed_date):
+                        formatted_date = parsed_date.strftime("%A, %d %B, %Y")
+                    else:
+                        formatted_date = str(exam_date)
+                except:
                     formatted_date = str(exam_date)
-            except:
-                formatted_date = str(exam_date)
-            
-            row_data = {'Exam Date': formatted_date}
-            
-            # For each sub-branch
-            for sub_branch in sub_branches:
-                subjects_on_date = group_df[
-                    (group_df['Exam Date'] == exam_date) & 
-                    (group_df['SubBranch'] == sub_branch)
-                ]
                 
-                if not subjects_on_date.empty:
-                    subjects = []
-                    for _, row in subjects_on_date.iterrows():
-                        subject_name = str(row['Module Description'])
-                        module_code = str(row.get('Module Abbreviation', ''))
-                        exam_time = str(row.get('Exam Time', ''))
-                        cm_group = str(row.get('CM Group', '')).strip()
-                        exam_slot = row.get('Exam Slot Number', 0)
-                        
-                        # Build subject display
-                        subject_display = subject_name
-                        
-                        # Add module code if present
-                        if module_code and module_code != 'nan':
-                            subject_display = f"{subject_display} - ({module_code})"
-                        
-                        # Add CM Group prefix if present
-                        if cm_group and cm_group != 'nan' and cm_group != '':
-                            try:
-                                cm_num = int(float(cm_group))
-                                subject_display = f"[CM:{cm_num}] {subject_display}"
-                            except:
-                                subject_display = f"[CM:{cm_group}] {subject_display}"
-                        
-                        # Add exam time
-                        if exam_time and exam_time != 'nan' and exam_time.strip():
-                            subject_display = f"{subject_display} ({exam_time})"
-                        
-                        # Add slot number if present
-                        if exam_slot and exam_slot != 0:
-                            subject_display = f"{subject_display} [Slot {exam_slot}]"
-                        
-                        subjects.append(subject_display)
+                row_data = {'Exam Date': formatted_date}
+                
+                # For each sub-branch in this page group
+                for sub_branch in sub_branches:
+                    subjects_on_date = group_df[
+                        (group_df['Exam Date'] == exam_date) & 
+                        (group_df['SubBranch'] == sub_branch)
+                    ]
                     
-                    # Join multiple subjects with line breaks
-                    row_data[sub_branch] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
-                else:
-                    # No subjects for this stream on this date
-                    row_data[sub_branch] = "---"
+                    if not subjects_on_date.empty:
+                        subjects = []
+                        for _, row in subjects_on_date.iterrows():
+                            subject_name = str(row['Module Description'])
+                            module_code = str(row.get('Module Abbreviation', ''))
+                            exam_time = str(row.get('Configured Slot', ''))  # Use Configured Slot
+                            cm_group = str(row.get('CM Group', '')).strip()
+                            exam_slot = row.get('Exam Slot Number', 0)
+                            
+                            # Build subject display
+                            subject_display = subject_name
+                            
+                            # Add module code if present
+                            if module_code and module_code != 'nan':
+                                subject_display = f"{subject_display} - ({module_code})"
+                            
+                            # Add CM Group prefix if present
+                            if cm_group and cm_group != 'nan' and cm_group != '':
+                                try:
+                                    cm_num = int(float(cm_group))
+                                    subject_display = f"[CM:{cm_num}] {subject_display}"
+                                except:
+                                    subject_display = f"[CM:{cm_group}] {subject_display}"
+                            
+                            # Add exam time from Configured Slot
+                            if exam_time and exam_time != 'nan' and exam_time.strip():
+                                subject_display = f"{subject_display} ({exam_time})"
+                            
+                            # Add slot number if present
+                            if exam_slot and exam_slot != 0:
+                                subject_display = f"{subject_display} [Slot {exam_slot}]"
+                            
+                            subjects.append(subject_display)
+                        
+                        # Join multiple subjects with line breaks
+                        row_data[sub_branch] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
+                    else:
+                        # No subjects for this stream on this date
+                        row_data[sub_branch] = "---"
+                
+                processed_data.append(row_data)
             
-            processed_data.append(row_data)
-        
-        # Convert to DataFrame
-        if processed_data:
-            sheet_df = pd.DataFrame(processed_data)
-            
-            # Reorder columns to have Exam Date first, then the streams in order
-            column_order = ['Exam Date'] + sub_branches
-            sheet_df = sheet_df[column_order]
-            
-            # Fill any missing cells with "---"
-            sheet_df = sheet_df.fillna("---")
-            
-            excel_data[sheet_name] = sheet_df
+            # Convert to DataFrame
+            if processed_data:
+                sheet_df = pd.DataFrame(processed_data)
+                
+                # Reorder columns to have Exam Date first, then the streams in order
+                column_order = ['Exam Date'] + sub_branches
+                sheet_df = sheet_df[column_order]
+                
+                # Fill any missing cells with "---"
+                sheet_df = sheet_df.fillna("---")
+                
+                excel_data[sheet_name] = sheet_df
     
     return excel_data
 
@@ -979,7 +988,7 @@ def main():
         - **Current Session**: Sem 1, Sem 2, etc.
         - **Module Description**: Subject name
         - **Exam Date**: Date format (DD-MM-YYYY)
-        - **Exam Time**: Time of examination
+        - **Configured Slot**: Exam time slot
         """)
     
     with col2:
