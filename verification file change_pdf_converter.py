@@ -468,8 +468,8 @@ def read_verification_excel(uploaded_file):
         st.write("📊 Columns found in the verification file:")
         st.write(list(df.columns))
         
-        # NEW column names from your updated code
-        required_columns = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Exam Time']
+        # NEW column names - Use "Configured Slot" instead of "Exam Time"
+        required_columns = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
         optional_columns = ['Module Abbreviation', 'CM Group', 'Exam Slot Number', 'Student count', 'Campus']
         
         # Check for required columns
