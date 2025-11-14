@@ -707,7 +707,7 @@ def create_excel_sheets_for_pdf(df):
                     
                     excel_data[sheet_name] = sheet_df
         
-        # Process OE subjects (OPEN ELECTIVE)
+        # Process OE subjects (OPEN ELECTIVE) - FIXED TO REMOVE DUPLICATES
         if not oe_df.empty:
             # Create separate OE sheet
             roman_sem = int_to_roman(semester)
@@ -736,14 +736,27 @@ def create_excel_sheets_for_pdf(df):
                 oe_subjects_on_date = oe_df[oe_df['Exam Date'] == exam_date]
                 
                 if not oe_subjects_on_date.empty:
+                    # Use a set to track unique subject identifiers and avoid duplicates
+                    seen_subjects = set()
                     subjects = []
+                    
                     for _, row in oe_subjects_on_date.iterrows():
                         subject_name = str(row['Module Description'])
                         module_code = str(row.get('Module Abbreviation', ''))
                         exam_time = str(row.get('Configured Slot', ''))
                         exam_slot = row.get('Exam Slot Number', 0)
                         
-                        # Build OE subject display (similar to wt1_ui_fixed format)
+                        # Create a unique identifier for this subject
+                        # Using subject name + module code as the key
+                        subject_key = f"{subject_name}|{module_code}"
+                        
+                        # Skip if we've already seen this exact subject
+                        if subject_key in seen_subjects:
+                            continue
+                        
+                        seen_subjects.add(subject_key)
+                        
+                        # Build OE subject display
                         subject_display = subject_name
                         
                         # Add module code if present
@@ -760,13 +773,15 @@ def create_excel_sheets_for_pdf(df):
                         
                         subjects.append(subject_display)
                     
-                    # Create row with single column for all OE subjects
-                    row_data = {
-                        'Exam Date': formatted_date,
-                        'Open Elective Subjects': "\n".join(subjects)
-                    }
-                    
-                    oe_processed_data.append(row_data)
+                    # Only add the row if we have unique subjects
+                    if subjects:
+                        # Create row with single column for all OE subjects
+                        row_data = {
+                            'Exam Date': formatted_date,
+                            'Open Elective Subjects': "\n".join(subjects)
+                        }
+                        
+                        oe_processed_data.append(row_data)
             
             # Convert to DataFrame
             if oe_processed_data:
@@ -774,7 +789,7 @@ def create_excel_sheets_for_pdf(df):
                 excel_data[oe_sheet_name] = oe_sheet_df
     
     return excel_data
-
+    
 def generate_pdf_from_excel_data(excel_data, output_pdf):
     """Generate PDF from Excel data dictionary"""
     pdf = FPDF(orientation='L', unit='mm', format='A3')
