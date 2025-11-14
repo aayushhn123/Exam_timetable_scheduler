@@ -10,7 +10,7 @@ import re
 # Set page configuration
 st.set_page_config(
     page_title="Excel to PDF Timetable Converter",
-    page_icon="📅",
+    page_icon="calendar",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -449,37 +449,49 @@ def int_to_roman(num):
             num -= value
     return result
 
+def identify_oe_column(df):
+    """Identify if a record is an OE (Open Elective) based on available columns"""
+    oe_column_variations = ['OE', 'OE Type', 'oe', 'Open Elective', 'Elective Type']
+    for col_name in oe_column_variations:
+        if col_name in df.columns:
+            return col_name
+    if 'Subject Type' in df.columns:
+        if df['Subject Type'].astype(str).str.contains('OE', case=False, na=False).any():
+            return 'Subject Type'
+    return None
+
+def extract_oe_from_subject(subject_str):
+    """Extract OE type from subject string if present"""
+    oe_match = re.search(r'\[(OE\d+)\]', str(subject_str))
+    if oe_match:
+        return oe_match.group(1)
+    return None
+
 def read_verification_excel(uploaded_file):
     """Read the NEW verification Excel file format"""
     try:
-        # Try to read all sheets
         excel_file = pd.ExcelFile(uploaded_file)
-        st.write(f"📋 Found {len(excel_file.sheet_names)} sheets in the file")
+        st.write(f"Found {len(excel_file.sheet_names)} sheets in the file")
         
-        # Look for the Verification sheet
         if 'Verification' in excel_file.sheet_names:
             df = pd.read_excel(uploaded_file, sheet_name='Verification', engine='openpyxl')
-            st.success("✅ Found 'Verification' sheet")
+            st.success("Found 'Verification' sheet")
         else:
-            # Use the first sheet if Verification not found
             df = pd.read_excel(uploaded_file, sheet_name=0, engine='openpyxl')
-            st.warning(f"⚠️ 'Verification' sheet not found, using sheet: {excel_file.sheet_names[0]}")
+            st.warning(f"'Verification' sheet not found, using sheet: {excel_file.sheet_names[0]}")
         
-        st.write("📊 Columns found in the verification file:")
+        st.write("Columns found in the verification file:")
         st.write(list(df.columns))
         
-        # NEW column names - Use "Configured Slot" instead of "Exam Time"
         required_columns = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
         optional_columns = ['Module Abbreviation', 'CM Group', 'Exam Slot Number', 'Student count', 'Campus']
         
-        # Check for required columns
         missing_required = [col for col in required_columns if col not in df.columns]
         if missing_required:
-            st.error(f"❌ Missing required columns: {missing_required}")
-            st.info("💡 Required columns: " + ", ".join(required_columns))
+            st.error(f"Missing required columns: {missing_required}")
+            st.info("Required columns: " + ", ".join(required_columns))
             return None
         
-        # Filter out rows with no exam date or "Not Scheduled"
         df = df[
             (df['Exam Date'].notna()) & 
             (df['Exam Date'] != "") & 
@@ -488,10 +500,9 @@ def read_verification_excel(uploaded_file):
         ].copy()
         
         if df.empty:
-            st.error("❌ No valid scheduled exams found in the verification file")
+            st.error("No valid scheduled exams found in the verification file")
             return None
         
-        # Clean data
         df['Program'] = df['Program'].astype(str).str.strip().str.upper()
         df['Stream'] = df['Stream'].astype(str).str.strip()
         df['Current Session'] = df['Current Session'].astype(str).str.strip()
@@ -499,20 +510,14 @@ def read_verification_excel(uploaded_file):
         df['Exam Date'] = df['Exam Date'].astype(str).str.strip()
         df['Configured Slot'] = df['Configured Slot'].astype(str).str.strip()
         
-        # Handle optional columns
         if 'Module Abbreviation' in df.columns:
             df['Module Abbreviation'] = df['Module Abbreviation'].astype(str).str.strip()
-        
         if 'CM Group' in df.columns:
             df['CM Group'] = df['CM Group'].fillna("").astype(str).str.strip()
-        
         if 'Exam Slot Number' in df.columns:
             df['Exam Slot Number'] = pd.to_numeric(df['Exam Slot Number'], errors='coerce').fillna(0).astype(int)
         
-        st.success(f"✅ Successfully loaded {len(df)} scheduled exam records")
-        
-        # Show sample
-        st.write("📋 Sample of loaded data:")
+        st.success(f"Successfully loaded {len(df)} scheduled exam records")
         display_cols = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
         available_display_cols = [col for col in display_cols if col in df.columns]
         st.dataframe(df[available_display_cols].head(3))
@@ -520,20 +525,17 @@ def read_verification_excel(uploaded_file):
         return df
         
     except Exception as e:
-        st.error(f"❌ Error reading Excel file: {str(e)}")
+        st.error(f"Error reading Excel file: {str(e)}")
         import traceback
         st.error(f"Full error details: {traceback.format_exc()}")
         return None
 
 def create_excel_sheets_for_pdf(df):
-    """Convert verification data to Excel sheet format for PDF generation"""
+    """Convert verification data to Excel sheet format for PDF generation with OE support"""
     
-    # Parse Program-Stream combination
     def parse_program_stream(row):
         program = str(row['Program']).strip().upper()
         stream = str(row['Stream']).strip()
-        
-        # Create combined identifier
         if stream and stream != 'nan' and stream != program:
             return f"{program}-{stream}"
         else:
@@ -541,20 +543,13 @@ def create_excel_sheets_for_pdf(df):
     
     df['Branch'] = df.apply(parse_program_stream, axis=1)
     
-    # Parse semester to get number
     def parse_semester(session_str):
         if pd.isna(session_str):
             return 1
-        
         session_str = str(session_str).strip()
-        
-        # Extract number from various formats
-        import re
         num_match = re.search(r'(\d+)', session_str)
         if num_match:
             return int(num_match.group(1))
-        
-        # Try Roman numerals
         roman_to_num = {
             'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
             'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
@@ -562,21 +557,17 @@ def create_excel_sheets_for_pdf(df):
         for roman, num in roman_to_num.items():
             if roman in session_str.upper():
                 return num
-        
         return 1
     
     df['Semester'] = df['Current Session'].apply(parse_semester)
     
-    # Group by main program and semester
     def get_main_program(branch):
-        # Extract main program part before dash
         if '-' in branch:
             return branch.split('-')[0].strip()
         return branch
     
     df['MainBranch'] = df['Branch'].apply(get_main_program)
     
-    # Extract SubBranch (stream)
     def get_sub_branch(branch):
         if '-' in branch:
             parts = branch.split('-', 1)
@@ -584,190 +575,247 @@ def create_excel_sheets_for_pdf(df):
         return ""
     
     df['SubBranch'] = df['Branch'].apply(get_sub_branch)
-    
-    # If no subbranch, use main branch
     df.loc[df['SubBranch'] == "", 'SubBranch'] = df.loc[df['SubBranch'] == "", 'MainBranch']
+    
+    oe_column = identify_oe_column(df)
+    if oe_column:
+        st.success(f"Found OE column: {oe_column}")
+        df['OE'] = df[oe_column].fillna("").astype(str).str.strip()
+    else:
+        df['OE'] = df['Module Description'].apply(extract_oe_from_subject)
+        df['OE'] = df['OE'].fillna("")
+    
+    df_non_elec = df[df['OE'] == ""].copy()
+    df_elec = df[df['OE'] != ""].copy()
     
     excel_data = {}
     
-    # Group by MainBranch and Semester
-    for (main_branch, semester), group_df in df.groupby(['MainBranch', 'Semester']):
-        
-        # Get all unique sub-branches (streams)
+    # Process non-elective subjects
+    for (main_branch, semester), group_df in df_non_elec.groupby(['MainBranch', 'Semester']):
         all_sub_branches = sorted(group_df['SubBranch'].unique())
-        
-        # Split into groups of 4 branches per page
         branches_per_page = 4
         
         for page_num, i in enumerate(range(0, len(all_sub_branches), branches_per_page), start=1):
             sub_branches = all_sub_branches[i:i + branches_per_page]
-            
-            # Create sheet name
             roman_sem = int_to_roman(semester)
             if len(all_sub_branches) > branches_per_page:
                 sheet_name = f"{main_branch}_Sem_{roman_sem}_Part{page_num}"
             else:
                 sheet_name = f"{main_branch}_Sem_{roman_sem}"
-            
             if len(sheet_name) > 31:
                 sheet_name = sheet_name[:31]
             
-            # Get all unique exam dates for this group
             all_dates = sorted(group_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-            
             processed_data = []
             
             for exam_date in all_dates:
-                # Format date
                 try:
                     parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
-                    if pd.notna(parsed_date):
-                        formatted_date = parsed_date.strftime("%A, %d %B, %Y")
-                    else:
-                        formatted_date = str(exam_date)
+                    formatted_date = parsed_date.strftime("%A, %d %B, %Y") if pd.notna(parsed_date) else str(exam_date)
                 except:
                     formatted_date = str(exam_date)
                 
                 row_data = {'Exam Date': formatted_date}
-                
-                # For each sub-branch in this page group
                 for sub_branch in sub_branches:
                     subjects_on_date = group_df[
                         (group_df['Exam Date'] == exam_date) & 
                         (group_df['SubBranch'] == sub_branch)
                     ]
-                    
                     if not subjects_on_date.empty:
                         subjects = []
                         for _, row in subjects_on_date.iterrows():
                             subject_name = str(row['Module Description'])
                             module_code = str(row.get('Module Abbreviation', ''))
-                            exam_time = str(row.get('Configured Slot', ''))  # Use Configured Slot
+                            exam_time = str(row.get('Configured Slot', ''))
                             cm_group = str(row.get('CM Group', '')).strip()
                             exam_slot = row.get('Exam Slot Number', 0)
                             
-                            # Build subject display
                             subject_display = subject_name
-                            
-                            # Add module code if present
                             if module_code and module_code != 'nan':
                                 subject_display = f"{subject_display} - ({module_code})"
-                            
-                            # Add CM Group prefix if present
                             if cm_group and cm_group != 'nan' and cm_group != '':
                                 try:
                                     cm_num = int(float(cm_group))
                                     subject_display = f"[CM:{cm_num}] {subject_display}"
                                 except:
                                     subject_display = f"[CM:{cm_group}] {subject_display}"
-                            
-                            # Add exam time from Configured Slot
                             if exam_time and exam_time != 'nan' and exam_time.strip():
                                 subject_display = f"{subject_display} ({exam_time})"
-                            
-                            # Add slot number if present
                             if exam_slot and exam_slot != 0:
                                 subject_display = f"{subject_display} [Slot {exam_slot}]"
-                            
                             subjects.append(subject_display)
-                        
-                        # Join multiple subjects with line breaks
                         row_data[sub_branch] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
                     else:
-                        # No subjects for this stream on this date
                         row_data[sub_branch] = "---"
-                
                 processed_data.append(row_data)
             
-            # Convert to DataFrame
             if processed_data:
                 sheet_df = pd.DataFrame(processed_data)
-                
-                # Reorder columns to have Exam Date first, then the streams in order
                 column_order = ['Exam Date'] + sub_branches
-                sheet_df = sheet_df[column_order]
-                
-                # Fill any missing cells with "---"
-                sheet_df = sheet_df.fillna("---")
-                
+                sheet_df = sheet_df[column_order].fillna("---")
                 excel_data[sheet_name] = sheet_df
+    
+    # Process elective (OE) subjects
+    if not df_elec.empty:
+        st.info(f"Processing {len(df_elec)} elective subjects")
+        for (main_branch, semester), group_df in df_elec.groupby(['MainBranch', 'Semester']):
+            roman_sem = int_to_roman(semester)
+            elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"
+            if len(elective_sheet_name) > 31:
+                elective_sheet_name = elective_sheet_name[:31]
+            
+            group_df = group_df.drop_duplicates(
+                subset=['Module Description', 'OE', 'Exam Date'],
+                keep='first'
+            ).copy()
+            
+            all_dates = sorted(group_df['Exam Date'].unique(),
+                             key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
+            elective_data = []
+            
+            for exam_date in all_dates:
+                try:
+                    parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
+                    formatted_date = parsed_date.strftime("%A, %d %B, %Y") if pd.notna(parsed_date) else str(exam_date)
+                except:
+                    formatted_date = str(exam_date)
+                
+                oe_groups = group_df[group_df['Exam Date'] == exam_date].groupby('OE')
+                for oe_type, oe_group in oe_groups:
+                    subjects = []
+                    for _, row in oe_group.iterrows():
+                        subject_name = str(row['Module Description'])
+                        module_code = str(row.get('Module Abbreviation', ''))
+                        exam_time = str(row.get('Configured Slot', ''))
+                        cm_group = str(row.get('CM Group', '')).strip()
+                        exam_slot = row.get('Exam Slot Number', 0)
+                        
+                        subject_display = subject_name
+                        if module_code and module_code != 'nan':
+                            subject_display = f"{subject_display} - ({module_code})"
+                        if cm_group and cm_group != 'nan' and cm_group != '':
+                            try:
+                                cm_num = int(float(cm_group))
+                                subject_display = f"[CM:{cm_num}] {subject_display}"
+                            except:
+                                subject_display = f"[CM:{cm_group}] {subject_display}"
+                        subject_display = f"{subject_display} [{oe_type}]"
+                        if exam_time and exam_time != 'nan' and exam_time.strip():
+                            subject_display = f"{subject_display} ({exam_time})"
+                        if exam_slot and exam_slot != 0:
+                            subject_display = f"{subject_display} [Slot {exam_slot}]"
+                        subjects.append(subject_display)
+                    
+                    elective_data.append({
+                        'Exam Date': formatted_date,
+                        'OE Type': oe_type,
+                        'Subjects': ", ".join(sorted(set(subjects)))
+                    })
+            
+            if elective_data:
+                elective_df = pd.DataFrame(elective_data).sort_values('Exam Date')
+                excel_data[elective_sheet_name] = elective_df
+                st.success(f"Created elective sheet: {elective_sheet_name}")
     
     return excel_data
 
 def generate_pdf_from_excel_data(excel_data, output_pdf):
-    """Generate PDF from Excel data dictionary"""
+    """Generate PDF from Excel data dictionary with OE support"""
     pdf = FPDF(orientation='L', unit='mm', format='A3')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
-    
+   
     sheets_processed = 0
-    
+   
     for sheet_name, sheet_df in excel_data.items():
         if sheet_df.empty:
             continue
-        
-        # Parse sheet name to get program and semester
+       
+        is_elective = '_Electives' in sheet_name
+       
         try:
-            name_parts = sheet_name.split('_')
+            name_parts = sheet_name.replace('_Electives', '').split('_')
             sem_index = name_parts.index('Sem')
             program_parts = name_parts[:sem_index]
             program = '_'.join(program_parts) if program_parts else ''
             semester_roman = name_parts[sem_index + 1]
-            
+           
             program_norm = re.sub(r'[.\s]+', ' ', program).strip().upper()
             main_branch_full = BRANCH_FULL_FORM.get(program_norm, program_norm)
             header_content = {
-                'main_branch_full': main_branch_full, 
+                'main_branch_full': main_branch_full,
                 'semester_roman': semester_roman
             }
-            
-            # Get column structure
-            fixed_cols = ["Exam Date"]
-            stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
-            
-            if not stream_cols:
-                continue
-            
-            # Use actual number of streams
-            actual_stream_count = len(stream_cols)
-            cols_to_print = fixed_cols + stream_cols
-            
-            # Collect all unique time slots for this sheet
-            actual_time_slots = set()
-            for col in stream_cols:
-                for cell_value in sheet_df[col]:
-                    if pd.notna(cell_value) and str(cell_value) != "---":
-                        # Extract time from cell value (format: "Subject (time)")
+           
+            if is_elective:
+                required_cols = ['Exam Date', 'OE Type', 'Subjects']
+                available_cols = [col for col in required_cols if col in sheet_df.columns]
+                if len(available_cols) < 2:
+                    st.warning(f"Missing required columns in elective sheet {sheet_name}")
+                    continue
+               
+                exam_date_width = 60
+                oe_width = 30
+                subject_width = pdf.w - 20 - exam_date_width - oe_width
+                col_widths = [exam_date_width, oe_width, subject_width] if len(available_cols) == 3 else [exam_date_width, subject_width + oe_width]
+               
+                actual_time_slots = set()
+                for cell_value in sheet_df['Subjects']:
+                    if pd.notna(cell_value):
                         time_match = re.findall(r'\(([^)]+)\)', str(cell_value))
                         for match in time_match:
-                            # Check if it looks like a time
                             if any(time_str in match for time_str in ['AM', 'PM', 'am', 'pm', ':']):
                                 actual_time_slots.add(match)
-            
-            # Set column widths based on A3 size
-            exam_date_width = 60
-            remaining_width = pdf.w - 20 - exam_date_width
-            stream_width = remaining_width / actual_stream_count if actual_stream_count > 0 else remaining_width
-            col_widths = [exam_date_width] + [stream_width] * actual_stream_count
-            
-            # Add page and print table with actual streams
-            pdf.add_page()
-            print_table_custom(
-                pdf, sheet_df, cols_to_print, col_widths, 
-                line_height=10, header_content=header_content, 
-                branches=stream_cols, actual_time_slots=actual_time_slots
-            )
-            
-            sheets_processed += 1
-            
+               
+                pdf.add_page()
+                print_table_custom(
+                    pdf, sheet_df, available_cols, col_widths,
+                    line_height=10, header_content=header_content,
+                    branches=['All Streams'], actual_time_slots=actual_time_slots
+                )
+                sheets_processed += 1
+               
+            else:
+                fixed_cols = ["Exam Date"]
+                stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
+                if not stream_cols:
+                    continue
+               
+                actual_stream_count = len(stream_cols)
+                cols_to_print = fixed_cols + stream_cols
+               
+                actual_time_slots = set()
+                for col in stream_cols:
+                    for cell_value in sheet_df[col]:
+                        if pd.notna(cell_value) and str(cell_value) != "---":
+                            time_match = re.findall(r'\(([^)]+)\)', str(cell_value))
+                            for match in time_match:
+                                if any(time_str in match for time_str in ['AM', 'PM', 'am', 'pm', ':']):
+                                    actual_time_slots.add(match)
+               
+                exam_date_width = 60
+                remaining_width = pdf.w - 20 - exam_date_width
+                stream_width = remaining_width / actual_stream_count if actual_stream_count > 0 else remaining_width
+                col_widths = [exam_date_width] + [stream_width] * actual_stream_count
+               
+                pdf.add_page()
+                print_table_custom(
+                    pdf, sheet_df, cols_to_print, col_widths,
+                    line_height=10, header_content=header_content,
+                    branches=stream_cols, actual_time_slots=actual_time_slots
+                )
+                sheets_processed += 1
+           
         except Exception as e:
             st.warning(f"Error processing sheet {sheet_name}: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
             continue
-    
+   
     if sheets_processed == 0:
         st.error("No sheets were processed for PDF generation!")
         return False
-    
+   
     try:
         pdf.output(output_pdf)
         st.success(f"PDF generated successfully with {sheets_processed} pages")
@@ -779,12 +827,11 @@ def generate_pdf_from_excel_data(excel_data, output_pdf):
 def main():
     st.markdown("""
     <div class="main-header">
-        <h1>📅 Excel to PDF Timetable Converter</h1>
+        <h1>Excel to PDF Timetable Converter</h1>
         <p>Convert Excel verification files to formatted PDF timetables</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Initialize session state
     if 'pdf_data' not in st.session_state:
         st.session_state.pdf_data = None
     if 'processing_complete' not in st.session_state:
@@ -792,224 +839,113 @@ def main():
     if 'selected_college' not in st.session_state:
         st.session_state.selected_college = 'SVKM\'s NMIMS University'
 
-    # Sidebar for college selection
     with st.sidebar:
-        st.header("⚙️ Settings")
-        
+        st.header("Settings")
         college_options = [
             'SVKM\'s NMIMS University',
             'MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING',
             'SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING',
             'Custom College Name'
         ]
-        
-        selected_college = st.selectbox(
-            "Select College Name",
-            college_options,
-            index=0
-        )
-        
+        selected_college = st.selectbox("Select College Name", college_options, index=0)
         if selected_college == 'Custom College Name':
             custom_college = st.text_input("Enter Custom College Name", "")
-            if custom_college:
-                st.session_state.selected_college = custom_college
-            else:
-                st.session_state.selected_college = 'SVKM\'s NMIMS University'
+            st.session_state.selected_college = custom_college if custom_college else 'SVKM\'s NMIMS University'
         else:
             st.session_state.selected_college = selected_college
 
     col1, col2 = st.columns([2, 1])
-
     with col1:
         st.markdown("""
         <div class="upload-section">
-            <h3>📁 Upload Excel Verification File</h3>
+            <h3>Upload Excel Verification File</h3>
             <p>Upload your verification Excel file with Exam Date and Exam Time columns</p>
         </div>
         """, unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader(
-            "Choose an Excel file",
-            type=['xlsx', 'xls'],
-            help="Upload the Excel verification file containing exam dates and times"
-        )
-
+        uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
         if uploaded_file is not None:
-            st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
-
-            file_details = {
-                "Filename": uploaded_file.name,
-                "File size": f"{uploaded_file.size / 1024:.2f} KB",
-                "File type": uploaded_file.type
-            }
-
+            st.markdown('<div class="status-success">File uploaded successfully!</div>', unsafe_allow_html=True)
             st.markdown("#### File Details:")
-            for key, value in file_details.items():
-                st.write(f"**{key}:** {value}")
+            st.write(f"**Filename:** {uploaded_file.name}")
+            st.write(f"**File size:** {uploaded_file.size / 1024:.2f} KB")
 
     with col2:
         st.markdown("""
         <div class="feature-card">
-            <h4>🚀 Features</h4>
+            <h4>Features</h4>
             <ul>
-                <li>📊 Direct Excel to PDF conversion</li>
-                <li>📅 Preserves exam dates and times</li>
-                <li>🎯 Program and stream grouping</li>
-                <li>📝 Professional PDF formatting</li>
-                <li>🏫 Customizable college header</li>
-                <li>📋 Automatic page management</li>
-                <li>⚡ Supports CM Groups & Slots</li>
-                <li>📱 Mobile-friendly interface</li>
+                <li>Direct Excel to PDF conversion</li>
+                <li>Preserves exam dates and times</li>
+                <li>Program and stream grouping</li>
+                <li>Professional PDF formatting</li>
+                <li>Customizable college header</li>
+                <li>Automatic page management</li>
+                <li>Supports CM Groups & Slots</li>
+                <li>Handles Open Electives (OE)</li>
+                <li>Mobile-friendly interface</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
-        if st.button("🔄 Convert to PDF", type="primary", use_container_width=True):
-            with st.spinner("Converting your Excel file to PDF... Please wait..."):
-                try:
-                    # Read the Excel file
-                    df = read_verification_excel(uploaded_file)
-                    
-                    if df is not None:
-                        st.write(f"📊 Processing {len(df)} records from Excel file...")
-                        
-                        # Show preview of data
-                        with st.expander("📋 Data Preview (First 5 rows)"):
-                            st.dataframe(df.head())
-                        
-                        # Create Excel sheets format for PDF
-                        excel_data = create_excel_sheets_for_pdf(df)
-                        
-                        if excel_data:
-                            st.write(f"📋 Created {len(excel_data)} sheets for PDF generation")
-                            
-                            # Generate PDF
-                            temp_pdf_path = "temp_timetable_conversion.pdf"
-                            
-                            if generate_pdf_from_excel_data(excel_data, temp_pdf_path):
-                                # Read the generated PDF
-                                if os.path.exists(temp_pdf_path):
-                                    with open(temp_pdf_path, "rb") as f:
-                                        st.session_state.pdf_data = f.read()
-                                    os.remove(temp_pdf_path)
-                                    
-                                    st.session_state.processing_complete = True
-                                    
-                                    st.markdown('<div class="status-success">🎉 PDF conversion completed successfully!</div>',
-                                              unsafe_allow_html=True)
-                                    
-                                    # Show statistics
-                                    total_records = len(df)
-                                    unique_programs = df['Program'].nunique()
-                                    unique_streams = df['Stream'].nunique() 
-                                    unique_sessions = df['Current Session'].nunique()
-                                    unique_dates = df['Exam Date'].nunique()
-                                    
-                                    st.success(f"📊 Conversion Summary:")
-                                    st.info(f"• Total Records: {total_records}")
-                                    st.info(f"• Programs: {unique_programs}")
-                                    st.info(f"• Streams: {unique_streams}")
-                                    st.info(f"• Sessions: {unique_sessions}")
-                                    st.info(f"• Unique Exam Dates: {unique_dates}")
-                                    st.info(f"• PDF Sheets Generated: {len(excel_data)}")
-                                else:
-                                    st.error("PDF file was not created successfully")
-                            else:
-                                st.error("Failed to generate PDF")
+        if st.button("Convert to PDF", type="primary", use_container_width=True):
+            with st.spinner("Converting..."):
+                df = read_verification_excel(uploaded_file)
+                if df is not None:
+                    with st.expander("Data Preview"):
+                        st.dataframe(df.head())
+                    excel_data = create_excel_sheets_for_pdf(df)
+                    if excel_data:
+                        temp_pdf_path = "temp_timetable_conversion.pdf"
+                        if generate_pdf_from_excel_data(excel_data, temp_pdf_path):
+                            with open(temp_pdf_path, "rb") as f:
+                                st.session_state.pdf_data = f.read()
+                            os.remove(temp_pdf_path)
+                            st.session_state.processing_complete = True
+                            st.success("PDF conversion completed!")
                         else:
-                            st.error("No valid data found for PDF generation")
+                            st.error("Failed to generate PDF")
                     else:
-                        st.error("Failed to read Excel file. Please check the format and required columns.")
-                        
-                except Exception as e:
-                    st.error(f"An error occurred during conversion: {str(e)}")
-                    import traceback
-                    st.error(f"Full error details: {traceback.format_exc()}")
+                        st.error("No valid data for PDF")
+                else:
+                    st.error("Failed to read Excel")
 
-    # Display results and download option
     if st.session_state.processing_complete and st.session_state.pdf_data:
         st.markdown("---")
-        
-        st.markdown("### 📥 Download PDF")
-        
+        st.markdown("### Download PDF")
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             st.download_button(
-                label="📄 Download PDF Timetable",
+                label="Download PDF Timetable",
                 data=st.session_state.pdf_data,
                 file_name=f"timetable_converted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
-        
         with col2:
-            if st.button("🔄 Convert Another File", use_container_width=True):
+            if st.button("Convert Another File", use_container_width=True):
                 st.session_state.processing_complete = False
                 st.session_state.pdf_data = None
                 st.rerun()
-        
         with col3:
-            if st.session_state.pdf_data:
-                pdf_size = len(st.session_state.pdf_data) / 1024
-                st.metric("PDF Size", f"{pdf_size:.1f} KB")
-        
-        st.markdown("### 👁️ Conversion Details")
-        
-        if uploaded_file is not None:
-            try:
-                preview_df = read_verification_excel(uploaded_file)
-                if preview_df is not None:
-                    st.markdown("#### 📊 Data Organization")
-                    
-                    grouping_info = preview_df.groupby(['Program', 'Stream', 'Current Session']).size().reset_index(name='Count')
-                    st.dataframe(grouping_info, use_container_width=True)
-                    
-                    st.markdown("#### 📅 Exam Date Distribution")
-                    
-                    date_dist = preview_df['Exam Date'].value_counts().sort_index()
-                    st.bar_chart(date_dist)
-                    
-            except Exception as e:
-                st.warning(f"Could not generate preview: {str(e)}")
-    
-    # Instructions and help
+            pdf_size = len(st.session_state.pdf_data) / 1024
+            st.metric("PDF Size", f"{pdf_size:.1f} KB")
+
     st.markdown("---")
-    st.markdown("### 📋 Instructions")
-    
+    st.markdown("### Instructions")
     col1, col2 = st.columns(2)
-    
     with col1:
         st.markdown("""
-        #### 📌 Required Excel Columns:
-        - **Program**: B TECH, M TECH, etc.
-        - **Stream**: IT, COMPUTER, etc. 
-        - **Current Session**: Sem 1, Sem 2, etc.
-        - **Module Description**: Subject name
-        - **Exam Date**: Date format (DD-MM-YYYY)
-        - **Configured Slot**: Exam time slot
+        #### Required Excel Columns:
+        - **Program**, **Stream**, **Current Session**
+        - **Module Description**, **Exam Date**, **Configured Slot**
         """)
-    
     with col2:
         st.markdown("""
-        #### ✨ Optional Columns:
-        - **Module Abbreviation**: Subject code
-        - **CM Group**: Common module group number
-        - **Exam Slot Number**: Slot identifier
-        - **Student count**: Number of students
-        - **Campus**: Campus name
+        #### Optional:
+        - **Module Abbreviation**, **CM Group**, **Exam Slot Number**
+        - **OE**, **OE Type**, or **[OE1]** in subject name
         """)
-
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; padding: 2rem; color: #666;">
-        <p><strong>📄 Excel to PDF Timetable Converter</strong></p>
-        <p>Convert verification Excel files to professionally formatted PDF timetables</p>
-        <p style="font-size: 0.9em;">Direct conversion • Professional formatting • Custom branding • Automatic organization</p>
-    </div>
-    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
