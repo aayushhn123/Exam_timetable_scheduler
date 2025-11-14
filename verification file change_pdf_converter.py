@@ -621,33 +621,33 @@ def read_verification_excel(uploaded_file):
 
 def create_excel_sheets_for_pdf(df):
     """Convert verification data to Excel sheet format for PDF generation with OE support"""
-    
+   
     # Parse Program-Stream combination
     def parse_program_stream(row):
         program = str(row['Program']).strip().upper()
         stream = str(row['Stream']).strip()
-        
+       
         # Create combined identifier
         if stream and stream != 'nan' and stream != program:
             return f"{program}-{stream}"
         else:
             return program
-    
+   
     df['Branch'] = df.apply(parse_program_stream, axis=1)
-    
+   
     # Parse semester to get number
     def parse_semester(session_str):
         if pd.isna(session_str):
             return 1
-        
+       
         session_str = str(session_str).strip()
-        
+       
         # Extract number from various formats
         import re
         num_match = re.search(r'(\d+)', session_str)
         if num_match:
             return int(num_match.group(1))
-        
+       
         # Try Roman numerals
         roman_to_num = {
             'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
@@ -656,65 +656,65 @@ def create_excel_sheets_for_pdf(df):
         for roman, num in roman_to_num.items():
             if roman in session_str.upper():
                 return num
-        
+       
         return 1
-    
+   
     df['Semester'] = df['Current Session'].apply(parse_semester)
-    
+   
     # Group by main program and semester
     def get_main_program(branch):
         # Extract main program part before dash
         if '-' in branch:
             return branch.split('-')[0].strip()
         return branch
-    
+   
     df['MainBranch'] = df['Branch'].apply(get_main_program)
-    
+   
     # Extract SubBranch (stream)
     def get_sub_branch(branch):
         if '-' in branch:
             parts = branch.split('-', 1)
             return parts[1].strip() if len(parts) > 1 else ""
         return ""
-    
+   
     df['SubBranch'] = df['Branch'].apply(get_sub_branch)
-    
+   
     # If no subbranch, use main branch
     df.loc[df['SubBranch'] == "", 'SubBranch'] = df.loc[df['SubBranch'] == "", 'MainBranch']
-    
+   
     # Separate non-electives and electives
     df_non_elec = df[df['OE'] == ""].copy()
     df_elec = df[df['OE'] != ""].copy()
-    
+   
     excel_data = {}
-    
+   
     # Process NON-ELECTIVES
     for (main_branch, semester), group_df in df_non_elec.groupby(['MainBranch', 'Semester']):
-        
+       
         # Get all unique sub-branches (streams)
         all_sub_branches = sorted(group_df['SubBranch'].unique())
-        
+       
         # Split into groups of 4 branches per page
         branches_per_page = 4
-        
+       
         for page_num, i in enumerate(range(0, len(all_sub_branches), branches_per_page), start=1):
             sub_branches = all_sub_branches[i:i + branches_per_page]
-            
+           
             # Create sheet name
             roman_sem = int_to_roman(semester)
             if len(all_sub_branches) > branches_per_page:
                 sheet_name = f"{main_branch}_Sem_{roman_sem}_Part{page_num}"
             else:
                 sheet_name = f"{main_branch}_Sem_{roman_sem}"
-            
+           
             if len(sheet_name) > 31:
                 sheet_name = sheet_name[:31]
-            
+           
             # Get all unique exam dates for this group
             all_dates = sorted(group_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-            
+           
             processed_data = []
-            
+           
             for exam_date in all_dates:
                 # Format date
                 try:
@@ -725,32 +725,32 @@ def create_excel_sheets_for_pdf(df):
                         formatted_date = str(exam_date)
                 except:
                     formatted_date = str(exam_date)
-                
+               
                 row_data = {'Exam Date': formatted_date}
-                
+               
                 # For each sub-branch in this page group
                 for sub_branch in sub_branches:
                     subjects_on_date = group_df[
-                        (group_df['Exam Date'] == exam_date) & 
+                        (group_df['Exam Date'] == exam_date) &
                         (group_df['SubBranch'] == sub_branch)
                     ]
-                    
+                   
                     if not subjects_on_date.empty:
                         subjects = []
                         for _, row in subjects_on_date.iterrows():
                             subject_name = str(row['Module Description'])
                             module_code = str(row.get('Module Abbreviation', ''))
-                            exam_time = str(row.get('Configured Slot', ''))  # Use Configured Slot
+                            exam_time = str(row.get('Configured Slot', '')) # Use Configured Slot
                             cm_group = str(row.get('CM Group', '')).strip()
                             exam_slot = row.get('Exam Slot Number', 0)
-                            
+                           
                             # Build subject display (non-OE, so no OE tag)
                             subject_display = subject_name
-                            
+                           
                             # Add module code if present
                             if module_code and module_code != 'nan':
                                 subject_display = f"{subject_display} - ({module_code})"
-                            
+                           
                             # Add CM Group prefix if present
                             if cm_group and cm_group != 'nan' and cm_group != '':
                                 try:
@@ -758,55 +758,61 @@ def create_excel_sheets_for_pdf(df):
                                     subject_display = f"[CM:{cm_num}] {subject_display}"
                                 except:
                                     subject_display = f"[CM:{cm_group}] {subject_display}"
-                            
+                           
                             # Add exam time from Configured Slot
                             if exam_time and exam_time != 'nan' and exam_time.strip():
                                 subject_display = f"{subject_display} ({exam_time})"
-                            
+                           
                             # Add slot number if present
                             if exam_slot and exam_slot != 0:
                                 subject_display = f"{subject_display} [Slot {exam_slot}]"
-                            
+                           
                             subjects.append(subject_display)
-                        
+                       
                         # Join multiple subjects with line breaks
                         row_data[sub_branch] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
                     else:
                         # No subjects for this stream on this date
                         row_data[sub_branch] = "---"
-                
+               
                 processed_data.append(row_data)
-            
+           
             # Convert to DataFrame
             if processed_data:
                 sheet_df = pd.DataFrame(processed_data)
-                
+               
                 # Reorder columns to have Exam Date first, then the streams in order
                 column_order = ['Exam Date'] + sub_branches
                 sheet_df = sheet_df[column_order]
-                
+               
                 # Fill any missing cells with "---"
                 sheet_df = sheet_df.fillna("---")
-                
+               
                 excel_data[sheet_name] = sheet_df
-    
-    # Process ELECTIVES (OE)
+   
+    # Process ELECTIVES (OE) — ONLY WHERE Subject Type == 'OE'
     for (main_branch, semester), group_df in df_elec.groupby(['MainBranch', 'Semester']):
+       
+        # === FILTER: Only keep rows where Subject Type is exactly 'OE' ===
+        group_df = group_df[group_df['Subject Type'] == 'OE'].copy()
         
+        if group_df.empty:
+            continue  # Skip if no actual OE subjects
+
         # Get all unique sub-branches (streams) for branches info
         all_sub_branches = sorted(group_df['SubBranch'].unique())
-        
+       
         # Create sheet name for OE
         roman_sem = int_to_roman(semester)
         sheet_name = f"{main_branch}_Sem_{roman_sem}_OE"
         if len(sheet_name) > 31:
             sheet_name = sheet_name[:31]
-        
+       
         # Get all unique exam dates for OE
         all_dates = sorted(group_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-        
+       
         processed_data = []
-        
+       
         for exam_date in all_dates:
             # Format date
             try:
@@ -817,9 +823,11 @@ def create_excel_sheets_for_pdf(df):
                     formatted_date = str(exam_date)
             except:
                 formatted_date = str(exam_date)
-            
+           
             # Group OE by OE Type and Date
             oe_on_date = group_df[group_df['Exam Date'] == exam_date]
+            
+            # === FIXED: Removed incorrect unpacking (oe_type, _) ===
             for oe_type, oe_group in oe_on_date.groupby('OE'):
                 subjects = []
                 for _, row in oe_group.iterrows():
@@ -828,14 +836,14 @@ def create_excel_sheets_for_pdf(df):
                     exam_time = str(row.get('Configured Slot', ''))
                     cm_group = str(row.get('CM Group', '')).strip()
                     exam_slot = row.get('Exam Slot Number', 0)
-                    
+                   
                     # Build subject display for OE
                     subject_display = f"{subject_name} [{oe_type}]"
-                    
+                   
                     # Add module code if present
                     if module_code and module_code != 'nan':
                         subject_display = f"{subject_display} - ({module_code})"
-                    
+                   
                     # Add CM Group prefix if present
                     if cm_group and cm_group != 'nan' and cm_group != '':
                         try:
@@ -843,20 +851,20 @@ def create_excel_sheets_for_pdf(df):
                             subject_display = f"[CM:{cm_num}] {subject_display}"
                         except:
                             subject_display = f"[CM:{cm_group}] {subject_display}"
-                    
+                   
                     # Add exam time from Configured Slot
                     if exam_time and exam_time != 'nan' and exam_time.strip():
                         subject_display = f"{subject_display} ({exam_time})"
-                    
+                   
                     # Add slot number if present
                     if exam_slot and exam_slot != 0:
                         subject_display = f"{subject_display} [Slot {exam_slot}]"
-                    
+                   
                     subjects.append(subject_display)
-                
+               
                 # Join subjects for this OE type
                 subjects_joined = ", ".join(subjects) if len(subjects) > 1 else subjects[0]
-                
+               
                 # Add row: Exam Date | OE Type | Subjects
                 row_data = {
                     'Exam Date': formatted_date,
@@ -864,13 +872,13 @@ def create_excel_sheets_for_pdf(df):
                     'Subjects': subjects_joined
                 }
                 processed_data.append(row_data)
-        
+       
         # Convert to DataFrame for OE
         if processed_data:
             sheet_df = pd.DataFrame(processed_data)
             sheet_df = sheet_df.fillna("---")
             excel_data[sheet_name] = sheet_df
-    
+   
     return excel_data
 
 def generate_pdf_from_excel_data(excel_data, output_pdf):
