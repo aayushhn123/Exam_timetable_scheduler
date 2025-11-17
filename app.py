@@ -476,6 +476,39 @@ def show_college_selector():
     st.markdown("### Choose Your School")
     st.markdown("Select the school for which you want to generate the exam timetable:")
 
+    # Add custom CSS for uniform college selector buttons
+    st.markdown("""
+    <style>
+        /* Target all buttons in the college selector section */
+        .stButton > button {
+            height: 140px !important;
+            min-height: 140px !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            padding: 1.2rem 0.8rem !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            text-align: center !important;
+            font-size: 0.95rem !important;
+            line-height: 1.4 !important;
+            overflow: hidden !important;
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 8px 20px rgba(149, 28, 28, 0.4) !important;
+        }
+        
+        /* Ensure icon is displayed properly */
+        .stButton > button::first-line {
+            font-size: 2rem !important;
+            line-height: 2 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     # Create columns for better layout (3 colleges per row)
     cols_per_row = 3
     num_colleges = len(COLLEGES)
@@ -506,7 +539,6 @@ def show_college_selector():
         </p>
     </div>
     """, unsafe_allow_html=True)
-
 
 # Set page configuration
 st.set_page_config(
@@ -4550,6 +4582,8 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+
 
 
 
