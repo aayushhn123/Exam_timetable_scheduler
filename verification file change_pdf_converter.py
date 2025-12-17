@@ -4,12 +4,12 @@ from datetime import datetime, timedelta
 from fpdf import FPDF
 import os
 import io
-from PyPDF2 import PdfReader, PdfWriter
 import re
+from PyPDF2 import PdfReader, PdfWriter
 
 # Set page configuration
 st.set_page_config(
-    page_title="Excel to PDF Timetable Converter",
+    page_title="Timetable PDF Generator (From Verification)",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -29,51 +29,49 @@ else:
 def show_exams_breakdown(df):
     st.markdown(f"### Total Scheduled Exams: **{len(df)}**")
     
-    tab1, tab2 = st.tabs(["📊 By Subject Type", "🌿 By Program"])
+    tab1, tab2 = st.tabs(["📊 By Category", "🌿 By Branch"])
     
     with tab1:
-        # Breakdown by OE vs Core
-        if 'Subject Type' in df.columns:
-            type_counts = df['Subject Type'].replace('', 'Core').value_counts().reset_index()
-            type_counts.columns = ['Type', 'Count']
-            st.dataframe(type_counts, use_container_width=True, hide_index=True)
+        if 'OE' in df.columns:
+            # Create a category column for display
+            df['Category'] = df['OE'].apply(lambda x: 'Elective (OE)' if pd.notna(x) and str(x).strip() != '' else 'Core')
+            cat_counts = df['Category'].value_counts().reset_index()
+            cat_counts.columns = ['Category', 'Count']
+            st.dataframe(cat_counts, use_container_width=True, hide_index=True)
             
     with tab2:
-        if 'Program' in df.columns:
-            prog_counts = df['Program'].value_counts().reset_index()
-            prog_counts.columns = ['Program', 'Exam Count']
-            st.dataframe(prog_counts, use_container_width=True, hide_index=True)
+        if 'MainBranch' in df.columns:
+            branch_counts = df['MainBranch'].value_counts().reset_index()
+            branch_counts.columns = ['Branch', 'Exam Count']
+            st.dataframe(branch_counts, use_container_width=True, hide_index=True)
 
 @dialog_decorator("🎓 Semesters Breakdown")
 def show_semesters_breakdown(df):
-    if 'Semester' in df.columns:
-        unique_sems = sorted(df['Semester'].unique())
-        st.write(f"**Active Semesters:** {', '.join(map(str, unique_sems))}")
-        
-        sem_counts = df['Semester'].value_counts().sort_index().reset_index()
-        sem_counts.columns = ['Semester', 'Subject Count']
-        
-        st.dataframe(
-            sem_counts,
-            column_config={
-                "Subject Count": st.column_config.ProgressColumn(
-                    "Subject Count",
-                    format="%d",
-                    min_value=0,
-                    max_value=int(sem_counts['Subject Count'].max()),
-                ),
-            },
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.warning("Semester information not available yet.")
+    unique_sems = sorted(df['Semester'].unique())
+    st.write(f"**Active Semesters:** {', '.join(map(str, unique_sems))}")
+    
+    sem_counts = df['Semester'].value_counts().sort_index().reset_index()
+    sem_counts.columns = ['Semester', 'Subject Count']
+    
+    st.dataframe(
+        sem_counts,
+        column_config={
+            "Subject Count": st.column_config.ProgressColumn(
+                "Subject Count",
+                format="%d",
+                min_value=0,
+                max_value=int(sem_counts['Subject Count'].max()),
+            ),
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
 
 @dialog_decorator("🏫 Programs & Streams Breakdown")
 def show_programs_streams_breakdown(df):
     # Get lists of programs and streams
-    programs = sorted(df['Program'].dropna().unique()) if 'Program' in df.columns else []
-    streams = sorted(df['Stream'].dropna().unique()) if 'Stream' in df.columns else []
+    programs = sorted(df['MainBranch'].dropna().unique()) if 'MainBranch' in df.columns else []
+    streams = sorted(df['SubBranch'].dropna().unique()) if 'SubBranch' in df.columns else []
     
     # Summary Metrics
     col1, col2 = st.columns(2)
@@ -86,10 +84,10 @@ def show_programs_streams_breakdown(df):
     tab1, tab2 = st.tabs(["📂 Grouped by Program", "💧 All Streams List"])
     
     with tab1:
-        if 'Program' in df.columns and 'Stream' in df.columns:
+        if 'MainBranch' in df.columns and 'SubBranch' in df.columns:
             for prog in programs:
                 # Find streams belonging to this program
-                prog_streams = df[df['Program'] == prog]['Stream'].dropna().unique()
+                prog_streams = df[df['MainBranch'] == prog]['SubBranch'].dropna().unique()
                 prog_streams = [s for s in prog_streams if str(s).strip() != '']
                 
                 with st.expander(f"**{prog}** ({len(prog_streams)} Streams)"):
@@ -97,7 +95,7 @@ def show_programs_streams_breakdown(df):
                         for s in sorted(prog_streams):
                             st.caption(f"• {s}")
                     else:
-                        st.caption("No specific streams defined.")
+                        st.caption("No specific streams defined (General).")
     
     with tab2:
         search = st.text_input("🔍 Search Streams", placeholder="Type stream name...")
@@ -142,150 +140,11 @@ def show_span_breakdown(df):
     st.bar_chart(data=daily, x='Date', y='Count')
 
 # ==========================================
-# END DIALOGS
+# CONSTANTS & CONFIG
 # ==========================================
 
-# Custom CSS for consistent dark and light mode styling
-st.markdown("""
-<style>
-    /* Base styles */
-    .main-header {
-        padding: 2rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-    }
+LOGO_PATH = "logo.png"
 
-    .main-header h1 {
-        color: white;
-        text-align: center;
-        margin: 0;
-        font-size: 2.5rem;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-
-    .main-header p {
-        color: #FFF;
-        text-align: center;
-        margin: 0.5rem 0 0 0;
-        font-size: 1.2rem;
-        opacity: 0.9;
-    }
-
-    /* Stats Button Styling */
-    div.row-widget.stButton > button {
-        width: 100%;
-        padding: 1rem;
-        height: auto;
-        min-height: 120px;
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.1);
-        background: linear-gradient(135deg, #4a5db0 0%, #764ba2 100%);
-        color: white;
-        text-align: center;
-        transition: transform 0.2s;
-    }
-    div.row-widget.stButton > button:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-        border-color: rgba(255,255,255,0.5);
-        color: white !important;
-    }
-    div.row-widget.stButton > button p {
-        font-size: 1.8rem !important;
-        font-weight: 700 !important;
-        margin-bottom: 0.2rem !important;
-        line-height: 1.2 !important;
-    }
-    div.row-widget.stButton > button div p:last-child {
-        font-size: 0.9rem !important;
-        opacity: 0.9;
-        font-weight: 500 !important;
-        text-transform: uppercase;
-    }
-
-    /* Light mode styles */
-    @media (prefers-color-scheme: light) {
-        .main-header {
-            background: linear-gradient(90deg, #951C1C, #C73E1D);
-        }
-
-        .upload-section {
-            background: #f8f9fa;
-            padding: 2rem;
-            border-radius: 10px;
-            border: 2px dashed #951C1C;
-            margin: 1rem 0;
-        }
-
-        .results-section {
-            background: #ffffff;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin: 1rem 0;
-        }
-
-        .status-success {
-            background: #d4edda;
-            color: #155724;
-            padding: 1rem;
-            border-radius: 5px;
-            border-left: 4px solid #28a745;
-        }
-
-        .feature-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin: 1rem 0;
-            border-left: 4px solid #951C1C;
-        }
-    }
-
-    /* Dark mode styles */
-    @media (prefers-color-scheme: dark) {
-        .main-header {
-            background: linear-gradient(90deg, #701515, #A23217);
-        }
-
-        .upload-section {
-            background: #333;
-            padding: 2rem;
-            border-radius: 10px;
-            border: 2px dashed #A23217;
-            margin: 1rem 0;
-        }
-
-        .results-section {
-            background: #222;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            margin: 1rem 0;
-        }
-
-        .status-success {
-            background: #2d4b2d;
-            color: #e6f4ea;
-            padding: 1rem;
-            border-radius: 5px;
-            border-left: 4px solid #4caf50;
-        }
-
-        .feature-card {
-            background: #333;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            margin: 1rem 0;
-            border-left: 4px solid #A23217;
-        }
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
     "B TECH": "BACHELOR OF TECHNOLOGY",
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
@@ -295,20 +154,30 @@ BRANCH_FULL_FORM = {
     "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
 
-# Define logo path
-LOGO_PATH = "logo.png"
+# ==========================================
+# 🛠️ HELPER FUNCTIONS
+# ==========================================
 
-# Cache for text wrapping results
-wrap_text_cache = {}
+def calculate_end_time(start_time, duration_hours):
+    """Calculate the end time given a start time and duration in hours."""
+    try:
+        start_time = str(start_time).strip()
+        if "AM" in start_time.upper() or "PM" in start_time.upper():
+            start = datetime.strptime(start_time, "%I:%M %p")
+        else:
+            start = datetime.strptime(start_time, "%H:%M")
+        
+        duration = timedelta(hours=float(duration_hours))
+        end = start + duration
+        return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
+    except Exception:
+        return f"{start_time} + {duration_hours}h"
 
 def wrap_text(pdf, text, col_width):
-    cache_key = (text, col_width)
-    if cache_key in wrap_text_cache:
-        return wrap_text_cache[cache_key]
-    
+    # Simple wrapper used in PDF generation
     lines = []
     current_line = ""
-    words = re.split(r'(\s+)', text)
+    words = re.split(r'(\s+)', str(text))
     for word in words:
         test_line = current_line + word
         if pdf.get_string_width(test_line) <= col_width:
@@ -319,7 +188,6 @@ def wrap_text(pdf, text, col_width):
             current_line = word
     if current_line:
         lines.append(current_line.strip())
-    wrap_text_cache[cache_key] = lines
     return lines
 
 def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
@@ -349,6 +217,11 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
 
     row_h = line_height * max_lines
     x0, y0 = pdf.get_x(), pdf.get_y()
+    
+    # Check for page break before printing row
+    if y0 + row_h > pdf.h - 25: # 25 is footer height
+        return False # Signal to add new page
+
     if header or row_number % 2 == 1:
         pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
@@ -363,32 +236,25 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
 
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
+    return True
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, branches=None, time_slot=None, actual_time_slots=None, declaration_date=None):
-    if df.empty:
-        return
-    setattr(pdf, '_row_counter', 0)
-    
-    # Add footer first
-    footer_height = 25
+def add_footer_with_page_number(pdf, footer_height):
     pdf.set_xy(10, pdf.h - footer_height)
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
     pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
     
-    # Add page numbers in bottom right
     pdf.set_font("Arial", size=14)
     pdf.set_text_color(0, 0, 0)
     page_text = f"{pdf.page_no()} of {{nb}}"
     text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
     pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
     pdf.cell(text_width, 5, page_text, 0, 0, 'R')
-    
-    # Add header
-    header_height = 95
+
+def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None, declaration_date=None):
     pdf.set_y(0)
     
-    # NEW: Declaration Date at Top Right
+    # NEW: Print Declaration Date at Top Right
     if declaration_date:
         pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(0, 0, 0)
@@ -396,18 +262,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_xy(pdf.w - 60, 10)
         pdf.cell(50, 10, decl_str, 0, 0, 'R')
 
-    logo_width = 45
-    logo_x = (pdf.w - logo_width) / 2
     if os.path.exists(LOGO_PATH):
         pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
     
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
     
-    # Get selected college name from session state
     college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
     
-    # Adjust font size based on college name length
     if len(college_name) > 80:
         pdf.set_font("Arial", 'B', 12)
     elif len(college_name) > 60:
@@ -424,610 +286,89 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # Display actual time slots used
-    if actual_time_slots and len(actual_time_slots) > 0:
+    # SIMPLE TIME SLOT DISPLAY (MATCHING YOUR REQUIREMENT)
+    if time_slot:
         pdf.set_font("Arial", 'B', 13)
         pdf.set_xy(10, 59)
-        
-        if len(actual_time_slots) == 1:
-            slot_text = f"Exam Time: {list(actual_time_slots)[0]}"
-        else:
-            sorted_slots = sorted(actual_time_slots)
-            slot_text = f"Exam Times: {' | '.join(sorted_slots)}"
-        
-        pdf.cell(pdf.w - 20, 6, slot_text, 0, 1, 'C')
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(85)
-    elif time_slot:
-        pdf.set_font("Arial", 'B', 14)
-        pdf.set_xy(10, 59)
         pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
+        
         pdf.set_font("Arial", 'I', 10)
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(85)
     else:
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         pdf.set_font("Arial", '', 12)
         pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(71)
+        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
+        pdf.set_y(75)
+
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
+    if df.empty: return
+    setattr(pdf, '_row_counter', 0)
     
-    # Calculate available space
-    available_height = pdf.h - pdf.t_margin - footer_height - header_height
-    pdf.set_font("Arial", size=12)
+    footer_height = 25
+    add_footer_with_page_number(pdf, footer_height)
+    
+    logo_width = 45
+    logo_x = (pdf.w - logo_width) / 2
+    add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots, declaration_date)
     
     # Print header row
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
-    # Print data rows
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
-        if not any(cell.strip() for cell in row):
-            continue
-            
-        # Estimate row height
-        wrapped_cells = []
-        max_lines = 0
-        for i, cell_text in enumerate(row):
-            text = str(cell_text) if cell_text is not None else ""
-            avail_w = col_widths[i] - 4
-            lines = wrap_text(pdf, text, avail_w)
-            wrapped_cells.append(lines)
-            max_lines = max(max_lines, len(lines))
-        row_h = line_height * max_lines
+        if not any(cell.strip() for cell in row): continue
         
-        # Check if row fits
-        if pdf.get_y() + row_h > pdf.h - footer_height:
-            # Add footer to current page
-            add_footer_with_page_number(pdf, footer_height)
-            
-            # Start new page
+        # Try printing row. If returns False (page full), add new page.
+        if not print_row_custom(pdf, row, col_widths, line_height=line_height, header=False):
             pdf.add_page()
             add_footer_with_page_number(pdf, footer_height)
-            
-            # Add header to new page
-            add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot, actual_time_slots, declaration_date)
-            
-            # Reprint header row
-            pdf.set_font("Arial", size=12)
+            add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots, declaration_date)
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
-        
-        print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
+            print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-def add_footer_with_page_number(pdf, footer_height):
-    """Add footer with signature and page number"""
-    pdf.set_xy(10, pdf.h - footer_height)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
-    
-    # Add page numbers in bottom right
-    pdf.set_font("Arial", size=14)
-    pdf.set_text_color(0, 0, 0)
-    page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
-    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
-    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
+# ==========================================
+# 📄 PDF GENERATION LOGIC
+# ==========================================
 
-def add_header_to_page(pdf, logo_x, logo_width, header_content, branches, time_slot=None, actual_time_slots=None, declaration_date=None):
-    """Add header to a new page"""
-    pdf.set_y(0)
-    
-    # NEW: Declaration Date
-    if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
-        pdf.set_text_color(0, 0, 0)
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
-        pdf.set_xy(pdf.w - 60, 10)
-        pdf.cell(50, 10, decl_str, 0, 0, 'R')
-
-    if os.path.exists(LOGO_PATH):
-        pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-    
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    
-    # Get selected college name
-    college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
-    
-    # Adjust font size
-    if len(college_name) > 80:
-        pdf.set_font("Arial", 'B', 12)
-    elif len(college_name) > 60:
-        pdf.set_font("Arial", 'B', 14)
-    else:
-        pdf.set_font("Arial", 'B', 16)
-    
-    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
-    
-    pdf.set_font("Arial", 'B', 15)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(10, 51)
-    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    # Display time slots
-    if actual_time_slots and len(actual_time_slots) > 0:
-        pdf.set_font("Arial", 'B', 13)
-        pdf.set_xy(10, 59)
-        
-        if len(actual_time_slots) == 1:
-            slot_text = f"Exam Time: {list(actual_time_slots)[0]}"
-        else:
-            sorted_slots = sorted(actual_time_slots)
-            slot_text = f"Exam Times: {' | '.join(sorted_slots)}"
-        
-        pdf.cell(pdf.w - 20, 6, slot_text, 0, 1, 'C')
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check individual subject for specific exam time if multiple slots shown)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(85)
-    elif time_slot:
-        pdf.set_font("Arial", 'B', 14)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(85)
-    else:
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Branches: {', '.join(branches)}", 0, 1, 'C')
-        pdf.set_y(71)
-
-def int_to_roman(num):
-    """Convert integer to Roman numeral"""
-    roman_values = [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
-    ]
-    result = ""
-    for value, numeral in roman_values:
-        while num >= value:
-            result += numeral
-            num -= value
-    return result
-
-def calculate_end_time(start_time, duration_hours):
-    """Calculate the end time given a start time and duration in hours."""
-    try:
-        # Handle different time formats
-        start_time = str(start_time).strip()
-        
-        # Try to parse the time
-        if "AM" in start_time.upper() or "PM" in start_time.upper():
-            start = datetime.strptime(start_time, "%I:%M %p")
-        else:
-            # Try 24-hour format
-            start = datetime.strptime(start_time, "%H:%M")
-        
-        duration = timedelta(hours=float(duration_hours))
-        end = start + duration
-        return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
-    except Exception as e:
-        return f"{start_time} + {duration_hours}h"
-
-def read_verification_excel(uploaded_file):
-    """Read the NEW verification Excel file format"""
-    try:
-        # Try to read all sheets
-        excel_file = pd.ExcelFile(uploaded_file)
-        
-        # Look for the Verification sheet
-        if 'Verification' in excel_file.sheet_names:
-            df = pd.read_excel(uploaded_file, sheet_name='Verification', engine='openpyxl')
-        else:
-            # Use the first sheet if Verification not found
-            df = pd.read_excel(uploaded_file, sheet_name=0, engine='openpyxl')
-        
-        # NEW column names - Use "Configured Slot" instead of "Exam Time"
-        required_columns = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
-        
-        # Check for required columns
-        missing_required = [col for col in required_columns if col not in df.columns]
-        if missing_required:
-            st.error(f"❌ Missing required columns: {missing_required}")
-            st.info("💡 Required columns: " + ", ".join(required_columns))
-            return None
-        
-        # Filter out rows with no exam date or "Not Scheduled"
-        df = df[
-            (df['Exam Date'].notna()) & 
-            (df['Exam Date'] != "") & 
-            (df['Exam Date'] != 'Not Scheduled') &
-            (df['Exam Date'].astype(str).str.strip() != "")
-        ].copy()
-        
-        if df.empty:
-            st.error("❌ No valid scheduled exams found in the verification file")
-            return None
-        
-        # Clean data
-        df['Program'] = df['Program'].astype(str).str.strip().str.upper()
-        df['Stream'] = df['Stream'].astype(str).str.strip()
-        df['Current Session'] = df['Current Session'].astype(str).str.strip()
-        df['Module Description'] = df['Module Description'].astype(str).str.strip()
-        df['Exam Date'] = df['Exam Date'].astype(str).str.strip()
-        df['Configured Slot'] = df['Configured Slot'].astype(str).str.strip()
-        
-        # Handle Exam Duration - ensure it exists and is numeric
-        if 'Exam Duration' in df.columns:
-             df['Exam Duration'] = pd.to_numeric(df['Exam Duration'], errors='coerce').fillna(3.0)
-        else:
-             df['Exam Duration'] = 3.0
-
-        # Handle optional columns
-        if 'Module Abbreviation' in df.columns:
-            df['Module Abbreviation'] = df['Module Abbreviation'].astype(str).str.strip()
-        
-        if 'CM Group' in df.columns:
-            df['CM Group'] = df['CM Group'].fillna("").astype(str).str.strip()
-        
-        if 'Exam Slot Number' in df.columns:
-            df['Exam Slot Number'] = pd.to_numeric(df['Exam Slot Number'], errors='coerce').fillna(0).astype(int)
-        
-        # NEW: Handle Subject Type column to identify OE subjects
-        if 'Subject Type' in df.columns:
-            df['Subject Type'] = df['Subject Type'].fillna("").astype(str).str.strip()
-        else:
-            df['Subject Type'] = ""
-        
-        return df
-        
-    except Exception as e:
-        st.error(f"❌ Error reading Excel file: {str(e)}")
-        import traceback
-        st.error(f"Full error details: {traceback.format_exc()}")
-        return None
-
-def create_excel_sheets_for_pdf(df):
-    """Convert verification data to Excel sheet format for PDF generation"""
-    
-    # Define Standard Time Logic based on Semester
-    time_slots_dict = {
-        1: {"start": "10:00 AM", "end": "1:00 PM"},
-        2: {"start": "2:00 PM", "end": "5:00 PM"}
-    }
-
-    def get_standard_time(semester):
-        try:
-            sem_int = int(semester)
-            # Logic: ((Sem + 1) // 2) % 2 -> 1=Slot1, 0=Slot2
-            slot_indicator = ((sem_int + 1) // 2) % 2
-            slot_num = 1 if slot_indicator == 1 else 2
-            cfg = time_slots_dict.get(slot_num, time_slots_dict[1])
-            return f"{cfg['start']} - {cfg['end']}"
-        except:
-            return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
-
-    def normalize_time(t_str):
-        """Standardizes time strings (e.g., '01:00 PM' -> '1:00 PM') for accurate comparison"""
-        if not isinstance(t_str, str): return ""
-        t_str = t_str.strip()
-        # Remove leading zeros from hours (01: -> 1:, 09: -> 9:)
-        for i in range(1, 10):
-            t_str = t_str.replace(f"0{i}:", f"{i}:")
-        return t_str.upper()
-
-    # Parse Program-Stream combination
-    def parse_program_stream(row):
-        program = str(row['Program']).strip().upper()
-        stream = str(row['Stream']).strip()
-        
-        # Create combined identifier
-        if stream and stream != 'nan' and stream != program:
-            return f"{program}-{stream}"
-        else:
-            return program
-    
-    df['Branch'] = df.apply(parse_program_stream, axis=1)
-    
-    # Parse semester to get number
-    def parse_semester(session_str):
-        if pd.isna(session_str):
-            return 1
-        
-        session_str = str(session_str).strip()
-        
-        # Extract number from various formats
-        import re
-        num_match = re.search(r'(\d+)', session_str)
-        if num_match:
-            return int(num_match.group(1))
-        
-        # Try Roman numerals
-        roman_to_num = {
-            'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
-            'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12
-        }
-        for roman, num in roman_to_num.items():
-            if roman in session_str.upper():
-                return num
-        
-        return 1
-    
-    df['Semester'] = df['Current Session'].apply(parse_semester)
-    
-    # Group by main program and semester
-    def get_main_program(branch):
-        # Extract main program part before dash
-        if '-' in branch:
-            return branch.split('-')[0].strip()
-        return branch
-    
-    df['MainBranch'] = df['Branch'].apply(get_main_program)
-    
-    # Extract SubBranch (stream)
-    def get_sub_branch(branch):
-        if '-' in branch:
-            parts = branch.split('-', 1)
-            return parts[1].strip() if len(parts) > 1 else ""
-        return ""
-    
-    df['SubBranch'] = df['Branch'].apply(get_sub_branch)
-    
-    # If no subbranch, use main branch
-    df.loc[df['SubBranch'] == "", 'SubBranch'] = df.loc[df['SubBranch'] == "", 'MainBranch']
-    
-    # NEW: Identify OE subjects
-    df['IsOE'] = df['Subject Type'].str.upper() == 'OE'
-    
-    excel_data = {}
-    
-    # Group by MainBranch and Semester
-    for (main_branch, semester), group_df in df.groupby(['MainBranch', 'Semester']):
-        
-        # CALCULATE STANDARD TIME FOR THIS SEMESTER
-        standard_semester_time = get_standard_time(semester)
-        norm_standard_time = normalize_time(standard_semester_time)
-
-        # Separate OE and non-OE subjects
-        non_oe_df = group_df[~group_df['IsOE']].copy()
-        oe_df = group_df[group_df['IsOE']].copy()
-        
-        # Process non-OE subjects (CORE SUBJECTS)
-        if not non_oe_df.empty:
-            # Get all unique sub-branches (streams)
-            all_sub_branches = sorted(non_oe_df['SubBranch'].unique())
-            
-            # Split into groups of 4 branches per page
-            branches_per_page = 4
-            
-            for page_num, i in enumerate(range(0, len(all_sub_branches), branches_per_page), start=1):
-                sub_branches = all_sub_branches[i:i + branches_per_page]
-                
-                # Create sheet name
-                roman_sem = int_to_roman(semester)
-                if len(all_sub_branches) > branches_per_page:
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}_Part{page_num}"
-                else:
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"
-                
-                if len(sheet_name) > 31:
-                    sheet_name = sheet_name[:31]
-                
-                # Get all unique exam dates for this group
-                all_dates = sorted(non_oe_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-                
-                processed_data = []
-                
-                for exam_date in all_dates:
-                    # Format date
-                    try:
-                        parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
-                        if pd.notna(parsed_date):
-                            formatted_date = parsed_date.strftime("%A, %d %B, %Y")
-                        else:
-                            formatted_date = str(exam_date)
-                    except:
-                        formatted_date = str(exam_date)
-                    
-                    row_data = {'Exam Date': formatted_date}
-                    
-                    # For each sub-branch in this page group
-                    for sub_branch in sub_branches:
-                        subjects_on_date = non_oe_df[
-                            (non_oe_df['Exam Date'] == exam_date) & 
-                            (non_oe_df['SubBranch'] == sub_branch)
-                        ]
-                        
-                        if not subjects_on_date.empty:
-                            subjects = []
-                            for _, row in subjects_on_date.iterrows():
-                                subject_name = str(row['Module Description'])
-                                module_code = str(row.get('Module Abbreviation', ''))
-                                
-                                # 1. Get Duration
-                                duration = row.get('Exam Duration', 3.0)
-                                try:
-                                    duration = float(duration)
-                                except:
-                                    duration = 3.0
-
-                                # 2. Get Configured Slot (Start Time)
-                                conf_slot = str(row.get('Configured Slot', '')).strip()
-                                
-                                # 3. Calculate Actual Subject Time
-                                actual_subject_time = conf_slot
-                                if conf_slot and " - " in conf_slot:
-                                    try:
-                                        start_time = conf_slot.split(" - ")[0].strip()
-                                        end_time = calculate_end_time(start_time, duration)
-                                        actual_subject_time = f"{start_time} - {end_time}"
-                                    except:
-                                        actual_subject_time = conf_slot
-                                
-                                # Build subject display
-                                subject_display = subject_name
-                                
-                                # Add module code if present
-                                if module_code and module_code != 'nan':
-                                    subject_display = f"{subject_display} - ({module_code})"
-                                
-                                # 4. Compare with Standard Semester Header Time
-                                norm_subject_time = normalize_time(actual_subject_time)
-                                
-                                if norm_subject_time and norm_subject_time != norm_standard_time:
-                                    # If times differ, show in brackets
-                                    subject_display = f"{subject_display} [{actual_subject_time}]"
-                                # Else: If matches, DO NOT show time
-                                
-                                subjects.append(subject_display)
-                            
-                            # Join multiple subjects with line breaks
-                            row_data[sub_branch] = "\n".join(subjects) if len(subjects) > 1 else subjects[0]
-                        else:
-                            # No subjects for this stream on this date
-                            row_data[sub_branch] = "---"
-                    
-                    processed_data.append(row_data)
-                
-                # Convert to DataFrame
-                if processed_data:
-                    sheet_df = pd.DataFrame(processed_data)
-                    
-                    # Reorder columns to have Exam Date first, then the streams in order
-                    column_order = ['Exam Date'] + sub_branches
-                    sheet_df = sheet_df[column_order]
-                    
-                    # Fill any missing cells with "---"
-                    sheet_df = sheet_df.fillna("---")
-                    
-                    excel_data[sheet_name] = sheet_df
-        
-        # Process OE subjects (OPEN ELECTIVE)
-        if not oe_df.empty:
-            # Create separate OE sheet
-            roman_sem = int_to_roman(semester)
-            oe_sheet_name = f"{main_branch}_Sem_{roman_sem}_OE"
-            
-            if len(oe_sheet_name) > 31:
-                oe_sheet_name = oe_sheet_name[:31]
-            
-            # Get all unique exam dates for OE subjects
-            oe_dates = sorted(oe_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
-            
-            oe_processed_data = []
-            
-            for exam_date in oe_dates:
-                # Format date
-                try:
-                    parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
-                    if pd.notna(parsed_date):
-                        formatted_date = parsed_date.strftime("%A, %d %B, %Y")
-                    else:
-                        formatted_date = str(exam_date)
-                except:
-                    formatted_date = str(exam_date)
-                
-                # Get all OE subjects for this date
-                oe_subjects_on_date = oe_df[oe_df['Exam Date'] == exam_date]
-                
-                if not oe_subjects_on_date.empty:
-                    # Use a set to track unique subject identifiers and avoid duplicates
-                    seen_subjects = set()
-                    subjects = []
-                    
-                    for _, row in oe_subjects_on_date.iterrows():
-                        subject_name = str(row['Module Description'])
-                        module_code = str(row.get('Module Abbreviation', ''))
-                        
-                        # 1. Get Duration
-                        duration = row.get('Exam Duration', 3.0)
-                        try:
-                            duration = float(duration)
-                        except:
-                            duration = 3.0
-
-                        # 2. Get Configured Slot (Start Time)
-                        conf_slot = str(row.get('Configured Slot', '')).strip()
-                        
-                        # 3. Calculate Actual Subject Time
-                        actual_subject_time = conf_slot
-                        if conf_slot and " - " in conf_slot:
-                            try:
-                                start_time = conf_slot.split(" - ")[0].strip()
-                                end_time = calculate_end_time(start_time, duration)
-                                actual_subject_time = f"{start_time} - {end_time}"
-                            except:
-                                actual_subject_time = conf_slot
-                        
-                        # Create a unique identifier for this subject
-                        subject_key = f"{subject_name}|{module_code}"
-                        
-                        if subject_key in seen_subjects:
-                            continue
-                        seen_subjects.add(subject_key)
-                        
-                        # Build OE subject display
-                        subject_display = subject_name
-                        
-                        if module_code and module_code != 'nan':
-                            subject_display = f"{subject_display} - ({module_code})"
-                        
-                        # Apply same time logic for OEs
-                        norm_subject_time = normalize_time(actual_subject_time)
-                        if norm_subject_time and norm_subject_time != norm_standard_time:
-                            subject_display = f"{subject_display} [{actual_subject_time}]"
-                        
-                        subjects.append(subject_display)
-                    
-                    if subjects:
-                        row_data = {
-                            'Exam Date': formatted_date,
-                            'Open Elective Subjects': "\n".join(subjects)
-                        }
-                        oe_processed_data.append(row_data)
-            
-            if oe_processed_data:
-                oe_sheet_df = pd.DataFrame(oe_processed_data)
-                excel_data[oe_sheet_name] = oe_sheet_df
-    
-    return excel_data
-    
-def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
-    """Generate PDF from Excel data dictionary"""
-    pdf = FPDF(orientation='L', unit='mm', format='A3')
+def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
+    """
+    Consumes the TEMP Excel file created from the verification data and generates the Final PDF.
+    Contains the exact formatting, Declaration Date logic, and Instructions Page.
+    """
+    pdf = FPDF(orientation='L', unit='mm', format=(210, 500)) # Wide format to support many columns
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
-    sheets_processed = 0
-    
-    # Define Time Slot Logic again for header determination
+    # Time slots configuration (for Header Logic)
     time_slots_dict = {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     }
+    
+    try:
+        df_dict = pd.read_excel(excel_path, sheet_name=None)
+    except Exception as e:
+        st.error(f"Error reading Excel for PDF: {e}")
+        return
 
-    def get_standard_time(semester_roman):
-        # Convert Roman to Int for logic
-        roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
+    def int_to_roman(num):
+        roman_values = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
+
+    def get_header_time_for_semester(semester_num):
         try:
-            sem_int = roman_map.get(semester_roman, 1)
-            # Logic: ((Sem + 1) // 2) % 2 -> 1=Slot1, 0=Slot2
+            sem_int = int(semester_num)
             slot_indicator = ((sem_int + 1) // 2) % 2
             slot_num = 1 if slot_indicator == 1 else 2
             cfg = time_slots_dict.get(slot_num, time_slots_dict[1])
@@ -1035,97 +376,86 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
         except:
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
-    for sheet_name, sheet_df in excel_data.items():
-        if sheet_df.empty:
-            continue
-        
-        # Check if this is an OE sheet
-        is_oe_sheet = '_OE' in sheet_name
-        
-        # Parse sheet name
-        try:
-            name_parts = sheet_name.split('_')
-            sem_index = name_parts.index('Sem')
-            program_parts = name_parts[:sem_index]
-            program = '_'.join(program_parts) if program_parts else ''
-            semester_roman = name_parts[sem_index + 1]
-            
-            program_norm = re.sub(r'[.\s]+', ' ', program).strip().upper()
-            main_branch_full = BRANCH_FULL_FORM.get(program_norm, program_norm)
-            
-            if is_oe_sheet:
-                header_content = {'main_branch_full': f"{main_branch_full} - OPEN ELECTIVES", 'semester_roman': semester_roman}
-            else:
-                header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
-            
-            # Determine Header Time Slot based on Semester
-            header_time_slot = get_standard_time(semester_roman)
-
-            fixed_cols = ["Exam Date"]
-            stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
-            if not stream_cols: continue
-            
-            if is_oe_sheet:
-                cols_to_print = fixed_cols + stream_cols
-                exam_date_width = 60
-                oe_width = pdf.w - 20 - exam_date_width
-                col_widths = [exam_date_width, oe_width]
-                
-                # OE Layout
-                pdf.add_page()
-                print_table_custom(
-                    pdf, sheet_df, cols_to_print, col_widths, 
-                    line_height=10, header_content=header_content, 
-                    branches=['All Branches (Open Elective)'], 
-                    actual_time_slots=None, # Don't check for mixed slots, rely on header logic
-                    time_slot=header_time_slot, # Pass the standard semester time
-                    declaration_date=declaration_date
-                )
-            else:
-                actual_stream_count = len(stream_cols)
-                cols_to_print = fixed_cols + stream_cols
-                
-                exam_date_width = 60
-                remaining_width = pdf.w - 20 - exam_date_width
-                stream_width = remaining_width / actual_stream_count if actual_stream_count > 0 else remaining_width
-                col_widths = [exam_date_width] + [stream_width] * actual_stream_count
-                
-                pdf.add_page()
-                print_table_custom(
-                    pdf, sheet_df, cols_to_print, col_widths, 
-                    line_height=10, header_content=header_content, 
-                    branches=stream_cols, 
-                    actual_time_slots=None, # Don't check for mixed slots
-                    time_slot=header_time_slot, # Pass the standard semester time
-                    declaration_date=declaration_date
-                )
-            
-            sheets_processed += 1
-            
-        except Exception as e:
-            st.warning(f"Error processing sheet {sheet_name}: {e}")
-            continue
+    sheets_processed = 0
     
-    if sheets_processed == 0:
-        st.error("No sheets were processed for PDF generation!")
-        return False
+    for sheet_name, sheet_df in df_dict.items():
+        if sheet_df.empty: continue
         
-    # Instructions Page
+        # Parse Sheet Name
+        parts = sheet_name.split('_Sem_')
+        if len(parts) < 2: continue
+        main_branch_full = parts[0] # Assuming temp excel saves Full Name or we map it back
+        
+        semester_raw = parts[1]
+        if semester_raw.endswith('_Electives'):
+            semester_raw = semester_raw.replace('_Electives', '')
+        
+        # Convert Roman/String sem to int for logic
+        roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
+        try:
+            sem_int = roman_map.get(semester_raw, int(semester_raw) if semester_raw.isdigit() else 1)
+        except:
+            sem_int = 1
+            
+        header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_raw if not semester_raw.isdigit() else int_to_roman(int(semester_raw))}
+        header_exam_time = get_header_time_for_semester(sem_int)
+
+        if not sheet_name.endswith('_Electives'):
+            fixed_cols = ["Exam Date"]
+            sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c != 'Note' and "Unnamed" not in str(c)]
+            
+            if not sub_branch_cols: continue
+            
+            exam_date_width = 60
+            
+            # Pagination for columns
+            for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
+                chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
+                cols_to_print = fixed_cols + chunk
+                chunk_df = sheet_df[cols_to_print].copy()
+                
+                # Filter empty rows
+                chunk_df = chunk_df.dropna(how='all', subset=chunk)
+                if chunk_df.empty: continue
+
+                # Calculate widths
+                page_width = pdf.w - 2 * pdf.l_margin
+                sub_width = (page_width - exam_date_width) / max(len(chunk), 1)
+                col_widths = [exam_date_width] + [sub_width] * len(chunk)
+                
+                pdf.add_page()
+                print_table_custom(pdf, chunk_df, cols_to_print, col_widths, 10, header_content, chunk, header_exam_time, None, declaration_date)
+                sheets_processed += 1
+                
+        else: # Electives
+            cols = [c for c in ['Exam Date', 'OE Type', 'Subjects'] if c in sheet_df.columns]
+            if len(cols) < 2: continue
+            
+            elec_df = sheet_df[cols].dropna(how='all')
+            if elec_df.empty: continue
+            
+            exam_date_width = 60
+            oe_width = 30
+            subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
+            col_widths = [exam_date_width, subject_width + oe_width] if len(cols) == 2 else [exam_date_width, oe_width, subject_width]
+            
+            pdf.add_page()
+            print_table_custom(pdf, elec_df, cols, col_widths, 10, header_content, ['All Streams'], header_exam_time, None, declaration_date)
+            sheets_processed += 1
+
+    # INSTRUCTIONS PAGE
     try:
         pdf.add_page()
         footer_height = 25
         add_footer_with_page_number(pdf, footer_height)
-        instr_header_content = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        logo_width = 45
-        logo_x = (pdf.w - logo_width) / 2
-        add_header_to_page(pdf, logo_x=logo_x, logo_width=logo_width, header_content=instr_header_content, 
-                           branches=["All Candidates"], time_slot=None, actual_time_slots=None, declaration_date=declaration_date)
+        instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
+        logo_w = 45
+        add_header_to_page(pdf, (pdf.w-logo_w)/2, logo_w, instr_header, ["All Candidates"], None, None, declaration_date)
         pdf.set_y(95)
         pdf.set_font("Arial", 'B', 14)
-        pdf.set_text_color(0, 0, 0)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
-        instructions = [
+        instrs = [
             "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
             "2. Candidates must produce their University Identity Card at the time of the examination.",
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
@@ -1133,366 +463,322 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
             "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
         ]
         pdf.set_font("Arial", size=12)
-        for instr in instructions:
-            pdf.multi_cell(0, 8, instr)
+        for i in instrs:
+            pdf.multi_cell(0, 8, i)
             pdf.ln(2)
     except Exception as e:
-        st.warning(f"Could not add instructions page: {e}")
-    
+        st.warning(f"Instructions error: {e}")
+
     try:
-        pdf.output(output_pdf)
-        st.success(f"PDF generated successfully with {sheets_processed} pages")
+        pdf.output(pdf_path)
         return True
     except Exception as e:
         st.error(f"Error saving PDF: {e}")
         return False
 
-def main():
-    st.markdown("""
-    <div class="main-header">
-        <h1>📅 Excel to PDF Timetable Converter</h1>
-        <p>Convert Excel verification files to formatted PDF timetables</p>
-    </div>
-    """, unsafe_allow_html=True)
+# ==========================================
+# 💾 EXCEL INTERMEDIARY (The "Formatting" Engine)
+# ==========================================
 
-    # Initialize session state
-    if 'pdf_data' not in st.session_state:
-        st.session_state.pdf_data = None
-    if 'processing_complete' not in st.session_state:
-        st.session_state.processing_complete = False
-    if 'selected_college' not in st.session_state:
-        st.session_state.selected_college = 'SVKM\'s NMIMS University'
+def save_to_excel(semester_wise_timetable):
+    """
+    Converts the processed Dictionary data into the pivoted Excel structure needed for the PDF generator.
+    Handles the Logic: Compare Subject Duration Time vs Header Time.
+    """
+    time_slots_dict = {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    }
 
-    # Sidebar for college selection
-    with st.sidebar:
-        st.header("⚙️ Settings")
-        
-        college_options = [
-            'SVKM\'s NMIMS University',
-            'MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING',
-            'SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING',
-            'Custom College Name'
-        ]
-        
-        selected_college = st.selectbox(
-            "Select College Name",
-            college_options,
-            index=0
-        )
-        
-        if selected_college == 'Custom College Name':
-            custom_college = st.text_input("Enter Custom College Name", "")
-            if custom_college:
-                st.session_state.selected_college = custom_college
-            else:
-                st.session_state.selected_college = 'SVKM\'s NMIMS University'
-        else:
-            st.session_state.selected_college = selected_college
+    def int_to_roman(num):
+        roman_values = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+        result = ""
+        for value, numeral in roman_values:
+            while num >= value:
+                result += numeral
+                num -= value
+        return result
 
-        # NEW: Declaration Date Selector
-        st.markdown("---")
-        st.markdown("#### 📆 PDF Configuration")
-        declaration_date = st.date_input(
-            "Declaration Date (Optional)",
-            value=None,
-            help="Select a date to appear on the top right of the PDF. Leave empty to hide."
-        )
+    def normalize_time(t_str):
+        if not isinstance(t_str, str): return ""
+        t_str = t_str.strip().upper()
+        for i in range(1, 10):
+            t_str = t_str.replace(f"0{i}:", f"{i}:")
+        return t_str
 
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        st.markdown("""
-        <div class="upload-section">
-            <h3>📁 Upload Excel Verification File</h3>
-            <p>Upload your verification Excel file with Exam Date and Exam Time columns</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader(
-            "Choose an Excel file",
-            type=['xlsx', 'xls'],
-            help="Upload the Excel verification file containing exam dates and times"
-        )
-
-        if uploaded_file is not None:
-            st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
-
-            file_details = {
-                "Filename": uploaded_file.name,
-                "File size": f"{uploaded_file.size / 1024:.2f} KB",
-                "File type": uploaded_file.type
-            }
-
-            st.markdown("#### File Details:")
-            for key, value in file_details.items():
-                st.write(f"**{key}:** {value}")
-
-    with col2:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>🚀 Features</h4>
-            <ul>
-                <li>📊 Direct Excel to PDF conversion</li>
-                <li>📅 Preserves exam dates and times</li>
-                <li>🎯 Program and stream grouping</li>
-                <li>📝 Professional PDF formatting</li>
-                <li>🏫 Customizable college header</li>
-                <li>📋 Automatic page management</li>
-                <li>⚡ Supports CM Groups & Slots</li>
-                <li>🎓 Separate OE subject handling</li>
-                <li>📱 Mobile-friendly interface</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    if uploaded_file is not None:
-        # Pre-read DF for stats
-        df_for_stats = read_verification_excel(uploaded_file)
-        
-        if df_for_stats is not None:
-            # Add mapping columns for stats compatibility
-            if 'Current Session' in df_for_stats.columns:
-                df_for_stats['Semester'] = df_for_stats['Current Session']
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sem, df_sem in semester_wise_timetable.items():
+            if df_sem.empty: continue
+            
+            # HEADER TIME LOGIC
+            slot_indicator = ((sem + 1) // 2) % 2
+            primary_slot_num = 1 if slot_indicator == 1 else 2
+            primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict[1])
+            primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
+            primary_slot_norm = normalize_time(primary_slot_str)
+            
+            for main_branch in df_sem["MainBranch"].unique():
+                df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+                if df_mb.empty: continue
                 
-            # ==========================================
-            # 🔄 RE-CALCULATE VARIABLES FOR BREAKDOWN
-            # ==========================================
-            
-            # --- 1. Non-Elective Stats ---
-            non_elective_data = df_for_stats[df_for_stats['Subject Type'] != 'OE']
-            ne_count = len(non_elective_data)
-            
-            if not non_elective_data.empty:
-                ne_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                if not ne_dates.empty:
-                    ne_start = min(ne_dates).strftime("%-d %B")
-                    ne_end = max(ne_dates).strftime("%-d %B")
-                    non_elec_display = f"{ne_start}" if ne_start == ne_end else f"{ne_start} to {ne_end}"
-                else:
-                    non_elec_display = "No dates"
-            else:
-                non_elec_display = "No subjects"
+                df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                
+                roman_sem = int_to_roman(sem)
+                sheet_name = f"{main_branch}_Sem_{roman_sem}"[:31]
 
-            # --- 2. OE Stats ---
-            oe_data = df_for_stats[df_for_stats['Subject Type'] == 'OE']
-            oe_count = len(oe_data)
-            
-            if not oe_data.empty:
-                oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                if not oe_dates.empty:
-                    sorted_oe_dt = sorted(oe_dates.unique())
-                    u_oe_dates = [pd.to_datetime(d).strftime("%-d %B") for d in sorted_oe_dt]
-                    
-                    if len(u_oe_dates) == 1:
-                        oe_display = u_oe_dates[0]
-                    elif len(u_oe_dates) == 2:
-                        oe_display = f"{u_oe_dates[0]}, {u_oe_dates[1]}"
-                    else:
-                        oe_display = f"{u_oe_dates[0]} to {u_oe_dates[-1]}"
-                else:
-                    oe_display = "No dates"
-            else:
-                oe_display = "No OE subjects"
-            
-            # --- Stats Metrics ---
-            s_exams = len(df_for_stats)
-            s_sems = df_for_stats['Current Session'].nunique()
-            s_progs = df_for_stats['Program'].nunique()
-            s_streams = df_for_stats['Stream'].nunique()
-            
-            d_dates = pd.to_datetime(df_for_stats['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-            s_span = (max(d_dates) - min(d_dates)).days + 1 if not d_dates.empty else 0
-
-            # 2. Styling (Maintains your aesthetic)
-            st.markdown("""
-            <style>
-                div.row-widget.stButton > button {
-                    width: 100%;
-                    padding: 1rem;
-                    height: auto;
-                    min-height: 120px;
-                    border-radius: 12px;
-                    border: 1px solid rgba(255,255,255,0.1);
-                    background: linear-gradient(135deg, #4a5db0 0%, #764ba2 100%);
-                    color: white;
-                    text-align: center;
-                    transition: transform 0.2s;
-                }
-                div.row-widget.stButton > button:hover {
-                    transform: translateY(-4px);
-                    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-                    border-color: rgba(255,255,255,0.5);
-                    color: white !important;
-                }
-                div.row-widget.stButton > button p {
-                    font-size: 1.8rem !important;
-                    font-weight: 700 !important;
-                    margin-bottom: 0.2rem !important;
-                    line-height: 1.2 !important;
-                }
-                div.row-widget.stButton > button div p:last-child {
-                    font-size: 0.9rem !important;
-                    opacity: 0.9;
-                    font-weight: 500 !important;
-                    text-transform: uppercase;
-                }
-            </style>
-            """, unsafe_allow_html=True)
-
-            st.markdown("### 📈 Statistics Overview")
-            
-            # 3. Display Buttons
-            stat_c1, stat_c2, stat_c3, stat_c4 = st.columns(4)
-            
-            with stat_c1:
-                if st.button(f"{s_exams}\nTOTAL EXAMS", key="stat_btn_exams", use_container_width=True):
-                    show_exams_breakdown(df_for_stats)
-
-            with stat_c2:
-                if st.button(f"{s_sems}\nSEMESTERS", key="stat_btn_sems", use_container_width=True):
-                    show_semesters_breakdown(df_for_stats)
-
-            with stat_c3:
-                if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="stat_btn_progs", use_container_width=True):
-                    show_programs_streams_breakdown(df_for_stats)
-
-            with stat_c4:
-                if st.button(f"{s_span}\nOVERALL SPAN", key="stat_btn_span", use_container_width=True):
-                    show_span_breakdown(df_for_stats)
-
-            # ==========================================
-            # 📅 EXAMINATION SCHEDULE BREAKDOWN (DISPLAY)
-            # ==========================================
-            st.markdown("### 📅 Examination Schedule Breakdown")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"""
-                <div class="metric-card" style="text-align: left; padding: 1rem;">
-                    <h4 style="margin: 0; color: white;">📖 Non-Elective Exams</h4>
-                    <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">
-                        {non_elec_display} <span style="opacity: 0.8; font-size: 0.9em;">({ne_count} Exams)</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
-            with col2:
-                st.markdown(f"""
-                <div class="metric-card" style="text-align: left; padding: 1rem;">
-                    <h4 style="margin: 0; color: white;">🎓 Open Elective (OE) Exams</h4>
-                    <p style="margin: 0.5rem 0 0 0; font-size: 1rem; opacity: 0.9;">
-                        {oe_display} <span style="opacity: 0.8; font-size: 0.9em;">({oe_count} Exams)</span>
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("---")
-
-        if st.button("🔄 Convert to PDF", type="primary", use_container_width=True):
-            with st.spinner("Converting your Excel file to PDF... Please wait..."):
-                try:
-                    # Read the Excel file
-                    df = read_verification_excel(uploaded_file)
-                    
-                    if df is not None:
-                        # Create Excel sheets format for PDF
-                        excel_data = create_excel_sheets_for_pdf(df)
+                # --- CORE SUBJECTS ---
+                if not df_non_elec.empty:
+                    displays = []
+                    for idx, row in df_non_elec.iterrows():
+                        base_subject = str(row.get('Subject', ''))
+                        module_code = str(row.get('ModuleCode', ''))
                         
-                        if excel_data:
-                            # Generate PDF with Declaration Date
-                            temp_pdf_path = "temp_timetable_conversion.pdf"
-                            
-                            if generate_pdf_from_excel_data(excel_data, temp_pdf_path, declaration_date=declaration_date):
-                                # Read the generated PDF
-                                if os.path.exists(temp_pdf_path):
-                                    with open(temp_pdf_path, "rb") as f:
-                                        st.session_state.pdf_data = f.read()
-                                    os.remove(temp_pdf_path)
-                                    
-                                    st.session_state.processing_complete = True
-                                    
-                                    st.markdown('<div class="status-success">🎉 PDF conversion completed successfully!</div>',
-                                              unsafe_allow_html=True)
-                                else:
-                                    st.error("PDF file was not created successfully")
-                            else:
-                                st.error("Failed to generate PDF")
+                        # Calculate Actual Time
+                        assigned_slot = str(row.get('Time Slot', '')).strip()
+                        duration = float(row.get('Exam Duration', 3.0))
+                        
+                        actual_time = assigned_slot
+                        if assigned_slot and " - " in assigned_slot:
+                            try:
+                                start = assigned_slot.split(" - ")[0].strip()
+                                end = calculate_end_time(start, duration)
+                                actual_time = f"{start} - {end}"
+                            except: pass
+                        
+                        # Comparison
+                        if normalize_time(actual_time) != primary_slot_norm and actual_time:
+                            time_suffix = f" [{actual_time}]"
                         else:
-                            st.error("No valid data found for PDF generation")
-                    else:
-                        st.error("Failed to read Excel file. Please check the format and required columns.")
+                            time_suffix = ""
                         
-                except Exception as e:
-                    st.error(f"An error occurred during conversion: {str(e)}")
-                    import traceback
-                    st.error(f"Full error details: {traceback.format_exc()}")
+                        full_str = f"{base_subject}"
+                        if module_code and module_code.lower() != 'nan':
+                            full_str += f" - ({module_code})"
+                        full_str += time_suffix
+                        displays.append(full_str)
+                    
+                    df_non_elec['SubjectDisplay'] = displays
+                    
+                    # Pivot
+                    try:
+                        pivot = df_non_elec.pivot_table(index='Exam Date', columns='SubBranch', values='SubjectDisplay', aggfunc=lambda x: "\n".join(x)).fillna("---")
+                        pivot.reset_index(inplace=True)
+                        pivot.to_excel(writer, sheet_name=sheet_name, index=False)
+                    except: pass
 
-    # Display results and download option
-    if st.session_state.processing_complete and st.session_state.pdf_data:
+                # --- ELECTIVES ---
+                if not df_elec.empty:
+                    displays = []
+                    for idx, row in df_elec.iterrows():
+                        base_subject = str(row.get('Subject', ''))
+                        module_code = str(row.get('ModuleCode', ''))
+                        assigned_slot = str(row.get('Time Slot', '')).strip()
+                        duration = float(row.get('Exam Duration', 3.0))
+                        
+                        actual_time = assigned_slot
+                        if assigned_slot and " - " in assigned_slot:
+                            try:
+                                start = assigned_slot.split(" - ")[0].strip()
+                                end = calculate_end_time(start, duration)
+                                actual_time = f"{start} - {end}"
+                            except: pass
+                            
+                        if normalize_time(actual_time) != primary_slot_norm and actual_time:
+                            time_suffix = f" [{actual_time}]"
+                        else:
+                            time_suffix = ""
+
+                        full_str = f"{base_subject}"
+                        if module_code and module_code.lower() != 'nan':
+                            full_str += f" - ({module_code})"
+                        full_str += time_suffix
+                        displays.append(full_str)
+                        
+                    df_elec['SubjectDisplay'] = displays
+                    try:
+                        # Electives usually aggregated
+                        elec_pivot = df_elec.groupby(['OE', 'Exam Date']).agg({'SubjectDisplay': lambda x: "\n".join(set(x))}).reset_index()
+                        elec_pivot.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'}, inplace=True)
+                        elec_sheet = f"{main_branch}_Sem_{roman_sem}_Electives"[:31]
+                        elec_pivot.to_excel(writer, sheet_name=elec_sheet, index=False)
+                    except: pass
+    
+    output.seek(0)
+    return output
+
+# ==========================================
+# 📥 INPUT PROCESSOR (Verification File -> Logic Dict)
+# ==========================================
+
+def process_verification_file(uploaded_file):
+    """
+    Reads the Verification Excel and converts it into the 'semester_wise_timetable'
+    dictionary structure used by the PDF engine.
+    """
+    try:
+        df = pd.read_excel(uploaded_file)
+        
+        # 1. Column Mapping (Verification -> Internal Logic)
+        # Required: Program, Stream, Current Session, Module Description, Exam Date, Configured Slot
+        required = ['Program', 'Stream', 'Current Session', 'Module Description', 'Exam Date', 'Configured Slot']
+        if not all(col in df.columns for col in required):
+            st.error(f"Missing columns. Required: {required}")
+            return None, None
+
+        # Clean Data
+        df = df[df['Exam Date'].notna() & (df['Exam Date'] != "Not Scheduled")].copy()
+        
+        # 2. Parse Semesters
+        def parse_sem(val):
+            s = str(val).upper()
+            import re
+            m = re.search(r'(\d+)', s)
+            if m: return int(m.group(1))
+            roman_to_int = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
+            for r, i in roman_to_int.items():
+                if r in s: return i
+            return 1
+
+        df['Semester_Int'] = df['Current Session'].apply(parse_sem)
+        
+        # 3. Standardize Columns for "Save To Excel" function
+        df['MainBranch'] = df['Program'].astype(str).str.strip()
+        df['SubBranch'] = df['Stream'].astype(str).str.strip()
+        # Fill empty streams with MainBranch
+        df.loc[df['SubBranch'].isin(['nan', '']), 'SubBranch'] = df.loc[df['SubBranch'].isin(['nan', '']), 'MainBranch']
+        
+        df['Subject'] = df['Module Description']
+        df['Time Slot'] = df['Configured Slot']
+        df['ModuleCode'] = df['Module Abbreviation'] if 'Module Abbreviation' in df.columns else ''
+        
+        # Handle OE
+        if 'Subject Type' in df.columns:
+            df['OE'] = df['Subject Type'].apply(lambda x: 'OE' if str(x).strip().upper() == 'OE' else None)
+        else:
+            df['OE'] = None
+
+        # Handle Duration
+        if 'Exam Duration' in df.columns:
+            df['Exam Duration'] = pd.to_numeric(df['Exam Duration'], errors='coerce').fillna(3.0)
+        else:
+            df['Exam Duration'] = 3.0
+            
+        # Format Date
+        # Ensure dates are strings DD-MM-YYYY for consistency
+        df['Exam Date'] = pd.to_datetime(df['Exam Date'], dayfirst=True, errors='coerce').dt.strftime('%d-%m-%Y')
+
+        # 4. Group into Dictionary
+        timetable = {}
+        for sem in sorted(df['Semester_Int'].unique()):
+            timetable[sem] = df[df['Semester_Int'] == sem].copy()
+            
+        return timetable, df # Return df for Stats
+        
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
+        return None, None
+
+# ==========================================
+# 🖥️ MAIN APP
+# ==========================================
+
+def main():
+    # CSS Styling
+    st.markdown("""
+    <style>
+        .main-header { padding: 2rem; border-radius: 10px; margin-bottom: 2rem; background: linear-gradient(90deg, #951C1C, #C73E1D); color: white; text-align: center; }
+        .main-header h1 { color: white; margin: 0; font-size: 2.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+        .upload-section { background: #f8f9fa; padding: 2rem; border-radius: 10px; border: 2px dashed #951C1C; margin: 1rem 0; }
+        div.row-widget.stButton > button { width: 100%; height: auto; min-height: 100px; border-radius: 12px; background: linear-gradient(135deg, #4a5db0 0%, #764ba2 100%); color: white; border: none; }
+        div.row-widget.stButton > button p { font-size: 1.5rem !important; font-weight: 700 !important; }
+        div.row-widget.stButton > button:hover { transform: translateY(-4px); box-shadow: 0 6px 12px rgba(0,0,0,0.2); color: white !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="main-header"><h1>📅 Timetable PDF Generator</h1><p>From Verification File</p></div>', unsafe_allow_html=True)
+
+    # Session State
+    if 'processed_data' not in st.session_state: st.session_state.processed_data = None
+    if 'raw_df' not in st.session_state: st.session_state.raw_df = None
+    if 'selected_college' not in st.session_state: st.session_state.selected_college = "SVKM's NMIMS University"
+
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        colleges = ["SVKM's NMIMS University", "MUKESH PATEL SCHOOL OF TECHNOLOGY", "Custom..."]
+        sel = st.selectbox("College Name", colleges)
+        if sel == "Custom...":
+            st.session_state.selected_college = st.text_input("Enter Name")
+        else:
+            st.session_state.selected_college = sel
+            
         st.markdown("---")
-        
-        st.markdown("### 📥 Download PDF")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.download_button(
-                label="📄 Download PDF Timetable",
-                data=st.session_state.pdf_data,
-                file_name=f"timetable_converted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        
-        with col2:
-            if st.button("🔄 Convert Another File", use_container_width=True):
-                st.session_state.processing_complete = False
-                st.session_state.pdf_data = None
-                st.rerun()
-        
-        with col3:
-            if st.session_state.pdf_data:
-                pdf_size = len(st.session_state.pdf_data) / 1024
-                st.metric("PDF Size", f"{pdf_size:.1f} KB")
-        
-    
-    # Instructions and help
-    st.markdown("---")
-    st.markdown("### 📋 Instructions")
-    
-    col1, col2 = st.columns(2)
+        decl_date = st.date_input("📆 Declaration Date", value=None)
+
+    # Layout
+    col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.markdown("""
-        #### 📌 Required Excel Columns:
-        - **Program**: B TECH, M TECH, etc.
-        - **Stream**: IT, COMPUTER, etc. 
-        - **Current Session**: Sem 1, Sem 2, etc.
-        - **Module Description**: Subject name
-        - **Exam Date**: Date format (DD-MM-YYYY)
-        - **Configured Slot**: Exam time slot
-        """)
-    
-    with col2:
-        st.markdown("""
-        #### ✨ Optional Columns:
-        - **Module Abbreviation**: Subject code
-        - **CM Group**: Common module group number
-        - **Exam Slot Number**: Slot identifier
-        - **Student count**: Number of students
-        - **Campus**: Campus name
-        - **Subject Type**: OE for Open Electives
-        """)
+        st.markdown('<div class="upload-section"><h3>📁 Upload Verification File</h3></div>', unsafe_allow_html=True)
+        uploaded = st.file_uploader("Upload Excel", type=['xlsx', 'xls'])
+        
+        if uploaded:
+            timetable, raw_df = process_verification_file(uploaded)
+            if timetable:
+                st.session_state.processed_data = timetable
+                st.session_state.raw_df = raw_df
+                st.success("✅ File Processed Successfully!")
 
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; padding: 2rem; color: #666;">
-        <p><strong>📄 Excel to PDF Timetable Converter</strong></p>
-        <p>Convert verification Excel files to professionally formatted PDF timetables</p>
-        <p style="font-size: 0.9em;">Direct conversion • Professional formatting • Custom branding • Automatic organization • OE support</p>
-    </div>
-    """, unsafe_allow_html=True)
+    with col2:
+        st.info("ℹ️ This tool converts your finalized Verification Excel file into the official PDF format. No rescheduling is performed.")
+
+    # Stats & Generate
+    if st.session_state.raw_df is not None:
+        df = st.session_state.raw_df
+        
+        # Calculate Stats
+        s_exams = len(df)
+        s_sems = df['Semester_Int'].nunique()
+        s_progs = df['MainBranch'].nunique()
+        s_streams = df['SubBranch'].nunique()
+        
+        # Stats Buttons
+        st.markdown("### 📊 Overview")
+        b1, b2, b3, b4 = st.columns(4)
+        with b1:
+            if st.button(f"{s_exams}\nTOTAL EXAMS", key="s1"): show_exams_breakdown(df)
+        with b2:
+            if st.button(f"{s_sems}\nSEMESTERS", key="s2"): show_semesters_breakdown(df)
+        with b3:
+            if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="s3"): show_programs_streams_breakdown(df)
+        with b4:
+            if st.button(f"📅\nSPAN INFO", key="s4"): show_span_breakdown(df)
+
+        st.markdown("---")
+        
+        # Generate Button
+        if st.button("🚀 Generate PDF Timetable", type="primary", use_container_width=True):
+            with st.spinner("Generating PDF..."):
+                # 1. Create Temp Excel (Formatted)
+                excel_bytes = save_to_excel(st.session_state.processed_data)
+                
+                # 2. Save Temp file
+                with open("temp_pdf_input.xlsx", "wb") as f:
+                    f.write(excel_bytes.getvalue())
+                
+                # 3. Convert to PDF
+                if convert_excel_to_pdf("temp_pdf_input.xlsx", "Final_Timetable.pdf", declaration_date=decl_date):
+                    st.success("🎉 PDF Generated!")
+                    with open("Final_Timetable.pdf", "rb") as f:
+                        st.download_button("📥 Download PDF", f, "Timetable.pdf", "application/pdf", use_container_width=True)
+                    
+                    # Cleanup
+                    try: os.remove("temp_pdf_input.xlsx")
+                    except: pass
+                    try: os.remove("Final_Timetable.pdf")
+                    except: pass
 
 if __name__ == "__main__":
     main()
