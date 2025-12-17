@@ -681,6 +681,37 @@ def read_verification_excel(uploaded_file):
 def create_excel_sheets_for_pdf(df):
     """Convert verification data to Excel sheet format for PDF generation"""
     
+    # Define Standard Time Logic based on Semester
+    # This logic replicates the main app logic: 
+    # Sem 1,2 -> Slot 1 (10-1)
+    # Sem 3,4 -> Slot 2 (2-5)
+    # Sem 5,6 -> Slot 1 ...
+    
+    time_slots_dict = {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    }
+
+    def get_standard_time(semester):
+        try:
+            sem_int = int(semester)
+            # Logic: ((Sem + 1) // 2) % 2 -> 1=Slot1, 0=Slot2
+            slot_indicator = ((sem_int + 1) // 2) % 2
+            slot_num = 1 if slot_indicator == 1 else 2
+            cfg = time_slots_dict.get(slot_num, time_slots_dict[1])
+            return f"{cfg['start']} - {cfg['end']}"
+        except:
+            return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
+
+    def normalize_time(t_str):
+        """Standardizes time strings (e.g., '01:00 PM' -> '1:00 PM') for accurate comparison"""
+        if not isinstance(t_str, str): return ""
+        t_str = t_str.strip()
+        # Remove leading zeros from hours (01: -> 1:, 09: -> 9:)
+        for i in range(1, 10):
+            t_str = t_str.replace(f"0{i}:", f"{i}:")
+        return t_str.upper()
+
     # Parse Program-Stream combination
     def parse_program_stream(row):
         program = str(row['Program']).strip().upper()
@@ -749,6 +780,10 @@ def create_excel_sheets_for_pdf(df):
     # Group by MainBranch and Semester
     for (main_branch, semester), group_df in df.groupby(['MainBranch', 'Semester']):
         
+        # CALCULATE STANDARD TIME FOR THIS SEMESTER
+        standard_semester_time = get_standard_time(semester)
+        norm_standard_time = normalize_time(standard_semester_time)
+
         # Separate OE and non-OE subjects
         non_oe_df = group_df[~group_df['IsOE']].copy()
         oe_df = group_df[group_df['IsOE']].copy()
@@ -804,9 +839,12 @@ def create_excel_sheets_for_pdf(df):
                             for _, row in subjects_on_date.iterrows():
                                 subject_name = str(row['Module Description'])
                                 module_code = str(row.get('Module Abbreviation', ''))
-                                exam_time = str(row.get('Configured Slot', ''))
-                                cm_group = str(row.get('CM Group', '')).strip()
-                                exam_slot = row.get('Exam Slot Number', 0)
+                                
+                                # Use Exam Time (calculated duration) if available, else Configured Slot
+                                if 'Exam Time' in row and pd.notna(row['Exam Time']) and str(row['Exam Time']) != 'TBD':
+                                    exam_time = str(row['Exam Time']).strip()
+                                else:
+                                    exam_time = str(row.get('Configured Slot', '')).strip()
                                 
                                 # Build subject display
                                 subject_display = subject_name
@@ -815,21 +853,14 @@ def create_excel_sheets_for_pdf(df):
                                 if module_code and module_code != 'nan':
                                     subject_display = f"{subject_display} - ({module_code})"
                                 
-                                # Add CM Group prefix if present
-                                if cm_group and cm_group != 'nan' and cm_group != '':
-                                    try:
-                                        cm_num = int(float(cm_group))
-                                        subject_display = f"[CM:{cm_num}] {subject_display}"
-                                    except:
-                                        subject_display = f"[CM:{cm_group}] {subject_display}"
+                                # CLEAN TIME DISPLAY LOGIC
+                                # Compare specific subject time with standard semester time
+                                norm_subject_time = normalize_time(exam_time)
                                 
-                                # Add exam time from Configured Slot
-                                if exam_time and exam_time != 'nan' and exam_time.strip():
-                                    subject_display = f"{subject_display} ({exam_time})"
-                                
-                                # Add slot number if present
-                                if exam_slot and exam_slot != 0:
-                                    subject_display = f"{subject_display} [Slot {exam_slot}]"
+                                if norm_subject_time and norm_subject_time != norm_standard_time:
+                                    # If times differ, show in brackets
+                                    subject_display = f"{subject_display} [{exam_time}]"
+                                # Else: If matches, DO NOT show time, slot, or CM group
                                 
                                 subjects.append(subject_display)
                             
@@ -856,47 +887,71 @@ def create_excel_sheets_for_pdf(df):
         
         # Process OE subjects (OPEN ELECTIVE)
         if not oe_df.empty:
+            # Create separate OE sheet
             roman_sem = int_to_roman(semester)
             oe_sheet_name = f"{main_branch}_Sem_{roman_sem}_OE"
-            if len(oe_sheet_name) > 31: oe_sheet_name = oe_sheet_name[:31]
             
+            if len(oe_sheet_name) > 31:
+                oe_sheet_name = oe_sheet_name[:31]
+            
+            # Get all unique exam dates for OE subjects
             oe_dates = sorted(oe_df['Exam Date'].unique(), key=lambda x: pd.to_datetime(x, format='%d-%m-%Y', errors='coerce'))
+            
             oe_processed_data = []
             
             for exam_date in oe_dates:
+                # Format date
                 try:
                     parsed_date = pd.to_datetime(exam_date, format='%d-%m-%Y', errors='coerce')
-                    formatted_date = parsed_date.strftime("%A, %d %B, %Y") if pd.notna(parsed_date) else str(exam_date)
+                    if pd.notna(parsed_date):
+                        formatted_date = parsed_date.strftime("%A, %d %B, %Y")
+                    else:
+                        formatted_date = str(exam_date)
                 except:
                     formatted_date = str(exam_date)
                 
+                # Get all OE subjects for this date
                 oe_subjects_on_date = oe_df[oe_df['Exam Date'] == exam_date]
+                
                 if not oe_subjects_on_date.empty:
+                    # Use a set to track unique subject identifiers and avoid duplicates
                     seen_subjects = set()
                     subjects = []
                     
                     for _, row in oe_subjects_on_date.iterrows():
                         subject_name = str(row['Module Description'])
                         module_code = str(row.get('Module Abbreviation', ''))
-                        exam_time = str(row.get('Configured Slot', ''))
-                        exam_slot = row.get('Exam Slot Number', 0)
                         
+                        if 'Exam Time' in row and pd.notna(row['Exam Time']) and str(row['Exam Time']) != 'TBD':
+                            exam_time = str(row['Exam Time']).strip()
+                        else:
+                            exam_time = str(row.get('Configured Slot', '')).strip()
+                        
+                        # Create a unique identifier for this subject
                         subject_key = f"{subject_name}|{module_code}"
-                        if subject_key in seen_subjects: continue
+                        
+                        if subject_key in seen_subjects:
+                            continue
                         seen_subjects.add(subject_key)
                         
+                        # Build OE subject display
                         subject_display = subject_name
+                        
                         if module_code and module_code != 'nan':
                             subject_display = f"{subject_display} - ({module_code})"
-                        if exam_time and exam_time != 'nan' and exam_time.strip():
-                            subject_display = f"{subject_display} ({exam_time})"
-                        if exam_slot and exam_slot != 0:
-                            subject_display = f"{subject_display} [Slot {exam_slot}]"
+                        
+                        # Apply same time logic for OEs
+                        norm_subject_time = normalize_time(exam_time)
+                        if norm_subject_time and norm_subject_time != norm_standard_time:
+                            subject_display = f"{subject_display} [{exam_time}]"
                         
                         subjects.append(subject_display)
                     
                     if subjects:
-                        row_data = {'Exam Date': formatted_date, 'Open Elective Subjects': "\n".join(subjects)}
+                        row_data = {
+                            'Exam Date': formatted_date,
+                            'Open Elective Subjects': "\n".join(subjects)
+                        }
                         oe_processed_data.append(row_data)
             
             if oe_processed_data:
@@ -913,6 +968,25 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
     
     sheets_processed = 0
     
+    # Define Time Slot Logic again for header determination
+    time_slots_dict = {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM", "end": "5:00 PM"}
+    }
+
+    def get_standard_time(semester_roman):
+        # Convert Roman to Int for logic
+        roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
+        try:
+            sem_int = roman_map.get(semester_roman, 1)
+            # Logic: ((Sem + 1) // 2) % 2 -> 1=Slot1, 0=Slot2
+            slot_indicator = ((sem_int + 1) // 2) % 2
+            slot_num = 1 if slot_indicator == 1 else 2
+            cfg = time_slots_dict.get(slot_num, time_slots_dict[1])
+            return f"{cfg['start']} - {cfg['end']}"
+        except:
+            return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
+
     for sheet_name, sheet_df in excel_data.items():
         if sheet_df.empty:
             continue
@@ -936,6 +1010,9 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
             else:
                 header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
             
+            # Determine Header Time Slot based on Semester
+            header_time_slot = get_standard_time(semester_roman)
+
             fixed_cols = ["Exam Date"]
             stream_cols = [c for c in sheet_df.columns if c not in fixed_cols]
             if not stream_cols: continue
@@ -946,34 +1023,19 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
                 oe_width = pdf.w - 20 - exam_date_width
                 col_widths = [exam_date_width, oe_width]
                 
-                actual_time_slots = set()
-                for cell_value in sheet_df['Open Elective Subjects']:
-                    if pd.notna(cell_value) and str(cell_value) != "---":
-                        time_match = re.findall(r'\(([^)]+)\)', str(cell_value))
-                        for match in time_match:
-                            if any(time_str in match for time_str in ['AM', 'PM', 'am', 'pm', ':']):
-                                actual_time_slots.add(match)
-                
+                # OE Layout
                 pdf.add_page()
                 print_table_custom(
                     pdf, sheet_df, cols_to_print, col_widths, 
                     line_height=10, header_content=header_content, 
                     branches=['All Branches (Open Elective)'], 
-                    actual_time_slots=actual_time_slots,
+                    actual_time_slots=None, # Don't check for mixed slots, rely on header logic
+                    time_slot=header_time_slot, # Pass the standard semester time
                     declaration_date=declaration_date
                 )
             else:
                 actual_stream_count = len(stream_cols)
                 cols_to_print = fixed_cols + stream_cols
-                
-                actual_time_slots = set()
-                for col in stream_cols:
-                    for cell_value in sheet_df[col]:
-                        if pd.notna(cell_value) and str(cell_value) != "---":
-                            time_match = re.findall(r'\(([^)]+)\)', str(cell_value))
-                            for match in time_match:
-                                if any(time_str in match for time_str in ['AM', 'PM', 'am', 'pm', ':']):
-                                    actual_time_slots.add(match)
                 
                 exam_date_width = 60
                 remaining_width = pdf.w - 20 - exam_date_width
@@ -984,7 +1046,9 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
                 print_table_custom(
                     pdf, sheet_df, cols_to_print, col_widths, 
                     line_height=10, header_content=header_content, 
-                    branches=stream_cols, actual_time_slots=actual_time_slots,
+                    branches=stream_cols, 
+                    actual_time_slots=None, # Don't check for mixed slots
+                    time_slot=header_time_slot, # Pass the standard semester time
                     declaration_date=declaration_date
                 )
             
@@ -998,47 +1062,21 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
         st.error("No sheets were processed for PDF generation!")
         return False
         
-    # ====================================================================
-    # --- NEW: Add Instructions to Candidates Page (Last Page) ---
-    # ====================================================================
+    # Instructions Page
     try:
-        # 1. Add new page
         pdf.add_page()
-
-        # 2. Add Footer (Same as other pages)
         footer_height = 25
         add_footer_with_page_number(pdf, footer_height)
-
-        # 3. Add Header
-        instr_header_content = {
-            'main_branch_full': 'EXAMINATION GUIDELINES', 
-            'semester_roman': 'General'
-        }
-        
+        instr_header_content = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
         logo_width = 45
         logo_x = (pdf.w - logo_width) / 2
-        
-        add_header_to_page(
-            pdf, 
-            logo_x=logo_x, 
-            logo_width=logo_width,
-            header_content=instr_header_content, 
-            branches=["All Candidates"],
-            time_slot=None, 
-            actual_time_slots=None, 
-            declaration_date=declaration_date
-        )
-
-        # 4. Set cursor position for content (Header ends around y=85-90)
+        add_header_to_page(pdf, logo_x=logo_x, logo_width=logo_width, header_content=instr_header_content, 
+                           branches=["All Candidates"], time_slot=None, actual_time_slots=None, declaration_date=declaration_date)
         pdf.set_y(95)
-
-        # 5. Print Title
         pdf.set_font("Arial", 'B', 14)
         pdf.set_text_color(0, 0, 0)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
-
-        # 6. Print Instructions List
         instructions = [
             "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
             "2. Candidates must produce their University Identity Card at the time of the examination.",
@@ -1046,14 +1084,10 @@ def generate_pdf_from_excel_data(excel_data, output_pdf, declaration_date=None):
             "4. Candidates will not be permitted to leave the examination hall during the examination time.",
             "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
         ]
-
         pdf.set_font("Arial", size=12)
-        
-        # We use a loop with multi_cell to ensure text wrapping works properly
         for instr in instructions:
             pdf.multi_cell(0, 8, instr)
             pdf.ln(2)
-
     except Exception as e:
         st.warning(f"Could not add instructions page: {e}")
     
@@ -1170,15 +1204,6 @@ def main():
         if df_for_stats is not None:
             # Add mapping columns for stats compatibility
             if 'Current Session' in df_for_stats.columns:
-                # Helper to parse semester number
-                def parse_sem(val):
-                    import re
-                    s = str(val).upper()
-                    if 'SEM' in s:
-                        # Extract Roman or Number
-                        pass
-                    # Simple unique values
-                    return str(val)
                 df_for_stats['Semester'] = df_for_stats['Current Session']
                 
             # ==========================================
