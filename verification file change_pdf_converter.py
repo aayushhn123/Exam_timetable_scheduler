@@ -681,6 +681,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date):
 # ==========================================
 # 🚀 MAIN APP LOGIC
 # ==========================================
+# ==========================================
+# 🚀 MAIN APP LOGIC
+# ==========================================
 def main():
     st.markdown('<div class="main-header"><h1>📅 Timetable PDF Generator</h1><p>From Verification File (Clone Mode)</p></div>', unsafe_allow_html=True)
     
@@ -691,9 +694,42 @@ def main():
 
     with st.sidebar:
         st.header("⚙️ Settings")
-        clg = st.selectbox("College Name", ["SVKM's NMIMS University", "MUKESH PATEL SCHOOL...", "Custom"])
-        if clg == "Custom": st.session_state.selected_college = st.text_input("Enter Name")
-        else: st.session_state.selected_college = clg
+        
+        # --- NEW: UPDATED COLLEGE LIST ---
+        college_options = [
+            "SVKM's NMIMS University",
+            "Mukesh Patel School of Technology Management & Engineering",
+            "School of Business Management",
+            "Pravin Dalal School of Entrepreneurship & Family Business Management",
+            "Anil Surendra Modi School of Commerce",
+            "School of Commerce",
+            "Kirit P. Mehta School of Law",
+            "School of Law",
+            "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management",
+            "School of Pharmacy & Technology Management",
+            "Sunandan Divatia School of Science",
+            "School of Science",
+            "Sarla Anil Modi School of Economics",
+            "Balwant Sheth School of Architecture",
+            "School of Design",
+            "Jyoti Dalal School of Liberal Arts",
+            "School of Performing Arts",
+            "School of Hospitality Management",
+            "School of Mathematics, Applied Statistics & Analytics",
+            "School of Branding and Advertising",
+            "School of Agricultural Sciences & Technology",
+            "Centre of Distance and Online Education",
+            "School of Aviation",
+            "Custom..."
+        ]
+        
+        clg = st.selectbox("College Name", college_options)
+        
+        if clg == "Custom...":
+            st.session_state.selected_college = st.text_input("Enter Custom Name")
+        else:
+            st.session_state.selected_college = clg
+            
         st.markdown("---")
         decl_date = st.date_input("📆 Declaration Date", value=None)
 
