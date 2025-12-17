@@ -24,7 +24,7 @@ else:
     dialog_decorator = st.experimental_dialog
 
 # ==========================================
-# 🎨 UI & CSS OPTIMIZATION
+# 🎨 UI & CSS OPTIMIZATION (RESPONSIVE GRID)
 # ==========================================
 st.markdown("""
 <style>
@@ -44,7 +44,7 @@ st.markdown("""
     .main-header h1 { color: white; margin: 0; font-weight: 700; font-size: 2rem; }
     .main-header p { margin-top: 0.5rem; opacity: 0.9; font-size: 1rem; }
 
-    /* File Uploader Container */
+    /* Upload Container */
     .upload-container {
         border: 2px dashed #e0e0e0;
         border-radius: 12px;
@@ -55,10 +55,11 @@ st.markdown("""
     }
     .upload-container:hover { border-color: #951C1C; }
 
-    /* Statistics Buttons (Tiles) */
+    /* --- RESPONSIVE BUTTONS (STAT TILES) --- */
     div.row-widget.stButton > button {
         width: 100%;
-        min-height: 100px;
+        min-height: 110px; /* Enforce height */
+        height: auto;
         padding: 1rem;
         border-radius: 12px;
         background: white;
@@ -70,6 +71,7 @@ st.markdown("""
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        white-space: pre-wrap !important; /* Allow wrapping */
         line-height: 1.4;
     }
     div.row-widget.stButton > button:hover {
@@ -79,13 +81,37 @@ st.markdown("""
         color: #951C1C;
     }
     div.row-widget.stButton > button p {
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
+        font-size: 1.2rem !important;
+        font-weight: 700 !important;
         margin: 0 !important;
+        text-align: center;
+    }
+
+    /* --- RESPONSIVE GRID HACK --- */
+    /* This forces the 4-column layout to wrap on smaller screens */
+    
+    /* Tablet: 2 columns */
+    @media (max-width: 900px) {
+        div[data-testid="column"] {
+            width: 48% !important;
+            flex: 1 1 48% !important;
+            min-width: 48% !important;
+        }
     }
     
-    /* Footer */
-    .footer {
+    /* Mobile: 1 column */
+    @media (max-width: 600px) {
+        div[data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }
+    }
+
+    /* Hide Footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .footer-text {
         text-align: center;
         padding: 2rem;
         color: #888;
@@ -93,17 +119,12 @@ st.markdown("""
         border-top: 1px solid #eee;
         margin-top: 3rem;
     }
-    
-    /* Hide Streamlit Default Elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
 # 🏫 COLLEGE CONFIGURATION
 # ==========================================
-# Dictionary mapping: "Display Name (with Icon)" -> "Clean Name (for PDF)"
 COLLEGE_MAP = {
     "SVKM's NMIMS University": "SVKM's NMIMS University",
     "Mukesh Patel School of Technology Management & Engineering 🖥️": "Mukesh Patel School of Technology Management & Engineering",
@@ -246,7 +267,6 @@ def process_verification_file(uploaded_file):
         # Map Columns
         df['MainBranch'] = df['Program'].astype(str).str.strip()
         df['SubBranch'] = df['Stream'].astype(str).str.strip()
-        # Handle empty stream case
         df['SubBranch'] = df.apply(lambda x: x['MainBranch'] if x['SubBranch'] in ['nan', ''] else x['SubBranch'], axis=1)
         
         df['Subject'] = df['Module Description'].astype(str).str.strip()
@@ -694,7 +714,7 @@ def main():
                     except: pass
 
     # Footer
-    st.markdown('<div class="footer">Timetable Generator • Clone Mode • Standardized PDF Output</div>', unsafe_allow_html=True)
+    st.markdown('<div class="footer-text">Timetable Generator • Clone Mode • Standardized PDF Output</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
