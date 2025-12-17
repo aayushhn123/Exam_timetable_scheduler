@@ -611,6 +611,25 @@ def int_to_roman(num):
             num -= value
     return result
 
+def calculate_end_time(start_time, duration_hours):
+    """Calculate the end time given a start time and duration in hours."""
+    try:
+        # Handle different time formats
+        start_time = str(start_time).strip()
+        
+        # Try to parse the time
+        if "AM" in start_time.upper() or "PM" in start_time.upper():
+            start = datetime.strptime(start_time, "%I:%M %p")
+        else:
+            # Try 24-hour format
+            start = datetime.strptime(start_time, "%H:%M")
+        
+        duration = timedelta(hours=float(duration_hours))
+        end = start + duration
+        return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
+    except Exception as e:
+        return f"{start_time} + {duration_hours}h"
+
 def read_verification_excel(uploaded_file):
     """Read the NEW verification Excel file format"""
     try:
@@ -654,6 +673,12 @@ def read_verification_excel(uploaded_file):
         df['Exam Date'] = df['Exam Date'].astype(str).str.strip()
         df['Configured Slot'] = df['Configured Slot'].astype(str).str.strip()
         
+        # Handle Exam Duration - ensure it exists and is numeric
+        if 'Exam Duration' in df.columns:
+             df['Exam Duration'] = pd.to_numeric(df['Exam Duration'], errors='coerce').fillna(3.0)
+        else:
+             df['Exam Duration'] = 3.0
+
         # Handle optional columns
         if 'Module Abbreviation' in df.columns:
             df['Module Abbreviation'] = df['Module Abbreviation'].astype(str).str.strip()
@@ -682,11 +707,6 @@ def create_excel_sheets_for_pdf(df):
     """Convert verification data to Excel sheet format for PDF generation"""
     
     # Define Standard Time Logic based on Semester
-    # This logic replicates the main app logic: 
-    # Sem 1,2 -> Slot 1 (10-1)
-    # Sem 3,4 -> Slot 2 (2-5)
-    # Sem 5,6 -> Slot 1 ...
-    
     time_slots_dict = {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -840,11 +860,25 @@ def create_excel_sheets_for_pdf(df):
                                 subject_name = str(row['Module Description'])
                                 module_code = str(row.get('Module Abbreviation', ''))
                                 
-                                # Use Exam Time (calculated duration) if available, else Configured Slot
-                                if 'Exam Time' in row and pd.notna(row['Exam Time']) and str(row['Exam Time']) != 'TBD':
-                                    exam_time = str(row['Exam Time']).strip()
-                                else:
-                                    exam_time = str(row.get('Configured Slot', '')).strip()
+                                # 1. Get Duration
+                                duration = row.get('Exam Duration', 3.0)
+                                try:
+                                    duration = float(duration)
+                                except:
+                                    duration = 3.0
+
+                                # 2. Get Configured Slot (Start Time)
+                                conf_slot = str(row.get('Configured Slot', '')).strip()
+                                
+                                # 3. Calculate Actual Subject Time
+                                actual_subject_time = conf_slot
+                                if conf_slot and " - " in conf_slot:
+                                    try:
+                                        start_time = conf_slot.split(" - ")[0].strip()
+                                        end_time = calculate_end_time(start_time, duration)
+                                        actual_subject_time = f"{start_time} - {end_time}"
+                                    except:
+                                        actual_subject_time = conf_slot
                                 
                                 # Build subject display
                                 subject_display = subject_name
@@ -853,14 +887,13 @@ def create_excel_sheets_for_pdf(df):
                                 if module_code and module_code != 'nan':
                                     subject_display = f"{subject_display} - ({module_code})"
                                 
-                                # CLEAN TIME DISPLAY LOGIC
-                                # Compare specific subject time with standard semester time
-                                norm_subject_time = normalize_time(exam_time)
+                                # 4. Compare with Standard Semester Header Time
+                                norm_subject_time = normalize_time(actual_subject_time)
                                 
                                 if norm_subject_time and norm_subject_time != norm_standard_time:
                                     # If times differ, show in brackets
-                                    subject_display = f"{subject_display} [{exam_time}]"
-                                # Else: If matches, DO NOT show time, slot, or CM group
+                                    subject_display = f"{subject_display} [{actual_subject_time}]"
+                                # Else: If matches, DO NOT show time
                                 
                                 subjects.append(subject_display)
                             
@@ -922,10 +955,25 @@ def create_excel_sheets_for_pdf(df):
                         subject_name = str(row['Module Description'])
                         module_code = str(row.get('Module Abbreviation', ''))
                         
-                        if 'Exam Time' in row and pd.notna(row['Exam Time']) and str(row['Exam Time']) != 'TBD':
-                            exam_time = str(row['Exam Time']).strip()
-                        else:
-                            exam_time = str(row.get('Configured Slot', '')).strip()
+                        # 1. Get Duration
+                        duration = row.get('Exam Duration', 3.0)
+                        try:
+                            duration = float(duration)
+                        except:
+                            duration = 3.0
+
+                        # 2. Get Configured Slot (Start Time)
+                        conf_slot = str(row.get('Configured Slot', '')).strip()
+                        
+                        # 3. Calculate Actual Subject Time
+                        actual_subject_time = conf_slot
+                        if conf_slot and " - " in conf_slot:
+                            try:
+                                start_time = conf_slot.split(" - ")[0].strip()
+                                end_time = calculate_end_time(start_time, duration)
+                                actual_subject_time = f"{start_time} - {end_time}"
+                            except:
+                                actual_subject_time = conf_slot
                         
                         # Create a unique identifier for this subject
                         subject_key = f"{subject_name}|{module_code}"
@@ -941,9 +989,9 @@ def create_excel_sheets_for_pdf(df):
                             subject_display = f"{subject_display} - ({module_code})"
                         
                         # Apply same time logic for OEs
-                        norm_subject_time = normalize_time(exam_time)
+                        norm_subject_time = normalize_time(actual_subject_time)
                         if norm_subject_time and norm_subject_time != norm_standard_time:
-                            subject_display = f"{subject_display} [{exam_time}]"
+                            subject_display = f"{subject_display} [{actual_subject_time}]"
                         
                         subjects.append(subject_display)
                     
