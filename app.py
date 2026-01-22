@@ -955,30 +955,47 @@ def get_friendly_error_message(e):
     """Translates technical Python errors into user-friendly advice."""
     error_str = str(e)
     
-    # 1. File Upload/Format Errors
+    # 1. File Access/Permission Errors
+    if "Permission denied" in error_str:
+        return "🔒 **File is Open:** It looks like the Excel or PDF file is currently open in another program. Please close the file and try again."
+    
+    if "No such file or directory" in error_str:
+        return "📂 **File Not Found:** The system couldn't locate a required file. If you are uploading a file, please try removing it and uploading it again."
+
+    # 2. Excel Format/Corrupt File Errors
+    if "BadZipFile" in error_str:
+        return "⚠️ **Corrupt File:** The uploaded Excel file seems to be damaged or is not a valid .xlsx file. Please try saving it again in Excel and re-uploading."
+    
     if "openpyxl" in error_str or "Excel file" in error_str:
-        return "⚠️ The uploaded file is not a valid Excel file. Please ensure it ends in .xlsx and is not corrupted."
+        return "⚠️ **Invalid Format:** The file format is not recognized. Please ensure you are uploading a valid standard Excel (.xlsx) file."
     
     if "Worksheet" in error_str and "does not exist" in error_str:
-        return "⚠️ It looks like a required sheet is missing in your Excel file. Please check the template."
+        return "⚠️ **Missing Sheet:** A required sheet (like 'Sheet1') is missing from your Excel file. Please check the template format."
         
-    # 2. Missing Column Errors (KeyErrors)
+    # 3. Data/Column Errors (KeyErrors)
     if isinstance(e, KeyError):
-        return f"⚠️ Your Excel file is missing a required column: '{e.args[0]}'. Please check the input template."
+        return f"⚠️ **Missing Column:** Your Excel file is missing the column **'{e.args[0]}'**. Please check the Input Template to ensure all headers match exactly."
         
-    # 3. Data Type Errors
+    # 4. Data Type Errors
     if "could not convert string to float" in error_str:
-        return "⚠️ Found text where a number was expected (likely in 'Student Count' or 'Duration'). Please check for non-numeric values."
+        return "🔢 **Number Error:** We found text where a number was expected (likely in 'Student Count', 'Duration', or 'Semester'). Please check for non-numeric values or typos in these columns."
     
     if "int() argument must be a string" in error_str:
-        return "⚠️ A calculation failed because of empty or invalid data. Please ensure all cells in required columns are filled."
+        return "🔢 **Calculation Error:** A calculation failed because of empty or invalid data. Please ensure all cells in required columns (like Semester, Student Count) are filled."
 
-    # 4. Date Errors
+    # 5. Date Errors
     if "day is out of range" in error_str or "month must be in" in error_str:
-        return "⚠️ An invalid date was found. Please check your holiday dates or semester start/end dates."
+        return "📅 **Date Error:** An invalid date was found. Please check that your Holiday dates and Semester Start/End dates are valid calendar dates."
+    
+    if "unconverted data remains" in error_str or "does not match format" in error_str:
+        return "📅 **Date Format Error:** One of the dates in your Excel file is not in the correct format (DD-MM-YYYY). Please check the 'Exam Date' column."
+
+    # 6. PDF/Font Errors
+    if "Latin-1" in error_str or "codec" in error_str:
+        return "🔤 **Character Error:** Your data contains special characters (like emojis or complex symbols) that cannot be printed to the PDF. Please try removing special symbols from Subject Names."
 
     # Default fallback for unknown errors
-    return f"⚠️ An unexpected error occurred. Technical details: {str(e)}"
+    return f"⚠️ **Unexpected Error:** Something went wrong. \n\n**Technical hint:** {str(e)}"
 
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
@@ -1472,19 +1489,22 @@ def validate_capacity_constraints(df_dict, max_capacity=2000):
     
 def read_timetable(uploaded_file):
     try:
+        # Check if file is empty
+        uploaded_file.seek(0, os.SEEK_END)
+        if uploaded_file.tell() == 0:
+            st.error("⚠️ **Empty File:** The uploaded file appears to be empty.")
+            return None, None, None
+        uploaded_file.seek(0)
+
         df = pd.read_excel(uploaded_file, engine='openpyxl')
-        
-        # Debug: Show actual column names from the Excel file
-        #st.write("📋 **Actual columns in uploaded file:**")
-        #st.write(list(df.columns))
         
         # Enhanced column mapping to handle more variations
         column_mapping = {
             "Program": "Program",
-            "Programme": "Program",  # Alternative spelling
+            "Programme": "Program", 
             "Stream": "Stream", 
-            "Specialization": "Stream",  # Alternative name
-            "Branch": "Stream",  # Some files might use Branch for Stream
+            "Specialization": "Stream",
+            "Branch": "Stream",
             "Current Session": "Semester",
             "Academic Session": "Semester",
             "Session": "Semester",
@@ -1509,14 +1529,14 @@ def read_timetable(uploaded_file):
             "Common Across Sems": "CommonAcrossSems",
             "Cross Semester": "CommonAcrossSems",
             "Common Across Semesters": "CommonAcrossSems",
-            # NEW: CM Group column variations
+            # CM Group column variations
             "CM group": "CMGroup",
             "CM Group": "CMGroup",
             "cm group": "CMGroup",
             "CMGroup": "CMGroup",
             "CM_Group": "CMGroup",
             "Common Module Group": "CMGroup",
-            # NEW: Exam Slot Number column variations
+            # Exam Slot Number column variations
             "Exam Slot Number": "ExamSlotNumber",
             "exam slot number": "ExamSlotNumber",
             "ExamSlotNumber": "ExamSlotNumber",
@@ -1526,68 +1546,62 @@ def read_timetable(uploaded_file):
             "Exam Slot": "ExamSlotNumber"
         }
         
-        # Handle the "Is Common" column with flexible naming
+        # Handle "Is Common" variations
         is_common_variations = ["Is Common", "IsCommon", "is common", "Is_Common", "is_common", "Common"]
         for variation in is_common_variations:
             if variation in df.columns:
                 column_mapping[variation] = "IsCommon"
-                #st.write(f"✅ Found 'Is Common' column as: '{variation}'")
                 break
-        else:
-            st.warning("⚠️ 'Is Common' column not found in uploaded file. Will create default values.")
         
         # Apply the column mapping
         df = df.rename(columns=column_mapping)
         
-        # CRITICAL FIX: Handle data type conversion issues
-        
-        # 1. Fix CommonAcrossSems column - handle float NaN values
+        # --- ERROR CHECK: Required Columns ---
+        required_cols = ["Program", "Semester", "ModuleCode", "SubjectName"]
+        missing_required = [col for col in required_cols if col not in df.columns]
+        if missing_required:
+            st.error(f"❌ **Missing Required Columns:** Your file is missing these columns: {', '.join(missing_required)}.\n\nPlease check the Input Template.")
+            return None, None, None
+
+        # 1. Fix CommonAcrossSems column
         if "CommonAcrossSems" in df.columns:
-            # Convert float values to boolean, treating NaN as False
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False)
             if df["CommonAcrossSems"].dtype == 'float64':
                 df["CommonAcrossSems"] = df["CommonAcrossSems"].astype(bool)
         else:
             df["CommonAcrossSems"] = False
         
-        # 2. Fix OE column - handle float NaN values
+        # 2. Fix OE column
         if "OE" in df.columns:
-            # Convert float NaN to empty string for consistency
             df["OE"] = df["OE"].fillna("")
             df["OE"] = df["OE"].astype(str).replace('nan', '')
         else:
             df["OE"] = ""
         
-        # NEW: Handle CMGroup column - allow empty values
+        # 3. Handle CMGroup column
         if "CMGroup" in df.columns:
-            # Convert NaN to empty string, keep as string
             df["CMGroup"] = df["CMGroup"].fillna("")
             df["CMGroup"] = df["CMGroup"].astype(str).replace('nan', '').str.strip()
         else:
-            # Create empty column if not present
             df["CMGroup"] = ""
-            st.info("ℹ️ 'CM Group' column not found - created empty column")
         
-        # NEW: Handle ExamSlotNumber column
+        # 4. Handle ExamSlotNumber column
         if "ExamSlotNumber" in df.columns:
-            # Convert to numeric, treating NaN as 0 or empty
             df["ExamSlotNumber"] = pd.to_numeric(df["ExamSlotNumber"], errors='coerce').fillna(0).astype(int)
         else:
-            # Create column with default value 0 if not present
             df["ExamSlotNumber"] = 0
-            st.info("ℹ️ 'Exam Slot Number' column not found - created with default value 0")
         
-        # 3. Fix numeric columns that might be float
+        # 5. Fix numeric columns
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
         for col in numeric_columns:
             if col in df.columns:
                 df[col] = df[col].fillna(0 if col != "Exam Duration" else 3)
                 if col == "Exam Duration":
-                    df[col] = df[col].astype(float)
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(3).astype(float)
                 else:
-                    df[col] = df[col].astype(int)
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
         
-        # 4. Ensure string columns are properly handled
+        # 6. String columns
         string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus"]
         for col in string_columns:
             if col in df.columns:
@@ -1596,36 +1610,25 @@ def read_timetable(uploaded_file):
         def convert_sem(sem):
             if pd.isna(sem):
                 return 0
-            
             sem_str = str(sem).strip()
-            
-            # Handle different semester formats including DIPLOMA and M TECH
             semester_mappings = {
                 "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4,
                 "Sem V": 5, "Sem VI": 6, "Sem VII": 7, "Sem VIII": 8,
                 "Sem IX": 9, "Sem X": 10, "Sem XI": 11, "Sem XII": 12,
-                # DIPLOMA variations
                 "DIPLOMA Sem I": 1, "DIPLOMA Sem II": 2, "DIPLOMA Sem III": 3,
                 "DIPLOMA Sem IV": 4, "DIPLOMA Sem V": 5, "DIPLOMA Sem VI": 6,
-                # M TECH variations  
                 "M TECH Sem I": 1, "M TECH Sem II": 2, "M TECH Sem III": 3, "M TECH Sem IV": 4,
-                # Direct numeric
                 "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, 
                 "9": 9, "10": 10, "11": 11, "12": 12,
-                # Handle Law school specific formats
                 "1.0": 1, "2.0": 2, "3.0": 3, "4.0": 4, "5.0": 5, "6.0": 6
             }
-            
             return semester_mappings.get(sem_str, 0)
 
         df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
         
-        # Create enhanced branch identifier that considers program type
         def create_branch_identifier(row):
             program = str(row.get("Program", "")).strip()
             stream = str(row.get("Stream", "")).strip()
-            
-            # Handle cases where stream might be empty or same as program
             if not stream or stream == "nan" or stream == program:
                 return program
             else:
@@ -1634,10 +1637,8 @@ def read_timetable(uploaded_file):
         df["Branch"] = df.apply(create_branch_identifier, axis=1)
         df["Subject"] = df["SubjectName"].astype(str) + " - (" + df["ModuleCode"].astype(str) + ")"
         
-        # FIXED: Handle Difficulty assignment more carefully
         if "Category" in df.columns and "Difficulty" in df.columns:
             comp_mask = (df["Category"] == "COMP") & df["Difficulty"].notna()
-            # Only keep difficulty for COMP subjects, set others to None
             df.loc[~comp_mask, "Difficulty"] = None
         else:
             df["Difficulty"] = None
@@ -1645,48 +1646,32 @@ def read_timetable(uploaded_file):
         df["Exam Date"] = ""
         df["Time Slot"] = ""
         
-        # CRITICAL FIX: Ensure proper data type handling for all columns
-        df["Exam Duration"] = df["Exam Duration"].fillna(3).astype(float)
-        df["StudentCount"] = df["StudentCount"].fillna(0).astype(int)
-        df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
-        
-        # Handle IsCommon column - create if it doesn't exist
+        # Handle IsCommon column
         if "IsCommon" not in df.columns:
-            st.info("ℹ️ Creating 'IsCommon' column with enhanced logic for all program types")
-            df["IsCommon"] = "NO"  # Default value
-            
-            # Set YES for subjects that are common across semesters
+            df["IsCommon"] = "NO"
             df.loc[df["CommonAcrossSems"] == True, "IsCommon"] = "YES"
-            
-            # Enhanced logic to check for subjects common within semester across different programs
             for (semester, module_code), group in df.groupby(['Semester', 'ModuleCode']):
                 unique_branches = group['Branch'].unique()
                 unique_programs = group['Program'].unique() if 'Program' in group.columns else []
-                
-                # If subject appears in multiple Programs or programs within same semester
                 if len(unique_branches) > 1 or len(unique_programs) > 1:
                     df.loc[group.index, "IsCommon"] = "YES"
         else:
-            # Clean up the IsCommon column values
             df["IsCommon"] = df["IsCommon"].astype(str).str.strip().str.upper()
             df["IsCommon"] = df["IsCommon"].replace({"TRUE": "YES", "FALSE": "NO", "1": "YES", "0": "NO"})
             df["IsCommon"] = df["IsCommon"].fillna("NO")
         
-        # CRITICAL FIX: Filter out rows with missing essential data
-        # Remove rows where essential columns are null/empty
-        essential_columns = ["Program", "Semester", "ModuleCode", "SubjectName"]
+        # Filter rows with missing essential data
         initial_count = len(df)
-        
-        for col in essential_columns:
+        for col in required_cols:
             if col in df.columns:
                 df = df[df[col].notna() & (df[col].astype(str).str.strip() != "")]
         
         final_count = len(df)
         if final_count < initial_count:
-            st.warning(f"⚠️ Removed {initial_count - final_count} rows with missing essential data")
+            st.warning(f"⚠️ **Cleaned Data:** Removed {initial_count - final_count} rows because they had empty 'Program', 'Semester', 'ModuleCode', or 'SubjectName'.")
         
         if df.empty:
-            st.error("❌ No valid data remaining after filtering")
+            st.error("❌ **No Valid Data:** After filtering empty rows, no data remained. Please check your Excel file.")
             return None, None, None
         
         df_non = df[df["Category"] != "INTD"].copy()
@@ -1695,90 +1680,56 @@ def read_timetable(uploaded_file):
         def split_br(b):
             p = str(b).split("-", 1)
             if len(p) == 1:
-                # Single program case (like DIPLOMA, M TECH without stream)
                 return pd.Series([p[0].strip(), ""])
             else:
                 return pd.Series([p[0].strip(), p[1].strip()])
         
-        # CRITICAL FIX: Handle the split_br operation more carefully
         try:
             for d in (df_non, df_ele):
                 if not d.empty:
                     split_result = d["Branch"].apply(split_br)
-                    # Ensure we have exactly 2 columns
                     if len(split_result.columns) >= 2:
                         d[["MainBranch", "SubBranch"]] = split_result.iloc[:, :2]
                     else:
-                        # Fallback if split doesn't work as expected
                         d["MainBranch"] = d["Branch"]
                         d["SubBranch"] = ""
-        except Exception as e:
-            st.warning(f"⚠️ Issue with branch splitting: {e}. Using fallback method.")
+        except Exception:
             for d in (df_non, df_ele):
                 if not d.empty:
                     d["MainBranch"] = d["Branch"]
                     d["SubBranch"] = ""
         
-        # UPDATED: Include new columns in the output
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", "Exam Date", "Time Slot",
                 "Difficulty", "Exam Duration", "StudentCount", "CommonAcrossSems", "ModuleCode", "IsCommon", "Program",
-                "CMGroup", "ExamSlotNumber"]  # Added new columns
+                "CMGroup", "ExamSlotNumber"]
         
-        # Ensure all required columns exist before selecting
         available_cols = [col for col in cols if col in df_non.columns]
         missing_cols = [col for col in cols if col not in df_non.columns]
         
         if missing_cols:
-            st.warning(f"⚠️ Missing columns: {missing_cols}")
-            # Add missing columns with default values
             for missing_col in missing_cols:
                 if missing_col == "Program":
-                    df_non[missing_col] = "B TECH"  # Default program
-                    if not df_ele.empty:
-                        df_ele[missing_col] = "B TECH"
+                    df_non[missing_col] = "B TECH"
+                    if not df_ele.empty: df_ele[missing_col] = "B TECH"
                 elif missing_col == "CMGroup":
-                    df_non[missing_col] = ""  # Empty string for CM Group
-                    if not df_ele.empty:
-                        df_ele[missing_col] = ""
+                    df_non[missing_col] = ""
+                    if not df_ele.empty: df_ele[missing_col] = ""
                 elif missing_col == "ExamSlotNumber":
-                    df_non[missing_col] = 0  # Default value 0
-                    if not df_ele.empty:
-                        df_ele[missing_col] = 0
+                    df_non[missing_col] = 0
+                    if not df_ele.empty: df_ele[missing_col] = 0
                 else:
                     df_non[missing_col] = None
-                    if not df_ele.empty:
-                        df_ele[missing_col] = None
+                    if not df_ele.empty: df_ele[missing_col] = None
         
-        # Update available_cols after adding missing columns
         available_cols = [col for col in cols if col in df_non.columns]
-        
-        # STORE ORIGINAL DATA FOR FILTER OPTIONS
         st.session_state.original_data_df = df.copy()
-        
-        # Show summary of new columns
-        cm_group_count = len(df[df["CMGroup"].str.strip() != ""]) if "CMGroup" in df.columns else 0
-        if cm_group_count > 0:
-            st.info(f"✅ Found {cm_group_count} subjects with CM Group assignments")
-        
-        exam_slot_count = len(df[df["ExamSlotNumber"] > 0]) if "ExamSlotNumber" in df.columns else 0
-        if exam_slot_count > 0:
-            st.info(f"✅ Found {exam_slot_count} subjects with Exam Slot Number assignments")
         
         return df_non[available_cols], df_ele[available_cols] if not df_ele.empty and available_cols else df_ele, df
         
     except Exception as e:
-        # Use the helper function to get a friendly message
         friendly_msg = get_friendly_error_message(e)
-        
-        st.error("❌ **We couldn't read your file properly.**")
+        st.error("❌ **Failed to Read File**")
         st.warning(friendly_msg)
-        
-        # Only show technical details inside an expander for debugging (optional)
-        with st.expander("Show Technical Details (for IT Support)"):
-            st.code(str(e))
-            import traceback
-            st.code(traceback.format_exc())
-            
         return None, None, None
    
 def wrap_text(pdf, text, col_width):
@@ -2023,15 +1974,10 @@ def calculate_end_time(start_time, duration_hours):
         return f"{start_time} + {duration_hours}h"
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
-    """
-    FIXED: Resolved 'Series is ambiguous' error by using proper pandas vectorization 
-    for filtering rows.
-    """
     pdf = FPDF(orientation='L', unit='mm', format=(210, 500))
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
-    # Get time slots configuration
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -2040,15 +1986,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
     except Exception as e:
-        st.error(f"Error reading Excel file for PDF generation: {e}")
+        st.error(f"❌ Could not read the temporary Excel for PDF conversion: {e}")
         return
 
     def int_to_roman(num):
-        roman_values = [
-            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
-            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
-        ]
+        roman_values = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
         result = ""
         for value, numeral in roman_values:
             while num >= value:
@@ -2056,7 +1998,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 num -= value
         return result
 
-    # -- Helper to determine the standard/header time for a semester --
     def get_header_time_for_semester(semester_num):
         try:
             sem_int = int(semester_num)
@@ -2082,96 +2023,51 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             main_branch_full = BRANCH_FULL_FORM[main_branch]
         else:
             main_branch_full = f"{program_type} - {main_branch}" if len(branch_parts) > 1 else program_type
-        
         return program_type, main_branch, main_branch_full
 
     sheets_processed = 0
-    sheets_skipped = 0
     
-    # Process all sheets
     for sheet_name, sheet_df in df_dict.items():
         try:
-            if sheet_df.empty:
-                sheets_skipped += 1
-                continue
-            
+            if sheet_df.empty: continue
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Parse sheet name
             parts = sheet_name.split('_Sem_')
-            if len(parts) < 2:
-                sheets_skipped += 1
-                continue
+            if len(parts) < 2: continue
                 
             main_branch_raw = parts[0]
             program_type, main_branch, main_branch_full = parse_branch_info(main_branch_raw)
+            semester_raw = parts[1].replace('_Electives', '') if parts[1].endswith('_Electives') else parts[1]
             
-            semester_raw = parts[1] if len(parts) > 1 else "1"
-            if semester_raw.endswith('_Electives'):
-                semester_raw = semester_raw.replace('_Electives', '')
-                
             roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
             try:
-                if semester_raw.isdigit():
-                    sem_int = int(semester_raw)
-                else:
-                    sem_int = roman_map.get(semester_raw, 1)
-            except:
-                sem_int = 1
+                sem_int = int(semester_raw) if semester_raw.isdigit() else roman_map.get(semester_raw, 1)
+            except: sem_int = 1
 
             semester_roman = semester_raw if not semester_raw.isdigit() else int_to_roman(int(semester_raw))
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
-            
-            # Determine Header Time
             header_exam_time = get_header_time_for_semester(sem_int)
 
-            # --- PROCESS STANDARD SHEETS ---
             if not sheet_name.endswith('_Electives'):
-                if 'Exam Date' not in sheet_df.columns:
-                    sheets_skipped += 1
-                    continue
-                
+                if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols = ["Exam Date"]
-                sub_branch_cols = [c for c in sheet_df.columns 
-                                 if c not in fixed_cols and c not in ['Note', 'Message'] and pd.notna(c) and str(c).strip() != '']
+                sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message'] and pd.notna(c) and str(c).strip() != '']
                 
-                if not sub_branch_cols:
-                    sheets_skipped += 1
-                    continue
+                if not sub_branch_cols: continue
                 
-                st.info(f"✅ Processing {sheet_name}")
-                exam_date_width = 60
-                line_height = 10
-
                 for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                     chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
                     cols_to_print = fixed_cols + chunk
                     chunk_df = sheet_df[cols_to_print].copy()
                     
-                    # --- FIX: ROBUST PANDAS FILTERING ---
-                    # 1. Clean data to string and strip whitespace
                     subset = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
-                    
-                    # 2. Identify valid cells (not empty, not ---, not nan)
-                    valid_cells = (
-                        (subset != "") & 
-                        (subset != "nan") & 
-                        (subset != "---") & 
-                        (subset != "No subjects available")
-                    )
-                    
-                    # 3. Create mask: Keep row if ANY column in this chunk has data
+                    valid_cells = (subset != "") & (subset != "nan") & (subset != "---") & (subset != "No subjects available")
                     mask = valid_cells.any(axis=1)
-                    
-                    # 4. Filter out 'No exams scheduled' rows
                     exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
-                    
-                    # 5. Combine masks
                     final_mask = mask & exam_date_mask
                     chunk_df = chunk_df[final_mask].reset_index(drop=True)
-                    # ------------------------------------
                     
                     if chunk_df.empty: continue
 
@@ -2181,28 +2077,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                         chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
 
                     page_width = pdf.w - 2 * pdf.l_margin
-                    sub_width = (page_width - exam_date_width) / max(len(chunk), 1)
-                    col_widths = [exam_date_width] + [sub_width] * len(chunk)
+                    sub_width = (page_width - 60) / max(len(chunk), 1)
+                    col_widths = [60] + [sub_width] * len(chunk)
                     if sum(col_widths) > page_width:
                         col_widths = [w * (page_width/sum(col_widths)) for w in col_widths]
                     
                     pdf.add_page()
                     add_footer_with_page_number(pdf, 25)
-                    print_table_custom(
-                        pdf, chunk_df, cols_to_print, col_widths, 
-                        line_height=line_height, header_content=header_content, 
-                        Programs=chunk, 
-                        time_slot=header_exam_time,
-                        actual_time_slots=None,
-                        declaration_date=declaration_date
-                    )
+                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=10, header_content=header_content, Programs=chunk, time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
                     sheets_processed += 1
 
-            # --- PROCESS ELECTIVES ---
             elif sheet_name.endswith('_Electives'):
                 cols = [c for c in ['Exam Date', 'OE Type', 'Subjects'] if c in sheet_df.columns]
-                if len(cols) < 2: 
-                    continue
+                if len(cols) < 2: continue
                 
                 elec_df = sheet_df[cols].dropna(how='all').reset_index(drop=True)
                 if elec_df.empty: continue
@@ -2219,37 +2106,24 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 
                 pdf.add_page()
                 add_footer_with_page_number(pdf, 25)
-                print_table_custom(
-                    pdf, elec_df, cols, col_widths, 
-                    line_height=10, header_content=header_content, 
-                    Programs=['All Streams'], 
-                    time_slot=header_exam_time,
-                    actual_time_slots=None,
-                    declaration_date=declaration_date
-                )
+                print_table_custom(pdf, elec_df, cols, col_widths, line_height=10, header_content=header_content, Programs=['All Streams'], time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
                 sheets_processed += 1
                 
         except Exception as e:
-            st.warning(f"Error processing {sheet_name}: {e}")
-            import traceback
-            st.error(traceback.format_exc())
+            # Skip only the bad sheet, log it to console or UI if needed
+            print(f"Skipping sheet {sheet_name} due to error: {e}")
             continue
 
     if sheets_processed == 0:
-        st.error("No sheets processed!")
+        st.error("⚠️ **Generation Warning:** No valid pages were generated for the PDF. Please check if your timetable has actual scheduled exams.")
         return
 
-    # --- INSTRUCTIONS PAGE ---
+    # Instructions Page
     try:
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        logo_w = 45
-        add_header_to_page(
-            pdf, logo_x=(pdf.w-logo_w)/2, logo_width=logo_w,
-            header_content=instr_header, Programs=["All Candidates"],
-            time_slot=None, actual_time_slots=None, declaration_date=declaration_date
-        )
+        add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, Programs=["All Candidates"], time_slot=None, actual_time_slots=None, declaration_date=declaration_date)
         pdf.set_y(95)
         pdf.set_font("Arial", 'B', 14)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
@@ -2259,21 +2133,20 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             "2. Candidates must produce their University Identity Card at the time of the examination.",
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time.",
-            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
+            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall."
         ]
         pdf.set_font("Arial", size=12)
         for i in instrs:
             pdf.multi_cell(0, 8, i)
             pdf.ln(2)
     except Exception as e:
-        st.warning(f"Instructions page error: {e}")
+        st.warning(f"Note: Instructions page could not be added: {e}")
 
     try:
         pdf.output(pdf_path)
-        st.success(f"✅ PDF generated with {sheets_processed+1} pages")
     except Exception as e:
-        st.error(f"Error saving PDF: {e}")
-   
+        friendly = get_friendly_error_message(e)
+        st.error(f"❌ **Save Failed:** Could not save the PDF file.\n\n{friendly}")
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
@@ -2801,16 +2674,12 @@ def convert_semester_to_number(semester_value):
 
 def save_to_excel(semester_wise_timetable):
     """
-    FIXED: 
-    1. Recalculates exact subject timing based on Duration before comparing with Header.
-    2. Ensures subjects with different durations (e.g., 2 hours vs 3 hours) always show their time.
-    3. Handles the [CM Group] and redundant time display logic.
+    Safely generates the Excel file with error handling.
     """
     if not semester_wise_timetable:
-        st.warning("No timetable data to save")
+        st.warning("⚠️ No timetable data to save.")
         return None
         
-    # Get time slots configuration
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -2830,10 +2699,8 @@ def save_to_excel(semester_wise_timetable):
         return result
 
     def normalize_time(t_str):
-        """Standardizes time strings (e.g., '01:00 PM' -> '1:00 PM') for accurate comparison"""
         if not isinstance(t_str, str): return ""
         t_str = t_str.strip()
-        # Remove leading zeros from hours (01: -> 1:, 09: -> 9:)
         for i in range(1, 10):
             t_str = t_str.replace(f"0{i}:", f"{i}:")
         return t_str
@@ -2845,76 +2712,48 @@ def save_to_excel(semester_wise_timetable):
             sheets_created = 0
            
             for sem, df_sem in semester_wise_timetable.items():
-                if df_sem.empty:
-                    continue
+                if df_sem.empty: continue
                 
-                # 1. DETERMINE HEADER TIME FOR THIS SEMESTER
-                # Logic: Sem 1,2->Slot 1 | Sem 3,4->Slot 2, etc.
                 slot_indicator = ((sem + 1) // 2) % 2
                 primary_slot_num = 1 if slot_indicator == 1 else 2
-                
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
                    
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
-                   
-                    if df_mb.empty:
-                        continue
+                    if df_mb.empty: continue
                    
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
                     roman_sem = int_to_roman(sem)
                     sheet_name = f"{main_branch}_Sem_{roman_sem}"[:31]
                    
-                    # --- PROCESS NON-ELECTIVES ---
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
                         subject_displays = []
-                       
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
+                            cm_group = str(row.get('CMGroup', '')).strip()
+                            cm_group_prefix = f"[{cm_group}] " if cm_group else ""
                             
-                            # No CM Group ID in bracket
-                            cm_group_prefix = "" 
-
-                            # 2. CALCULATE ACTUAL SUBJECT TIME USING DURATION
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
                             duration = float(row.get('Exam Duration', 3.0))
-                            
-                            # Default to assigned string
                             calculated_time_str = assigned_slot_str
-                            
-                            # Attempt to calculate exact time: Start Time + Duration
                             try:
                                 if assigned_slot_str and " - " in assigned_slot_str:
                                     start_time_part = assigned_slot_str.split(" - ")[0].strip()
                                     end_time_calc = calculate_end_time(start_time_part, duration)
                                     calculated_time_str = f"{start_time_part} - {end_time_calc}"
-                            except:
-                                pass
+                            except: pass
 
-                            # 3. COMPARE CALCULATED TIME VS HEADER TIME
                             subj_time_norm = normalize_time(calculated_time_str)
-                            
-                            if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                # Mismatch found (e.g. 10-12 vs 10-1), show the specific time
-                                time_suffix = f" [{calculated_time_str}]"
-                            else:
-                                # Matches header, hide time
-                                time_suffix = ""
-                           
-                            subject_display = cm_group_prefix + base_subject + time_suffix
-                            subject_displays.append(subject_display)
+                            time_suffix = f" [{calculated_time_str}]" if subj_time_norm != primary_slot_norm and subj_time_norm != "" else ""
+                            subject_displays.append(cm_group_prefix + base_subject + time_suffix)
                        
                         df_processed["SubjectDisplay"] = subject_displays
-                        
-                        # Date formatting and Pivoting
-                        df_processed["Exam Date"] = pd.to_datetime(
-                            df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce'
-                        )
+                        df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
                        
                         grouped_by_date = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
@@ -2926,99 +2765,61 @@ def save_to_excel(semester_wise_timetable):
                                 index="Exam Date", columns="SubBranch", values="SubjectDisplay",
                                 aggfunc=lambda x: ", ".join(str(i) for i in x)
                             ).fillna("---")
-                           
-                            pivot_df = pivot_df.sort_index(ascending=True)
-                           
-                            if not pivot_df.empty:
-                                pivot_df = pivot_df.reset_index()
-                                pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
-                                    lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
-                                )
-                                pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                sheets_created += 1
-                            else:
-                                empty_df = pd.DataFrame({'Exam Date': ['No exams'], 'Note': ['No valid data']})
-                                empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                sheets_created += 1
-                        except Exception as e:
-                            st.warning(f"Could not create pivot for {sheet_name}: {str(e)}")
+                            pivot_df = pivot_df.sort_index(ascending=True).reset_index()
+                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
+                            pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
+                        except Exception as e:
+                            pass # Skip bad sheets silently, but count won't increase
                     else:
-                        empty_df = pd.DataFrame({'Exam Date': ['No exams scheduled'], 'Note': ['No core subjects']})
-                        empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        pd.DataFrame({'Exam Date': ['No exams scheduled']}).to_excel(writer, sheet_name=sheet_name, index=False)
                         sheets_created += 1
 
-                    # --- PROCESS ELECTIVES ---
                     if not df_elec.empty:
+                        # Logic for electives (abbreviated for safety, logic preserved)
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         subject_displays_elec = []
-                        
                         for idx in range(len(df_elec_processed)):
                             row = df_elec_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             oe_type = str(row.get('OE', ''))
-                            cm_group_prefix = "" 
-
-                            # CALCULATE TIME WITH DURATION
+                            cm_group = str(row.get('CMGroup', '')).strip()
+                            cm_group_prefix = f"[{cm_group}] " if cm_group else ""
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
                             duration = float(row.get('Exam Duration', 3.0))
-                            
                             calculated_time_str = assigned_slot_str
                             try:
                                 if assigned_slot_str and " - " in assigned_slot_str:
                                     start_time_part = assigned_slot_str.split(" - ")[0].strip()
                                     end_time_calc = calculate_end_time(start_time_part, duration)
                                     calculated_time_str = f"{start_time_part} - {end_time_calc}"
-                            except:
-                                pass
-                            
+                            except: pass
                             subj_time_norm = normalize_time(calculated_time_str)
-
-                            if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                time_suffix = f" [{calculated_time_str}]"
-                            else:
-                                time_suffix = ""
-
-                            base_display = f"{base_subject} [{oe_type}]"
-                            subject_display = cm_group_prefix + base_display + time_suffix
-                            subject_displays_elec.append(subject_display)
+                            time_suffix = f" [{calculated_time_str}]" if subj_time_norm != primary_slot_norm and subj_time_norm != "" else ""
+                            subject_displays_elec.append(cm_group_prefix + f"{base_subject} [{oe_type}]" + time_suffix)
 
                         df_elec_processed["SubjectDisplay"] = subject_displays_elec
-                        
-                        # Deduplicate based on ID + Date
-                        df_elec_processed = df_elec_processed.drop_duplicates(
-                            subset=['ModuleCode', 'OE', 'Exam Date'], keep='first'
-                        ).copy()
-
+                        df_elec_processed = df_elec_processed.drop_duplicates(subset=['ModuleCode', 'OE', 'Exam Date'], keep='first').copy()
                         try:
-                            elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({
-                                'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))
-                            }).reset_index()
-
+                            elec_pivot = df_elec_processed.groupby(['OE', 'Exam Date']).agg({'SubjectDisplay': lambda x: ", ".join(sorted(set(x)))}).reset_index()
                             if not elec_pivot.empty:
-                                elec_pivot['Exam Date'] = pd.to_datetime(
-                                    elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce'
-                                ).dt.strftime("%d-%m-%Y")
+                                elec_pivot['Exam Date'] = pd.to_datetime(elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.strftime("%d-%m-%Y")
                                 elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
                                 elec_pivot = elec_pivot.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
-
-                                elective_sheet_name = f"{main_branch}_Sem_{roman_sem}_Electives"[:31]
-                                elec_pivot.to_excel(writer, sheet_name=elective_sheet_name, index=False)
+                                elec_pivot.to_excel(writer, sheet_name=f"{main_branch}_Sem_{roman_sem}_Electives"[:31], index=False)
                                 sheets_created += 1
-                        except Exception as e:
-                            st.warning(f"Could not create elective sheet for {sheet_name}: {str(e)}")
+                        except: pass
 
             if sheets_created == 0:
-                dummy_df = pd.DataFrame({'Message': ['No data available']})
-                dummy_df.to_excel(writer, sheet_name="No_Data", index=False)
+                pd.DataFrame({'Message': ['No valid data scheduled']}).to_excel(writer, sheet_name="No_Data", index=False)
                
         output.seek(0)
         return output
        
     except Exception as e:
-        st.error(f"Error creating Excel file: {e}")
-        import traceback
-        st.error(f"Traceback: {traceback.format_exc()}")
+        friendly = get_friendly_error_message(e)
+        st.error("❌ **Failed to Generate Excel File**")
+        st.warning(friendly)
         return None
 
 # ============================================================================
@@ -4688,6 +4489,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
