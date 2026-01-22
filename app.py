@@ -4278,7 +4278,7 @@ def main():
             st.link_button("♻️ Convert", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
 
         with col5:
-            if st.button("🔄 New", use_container_width=True):
+            if st.button("🔄 Regenerate", use_container_width=True):
                 # Clear session state and rerun
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
@@ -4688,6 +4688,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
