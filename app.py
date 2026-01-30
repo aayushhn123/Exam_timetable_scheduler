@@ -2029,8 +2029,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
+            # --- Robust splitting to handle various name formats ---
             parts = sheet_name.split('_Sem_')
-            if len(parts) < 2: continue
+            if len(parts) < 2: 
+                # Debug info: Only show if it's not a utility sheet
+                if sheet_name not in ["No_Data", "Daily_Statistics", "Summary"]:
+                    st.warning(f"⚠️ Skipping sheet '{sheet_name}': Could not find '_Sem_' in name. (Truncation issue?)")
+                continue
                 
             main_branch_raw = parts[0]
             program_type, main_branch, main_branch_full = parse_branch_info(main_branch_raw)
@@ -2112,6 +2117,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
     if sheets_processed == 0:
         st.error("⚠️ **Generation Warning:** No valid pages were generated for the PDF. Please check if your timetable has actual scheduled exams.")
+        st.info("💡 Tip: This often happens if the Branch Name is too long (>31 chars) and the Semester suffix gets cut off.")
         return
 
     # Instructions Page
@@ -2671,6 +2677,7 @@ def convert_semester_to_number(semester_value):
 def save_to_excel(semester_wise_timetable):
     """
     Safely generates the Excel file with error handling.
+    FIXED: Handles 31-char sheet name limit by truncating branch name instead of suffix.
     """
     if not semester_wise_timetable:
         st.warning("⚠️ No timetable data to save.")
@@ -2723,7 +2730,15 @@ def save_to_excel(semester_wise_timetable):
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
                     roman_sem = int_to_roman(sem)
-                    sheet_name = f"{main_branch}_Sem_{roman_sem}"[:31]
+                    
+                    # --- FIX START: Smart Name Truncation ---
+                    # Calculate suffix first
+                    suffix = f"_Sem_{roman_sem}"
+                    # Allow space for suffix, ensuring total <= 31
+                    max_name_len = 31 - len(suffix)
+                    safe_branch = main_branch[:max_name_len]
+                    sheet_name = f"{safe_branch}{suffix}"
+                    # --- FIX END ---
                    
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
@@ -2766,13 +2781,13 @@ def save_to_excel(semester_wise_timetable):
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
                         except Exception as e:
-                            pass # Skip bad sheets silently, but count won't increase
+                            pass
                     else:
                         pd.DataFrame({'Exam Date': ['No exams scheduled']}).to_excel(writer, sheet_name=sheet_name, index=False)
                         sheets_created += 1
 
                     if not df_elec.empty:
-                        # Logic for electives (abbreviated for safety, logic preserved)
+                        # Logic for electives with FIX for sheet name
                         df_elec_processed = df_elec.copy().reset_index(drop=True)
                         subject_displays_elec = []
                         for idx in range(len(df_elec_processed)):
@@ -2802,7 +2817,15 @@ def save_to_excel(semester_wise_timetable):
                                 elec_pivot['Exam Date'] = pd.to_datetime(elec_pivot['Exam Date'], format="%d-%m-%Y", errors='coerce').dt.strftime("%d-%m-%Y")
                                 elec_pivot = elec_pivot.sort_values(by="Exam Date", ascending=True)
                                 elec_pivot = elec_pivot.rename(columns={'OE': 'OE Type', 'SubjectDisplay': 'Subjects'})
-                                elec_pivot.to_excel(writer, sheet_name=f"{main_branch}_Sem_{roman_sem}_Electives"[:31], index=False)
+                                
+                                # --- FIX START: Smart Name Truncation for Electives ---
+                                elec_suffix = f"_Sem_{roman_sem}_Electives"
+                                max_elec_len = 31 - len(elec_suffix)
+                                safe_branch_elec = main_branch[:max_elec_len]
+                                elec_sheet_name = f"{safe_branch_elec}{elec_suffix}"
+                                # --- FIX END ---
+                                
+                                elec_pivot.to_excel(writer, sheet_name=elec_sheet_name, index=False)
                                 sheets_created += 1
                         except: pass
 
@@ -4485,6 +4508,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
