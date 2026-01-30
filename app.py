@@ -587,7 +587,7 @@ COLLEGES = [
     {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
     {"name": "Anil Surendra Modi School of Commerce/School of Commerce", "icon": "📊"},
     {"name": "Kirit P. Mehta School of Law/School of Law", "icon": "⚖️"},
-    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management/School of Pharmacy & Technology Management"", "icon": "💊"},
+    {"name": "Shobhaben Pratapbhai Patel School of Pharmacy & Technology Management/School of Pharmacy & Technology Management", "icon": "💊"},
     {"name": "Sunandan Divatia School of Science/School of Science", "icon": "🔬"},
     {"name": "Sarla Anil Modi School of Economics", "icon": "📈"},
     {"name": "Balwant Sheth School of Architecture", "icon": "🏛️"},
@@ -4485,6 +4485,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
