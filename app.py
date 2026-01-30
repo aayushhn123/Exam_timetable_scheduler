@@ -582,7 +582,7 @@ st.markdown("""
 # List of colleges with icons
 # List of colleges with icons
 COLLEGES = [
-    {"name": "Mukesh Patel School of Technology Management & Engineering", "icon": "🖥️"},
+    {"name": "Mukesh Patel School of Technology Management & Engineering/School of Technology Management & Engineering", "icon": "🖥️"},
     {"name": "School of Business Management", "icon": "💼"},
     {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
     {"name": "Anil Surendra Modi School of Commerce/School of Commerce", "icon": "📊"},
@@ -4485,6 +4485,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
