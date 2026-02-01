@@ -2568,10 +2568,7 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_date):
     """
     Optimizes schedule by moving subjects up to fill gaps.
-    UPDATED LOGIC:
-    - Excludes INTD/OE (Electives)
-    - Excludes subjects with a 'CMGroup' (These are locked groups)
-    - Only moves completely standard, unconnected subjects.
+    UPDATED: Fixes 'None' date error by strictly filtering valid dates.
     """
     st.info("🎯 Optimizing schedule by filling gaps (Skipping CM Groups & Electives)...")
     
@@ -2585,11 +2582,22 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             branch = subject_info['branch']
             subject = subject_info['subject']
             
-            # Get preferred time slot
-            # (Re-deriving the slot logic briefly here for the move)
-            slot_indicator = ((semester + 1) // 2) % 2
-            slot_num = 1 if slot_indicator == 1 else 2
             time_slots_dict = st.session_state.get('time_slots', {1: {"start": "10:00 AM", "end": "1:00 PM"}})
+            
+            # Helper to get slot based on Semester (Standard Logic)
+            def extract_numeric_sem(sem_val):
+                s = str(sem_val).strip().upper()
+                import re
+                digits = re.findall(r'\d+', s)
+                if digits: return int(digits[0])
+                romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
+                for k,v in romans.items():
+                    if s == k or s.endswith(f" {k}"): return v
+                return 1
+
+            sem_num = extract_numeric_sem(semester)
+            slot_indicator = ((sem_num + 1) // 2) % 2
+            slot_num = 1 if slot_indicator == 1 else 2
             slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
             preferred_slot = f"{slot_cfg['start']} - {slot_cfg['end']}"
             
@@ -2617,8 +2625,9 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     # Flatten Data
     all_data = pd.concat(df_dict.values(), ignore_index=True)
     
-    # Normalize Dates
+    # Normalize Dates safely
     def norm_date(d):
+        if pd.isna(d) or d is None: return "None"
         try: return pd.to_datetime(d, format="%d-%m-%Y").strftime("%d-%m-%Y")
         except: return str(d)
         
@@ -2626,29 +2635,36 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
     
     # Build Schedule Grid
     schedule_grid = {}
-    subbranch_semester_combinations = set()
     
+    # --- FIXED FILTERING: Strictly exclude 'None', 'nan', and bad formats ---
     valid_data = all_data[
+        (all_data['Exam Date'].notna()) &
         (all_data['Exam Date'] != "") & 
-        (all_data['Exam Date'] != "Out of Range") &
-        (all_data['Exam Date'] != "nan")
+        (all_data['Exam Date'] != "None") &
+        (all_data['Exam Date'] != "nan") &
+        (all_data['Exam Date'] != "Out of Range")
     ].copy()
     
     for _, row in valid_data.iterrows():
         date_str = row['Exam Date']
+        # Double check date format to be safe
+        try:
+            datetime.strptime(date_str, "%d-%m-%Y")
+        except:
+            continue
+
         subbranch = str(row.get('SubBranch', '')).strip()
         sem = row['Semester']
         key = f"{subbranch}_{sem}"
         
         if date_str not in schedule_grid: schedule_grid[date_str] = {}
         
-        # Check constraints for moving
+        # Check constraints
         cm_group = str(row.get('CMGroup', '')).strip()
         category = str(row.get('Category', '')).strip()
         oe = str(row.get('OE', '')).strip()
         
-        # STRICT ELIGIBILITY:
-        # Cannot be INTD, cannot be OE, and CANNOT have a CM Group.
+        # ELIGIBILITY: Standard Subjects only (No Electives, No CM Groups)
         is_eligible = (category != 'INTD') and (oe == "") and (cm_group == "")
         
         schedule_grid[date_str][key] = {
@@ -2659,10 +2675,14 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
             'is_eligible': is_eligible,
             'cm_group': cm_group
         }
-        subbranch_semester_combinations.add(key)
         
     # Find Gaps
-    sorted_dates = sorted(schedule_grid.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    try:
+        sorted_dates = sorted(schedule_grid.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
+    except ValueError as e:
+        st.warning(f"⚠️ Gap optimization skipped specific dates due to error: {e}")
+        return df_dict, 0, []
+
     if not sorted_dates: return df_dict, 0, []
     
     # Identify Candidates to Move
@@ -2689,14 +2709,12 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
         curr_date_obj = datetime.strptime(curr_date, "%d-%m-%Y")
         key = candidate['key']
         
-        # Try finding an earlier date
         for gap_date in valid_days:
             gap_date_obj = datetime.strptime(gap_date, "%d-%m-%Y")
             
             # Stop if gap is not earlier
             if gap_date_obj >= curr_date_obj: break
             
-            # Check if this subbranch is free on this gap date
             is_free = False
             if gap_date not in schedule_grid:
                 is_free = True
@@ -2704,16 +2722,15 @@ def optimize_schedule_by_filling_gaps(df_dict, holidays_set, start_date, end_dat
                 is_free = True
                 
             if is_free:
-                # Move it!
                 success = move_subject(df_dict, candidate['info'], gap_date, schedule_grid, curr_date, key)
                 if success:
                     moves += 1
                     days_saved = (curr_date_obj - gap_date_obj).days
                     log.append(f"Moved {candidate['info']['subject']} from {curr_date} to {gap_date} (saved {days_saved} days)")
-                    break # Moved successfully, stop checking gaps for this subject
+                    break
                     
     if moves > 0:
-        st.success(f"✅ Gap Optimization: Moved {moves} standard subjects (CM Groups were locked).")
+        st.success(f"✅ Gap Optimization: Moved {moves} standard subjects.")
         
     return df_dict, moves, log
 
@@ -3950,6 +3967,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
