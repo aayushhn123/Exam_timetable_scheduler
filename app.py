@@ -1347,123 +1347,96 @@ def read_timetable(uploaded_file):
 
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
-        # Enhanced column mapping
+        # Mapping headers to internal names
+        # Note: We map headers to standard names, but we KEEP the values as is.
         column_mapping = {
             "Program": "Program", "Programme": "Program", 
             "Stream": "Stream", "Specialization": "Stream", "Branch": "Stream",
-            "Current Session": "Semester", "Academic Session": "Semester", "Session": "Semester",
+            "Current Session": "Semester", "Academic Session": "Semester", "Session": "Semester", "Semester": "Semester",
             "Module Description": "SubjectName", "Subject Name": "SubjectName", "Subject Description": "SubjectName",
             "Module Abbreviation": "ModuleCode", "Module Code": "ModuleCode", "Subject Code": "ModuleCode", "Code": "ModuleCode",
             "Campus Name": "Campus", "Campus": "Campus",
             "Difficulty Score": "Difficulty", "Difficulty": "Difficulty",
             "Exam Duration": "Exam Duration", "Duration": "Exam Duration",
             "Student count": "StudentCount", "Student Count": "StudentCount", "Enrollment": "StudentCount", "Count": "StudentCount",
-            # CM Group - The Primary Grouping Key
             "CM group": "CMGroup", "CM Group": "CMGroup", "cm group": "CMGroup", 
             "CMGroup": "CMGroup", "CM_Group": "CMGroup", "Common Module Group": "CMGroup",
-            # Exam Slot
             "Exam Slot Number": "ExamSlotNumber", "exam slot number": "ExamSlotNumber",
             "ExamSlotNumber": "ExamSlotNumber", "Exam_Slot_Number": "ExamSlotNumber", "Slot Number": "ExamSlotNumber"
         }
         
-        # Apply mapping
         df = df.rename(columns=column_mapping)
         
-        # --- CRITICAL: Ensure CMGroup exists and is clean ---
+        # --- 1. Clean CMGroup ---
         if "CMGroup" in df.columns:
-            # Convert to string, remove decimals if any, strip whitespace
-            df["CMGroup"] = df["CMGroup"].astype(str).replace('nan', '').replace('NaN', '').str.strip()
-            # Treat "0" or "0.0" as empty if necessary, usually safe to keep as is if it's a group ID
-            df.loc[df["CMGroup"] == "0", "CMGroup"] = "" 
-            df.loc[df["CMGroup"] == "0.0", "CMGroup"] = "" 
+            # Convert to string, remove decimals like '1.0' -> '1', strip whitespace
+            df["CMGroup"] = df["CMGroup"].astype(str).replace(['nan', 'NaN', '0', '0.0'], '').apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
         else:
             df["CMGroup"] = ""
 
-        # --- Standard Data Cleaning ---
+        # --- 2. Check Required Cols ---
         required_cols = ["Program", "Semester", "ModuleCode", "SubjectName"]
         missing_required = [col for col in required_cols if col not in df.columns]
         if missing_required:
             st.error(f"❌ **Missing Required Columns:** {', '.join(missing_required)}")
             return None, None, None
 
-        # Clean numerics
+        # --- 3. Clean Numerics ---
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
         for col in numeric_columns:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0 if col != "Exam Duration" else 3)
         
-        # Clean strings
-        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus"]
+        # --- 4. Read Strings AS IS (No Pre-processing) ---
+        # We explicitly convert to string but DO NOT map values to short forms
+        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
             if col in df.columns:
-                df[col] = df[col].fillna("").astype(str)
-
-        # Semester Conversion
-        def convert_sem(sem):
-            if pd.isna(sem): return 0
-            sem_str = str(sem).strip()
-            # Check for direct numeric first
-            if sem_str.isdigit(): return int(sem_str)
-            # Map Roman/Text
-            mapping = {
-                "Sem I": 1, "Sem II": 2, "Sem III": 3, "Sem IV": 4, "Sem V": 5, "Sem VI": 6,
-                "Sem VII": 7, "Sem VIII": 8, "Sem IX": 9, "Sem X": 10
-            }
-            return mapping.get(sem_str, 0)
-
-        df["Semester"] = df["Semester"].apply(convert_sem).astype(int)
+                df[col] = df[col].fillna("").astype(str).str.strip()
         
-        # Branch Creation
+        # --- 5. Branch Creation ---
+        # Simply concatenate Program and Stream if Stream exists and is different
         def create_branch_identifier(row):
-            prog = row.get("Program", "").strip()
-            stream = row.get("Stream", "").strip()
-            return prog if not stream or stream == prog else f"{prog}-{stream}"
+            prog = row.get("Program", "")
+            stream = row.get("Stream", "")
+            if not stream or stream == prog or stream == "":
+                return prog
+            else:
+                return f"{prog} - {stream}"
         
         df["Branch"] = df.apply(create_branch_identifier, axis=1)
         df["Subject"] = df["SubjectName"] + " - (" + df["ModuleCode"] + ")"
         
-        # Initialize output columns
-        df["Exam Date"] = ""
-        df["Time Slot"] = ""
+        # Handle Default Cols
+        if "ExamSlotNumber" not in df.columns: df["ExamSlotNumber"] = 0
+        else: df["ExamSlotNumber"] = pd.to_numeric(df["ExamSlotNumber"], errors='coerce').fillna(0).astype(int)
+            
+        if "Category" not in df.columns: df["Category"] = "COMP"
         
-        # Default Exam Slot Number
-        if "ExamSlotNumber" not in df.columns:
-            df["ExamSlotNumber"] = 0
-        else:
-            df["ExamSlotNumber"] = pd.to_numeric(df["ExamSlotNumber"], errors='coerce').fillna(0).astype(int)
-            
-        # Category handling
-        if "Category" not in df.columns:
-            df["Category"] = "COMP" # Default
-            
-        # Filter valid rows
+        # Filter Empty Programs
         df = df[df["Program"] != ""].copy()
         
-        # Determine OE (Open Elective) - Kept for secondary classification if needed
-        if "OE" not in df.columns:
-            df["OE"] = ""
-        else:
-            df["OE"] = df["OE"].fillna("").astype(str).replace('nan', '')
+        # Handle OE
+        if "OE" not in df.columns: df["OE"] = ""
+        else: df["OE"] = df["OE"].fillna("").astype(str).replace('nan', '')
 
-        # --- IGNORE OLD LOGIC COLUMNS ---
-        # We explicitly set these to defaults so they don't interfere
+        # --- CRITICAL: Reset old logic columns ---
+        # We force these to defaults so the old logic is ignored
         df["CommonAcrossSems"] = False
         df["IsCommon"] = "NO"
 
         df_non = df[df["Category"] != "INTD"].copy()
         df_ele = df[df["Category"] == "INTD"].copy()
 
-        # Split Branch for Hierarchy
-        try:
-            split_data = df_non["Branch"].str.split("-", n=1, expand=True)
-            df_non["MainBranch"] = split_data[0].str.strip()
-            df_non["SubBranch"] = split_data[1].str.strip() if split_data.shape[1] > 1 else ""
-            df_non["SubBranch"] = df_non["SubBranch"].fillna("")
-        except:
-            df_non["MainBranch"] = df_non["Branch"]
-            df_non["SubBranch"] = ""
+        # Simple Split for MainBranch (Program) and SubBranch (Stream)
+        # We trust the values are already correct as per user request
+        df_non["MainBranch"] = df_non["Program"]
+        df_non["SubBranch"] = df_non["Stream"]
+        
+        # Ensure consistency
+        df_non.loc[df_non["SubBranch"] == df_non["MainBranch"], "SubBranch"] = ""
 
-        # Ensure all columns present
+        # Fill missing standard columns
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
                 "Exam Date", "Time Slot", "Exam Duration", "StudentCount", "ModuleCode", 
                 "CMGroup", "ExamSlotNumber", "Program"]
@@ -1472,10 +1445,13 @@ def read_timetable(uploaded_file):
             if c not in df_non.columns: df_non[c] = None
             if not df_ele.empty and c not in df_ele.columns: df_ele[c] = None
 
+        # Return DataFrames
         return df_non[cols], df_ele, df
 
     except Exception as e:
         st.error(f"❌ **Failed to Read File:** {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None, None, None
    
 def wrap_text(pdf, text, col_width):
@@ -1732,44 +1708,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
     except Exception as e:
-        st.error(f"❌ Could not read the temporary Excel for PDF conversion: {e}")
+        st.error(f"Error reading Excel file: {e}")
         return
 
-    def int_to_roman(num):
-        roman_values = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
-        result = ""
-        for value, numeral in roman_values:
-            while num >= value:
-                result += numeral
-                num -= value
-        return result
-
-    def get_header_time_for_semester(semester_num):
+    # Helper to get time slot based on digits found in semester string
+    def get_header_time_for_semester(sem_str):
         try:
-            sem_int = int(semester_num)
+            import re
+            digits = re.findall(r'\d+', str(sem_str))
+            sem_int = int(digits[0]) if digits else 1
             slot_indicator = ((sem_int + 1) // 2) % 2
             slot_num = 1 if slot_indicator == 1 else 2
             slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
             return f"{slot_cfg['start']} - {slot_cfg['end']}"
         except:
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
-
-    def parse_branch_info(main_branch_raw):
-        branch_parts = main_branch_raw.split("-", 1)
-        if len(branch_parts) > 1:
-            program_type = branch_parts[0].strip().upper()
-            main_branch = branch_parts[1].strip()
-        else:
-            program_type = main_branch_raw.strip().upper()
-            main_branch = main_branch_raw.strip()
-        
-        if program_type in BRANCH_FULL_FORM:
-            main_branch_full = BRANCH_FULL_FORM[program_type]
-        elif main_branch in BRANCH_FULL_FORM:
-            main_branch_full = BRANCH_FULL_FORM[main_branch]
-        else:
-            main_branch_full = f"{program_type} - {main_branch}" if len(branch_parts) > 1 else program_type
-        return program_type, main_branch, main_branch_full
 
     sheets_processed = 0
     
@@ -1779,33 +1732,35 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # --- Robust splitting to handle various name formats ---
-            parts = sheet_name.split('_Sem_')
-            if len(parts) < 2: 
-                # Debug info: Only show if it's not a utility sheet
-                if sheet_name not in ["No_Data", "Daily_Statistics", "Summary"]:
-                    st.warning(f"⚠️ Skipping sheet '{sheet_name}': Could not find '_Sem_' in name. (Truncation issue?)")
-                continue
-                
-            main_branch_raw = parts[0]
-            program_type, main_branch, main_branch_full = parse_branch_info(main_branch_raw)
-            semester_raw = parts[1].replace('_Electives', '') if parts[1].endswith('_Electives') else parts[1]
+            # --- UPDATED SPLITTER ---
+            # We split by the special delimiter '_|_'
+            parts = sheet_name.split('_|_')
             
-            roman_map = {'I':1, 'II':2, 'III':3, 'IV':4, 'V':5, 'VI':6, 'VII':7, 'VIII':8, 'IX':9, 'X':10}
-            try:
-                sem_int = int(semester_raw) if semester_raw.isdigit() else roman_map.get(semester_raw, 1)
-            except: sem_int = 1
+            if len(parts) < 2: 
+                # Ignore utility sheets
+                if sheet_name not in ["No_Data", "Daily_Statistics", "Summary", "Verification"]:
+                    st.warning(f"Skipping sheet '{sheet_name}': Name format mismatch (expected '_|_' delimiter)")
+                continue
+            
+            main_branch = parts[0]
+            semester_raw = parts[1]
+            
+            # Check for elective suffix
+            is_elective = False
+            if semester_raw.endswith('_Ele'):
+                semester_raw = semester_raw.replace('_Ele', '')
+                is_elective = True
+            
+            # Display Header Info DIRECTLY from the extracted string
+            header_content = {'main_branch_full': main_branch, 'semester_roman': semester_raw}
+            header_exam_time = get_header_time_for_semester(semester_raw)
 
-            semester_roman = semester_raw if not semester_raw.isdigit() else int_to_roman(int(semester_raw))
-            header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_roman}
-            header_exam_time = get_header_time_for_semester(sem_int)
-
-            if not sheet_name.endswith('_Electives'):
+            # --- STANDARD PDF GENERATION LOGIC ---
+            if not is_elective:
                 if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message'] and pd.notna(c) and str(c).strip() != '']
-                
                 if not sub_branch_cols: continue
                 
                 for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
@@ -1813,61 +1768,43 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     cols_to_print = fixed_cols + chunk
                     chunk_df = sheet_df[cols_to_print].copy()
                     
+                    # Masking empty rows
                     subset = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
-                    valid_cells = (subset != "") & (subset != "nan") & (subset != "---") & (subset != "No subjects available")
+                    valid_cells = (subset != "") & (subset != "nan") & (subset != "---")
                     mask = valid_cells.any(axis=1)
-                    exam_date_mask = ~chunk_df['Exam Date'].astype(str).str.contains('No exams scheduled', na=False)
-                    final_mask = mask & exam_date_mask
-                    chunk_df = chunk_df[final_mask].reset_index(drop=True)
-                    
+                    chunk_df = chunk_df[mask].reset_index(drop=True)
                     if chunk_df.empty: continue
 
                     try:
                         chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                    except:
-                        chunk_df["Exam Date"] = chunk_df["Exam Date"].astype(str)
+                    except: pass
 
                     page_width = pdf.w - 2 * pdf.l_margin
                     sub_width = (page_width - 60) / max(len(chunk), 1)
                     col_widths = [60] + [sub_width] * len(chunk)
-                    if sum(col_widths) > page_width:
-                        col_widths = [w * (page_width/sum(col_widths)) for w in col_widths]
                     
                     pdf.add_page()
                     add_footer_with_page_number(pdf, 25)
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=10, header_content=header_content, Programs=chunk, time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
                     sheets_processed += 1
-
-            elif sheet_name.endswith('_Electives'):
+            else:
+                # Basic Elective Page
                 cols = [c for c in ['Exam Date', 'OE Type', 'Subjects'] if c in sheet_df.columns]
-                if len(cols) < 2: continue
-                
-                elec_df = sheet_df[cols].dropna(how='all').reset_index(drop=True)
-                if elec_df.empty: continue
-
-                try:
-                    elec_df["Exam Date"] = pd.to_datetime(elec_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                except:
-                    elec_df["Exam Date"] = elec_df["Exam Date"].astype(str)
-                
-                exam_date_width = 60
-                oe_width = 30
-                subject_width = pdf.w - 2 * pdf.l_margin - exam_date_width - oe_width
-                col_widths = [exam_date_width, subject_width + oe_width] if len(cols) == 2 else [exam_date_width, oe_width, subject_width]
+                if not cols: cols = sheet_df.columns.tolist()
                 
                 pdf.add_page()
                 add_footer_with_page_number(pdf, 25)
-                print_table_custom(pdf, elec_df, cols, col_widths, line_height=10, header_content=header_content, Programs=['All Streams'], time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
+                # Just print all cols for now
+                col_widths = [60] + [(pdf.w - 80)/(len(cols)-1)] * (len(cols)-1)
+                print_table_custom(pdf, sheet_df, cols, col_widths, line_height=10, header_content=header_content, Programs=["Electives"], time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
                 sheets_processed += 1
                 
         except Exception as e:
-            # Skip only the bad sheet, log it to console or UI if needed
-            print(f"Skipping sheet {sheet_name} due to error: {e}")
+            st.warning(f"Error processing {sheet_name}: {e}")
             continue
 
     if sheets_processed == 0:
-        st.error("⚠️ **Generation Warning:** No valid pages were generated for the PDF. Please check if your timetable has actual scheduled exams.")
-        st.info("💡 Tip: This often happens if the Branch Name is too long (>31 chars) and the Semester suffix gets cut off.")
+        st.error("No valid sheets generated.")
         return
 
     # Instructions Page
@@ -1884,22 +1821,20 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
             "2. Candidates must produce their University Identity Card at the time of the examination.",
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
-            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall."
+            "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
         pdf.set_font("Arial", size=12)
         for i in instrs:
             pdf.multi_cell(0, 8, i)
             pdf.ln(2)
     except Exception as e:
-        st.warning(f"Note: Instructions page could not be added: {e}")
+        pass
 
     try:
         pdf.output(pdf_path)
     except Exception as e:
-        friendly = get_friendly_error_message(e)
-        st.error(f"❌ **Save Failed:** Could not save the PDF file.\n\n{friendly}")
-
+        st.error(f"Save PDF failed: {e}")
+        
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
     
@@ -4023,6 +3958,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
