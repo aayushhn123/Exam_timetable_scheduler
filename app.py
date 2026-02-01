@@ -1100,13 +1100,6 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
 
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000):
-    """
-    Scheduling Logic Update:
-    - Primary Grouping: 'CMGroup' column.
-    - If 'CMGroup' exists: All subjects with that ID are ONE atomic unit (scheduled together).
-    - If no 'CMGroup': Grouped strictly by ModuleCode.
-    - 'IsCommon' and 'CommonAcrossSems' columns are IGNORED.
-    """
     st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per session...")
     
     time_slots_dict = st.session_state.get('time_slots', {
@@ -1114,6 +1107,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
     
+    # --- HELPER: Extracts a number from the Semester string for Math ---
+    # e.g., "Sem IV" -> 4, "Year 1" -> 1, "Semester 3" -> 3
+    def extract_numeric_sem(sem_val):
+        s = str(sem_val).strip().upper()
+        # 1. Try finding Roman Numerals first (Match whole word or end of string)
+        romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
+        for r_key, r_val in romans.items():
+            # Check for exact match or "Sem IV" format
+            if s == r_key or s.endswith(f" {r_key}"):
+                return r_val
+        
+        # 2. Try finding digits (e.g., "Sem 4")
+        import re
+        digits = re.findall(r'\d+', s)
+        if digits:
+            return int(digits[0])
+            
+        # 3. Default to 1 if we can't figure it out
+        return 1
+
     # Filter eligible subjects
     eligible_subjects = df[
         (df['Category'] != 'INTD') & 
@@ -1124,7 +1137,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         st.info("No eligible subjects to schedule")
         return df
     
-    # Track student counts per date and time slot
+    # Capacity Tracking
     session_capacity = {} 
     
     def get_session_capacity(date_str, time_slot):
@@ -1151,160 +1164,139 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return (current_capacity + student_count) <= MAX_STUDENTS_PER_SESSION
 
     # ---------------------------------------------------------
-    # STEP 2: CREATE ATOMIC SUBJECT UNITS (CM GROUP LOGIC)
+    # STEP 2: CREATE ATOMIC SUBJECT UNITS
     # ---------------------------------------------------------
     atomic_subject_units = []
     
-    # 2a. Separate Data: With CM Group vs Without
+    # Separation: CM Group vs Standard
     has_cm_group_mask = (eligible_subjects['CMGroup'].notna()) & (eligible_subjects['CMGroup'].str.strip() != "")
-    
     df_with_cm = eligible_subjects[has_cm_group_mask]
     df_no_cm = eligible_subjects[~has_cm_group_mask]
     
     # 2b. Process CM Groups (Highest Priority)
-    # Group by the 'CMGroup' value. All rows in a group become ONE atomic unit.
     if not df_with_cm.empty:
         for cm_id, group in df_with_cm.groupby('CMGroup'):
-            
-            # Aggregate constraints from all rows in this group
             branch_sem_combinations = []
-            unique_semesters = set()
+            unique_semesters_raw = set()
             all_indices = []
             
             for _, row in group.iterrows():
                 branch_sem = f"{row['Branch']}_{row['Semester']}"
                 branch_sem_combinations.append(branch_sem)
-                unique_semesters.add(row['Semester'])
-                all_indices.append(row.name) # Keep track of original DataFrame index
+                unique_semesters_raw.add(row['Semester'])
+                all_indices.append(row.name)
             
-            # Use ExamSlotNumber from the first row in the group as preference
             raw_slot_num = group['ExamSlotNumber'].iloc[0] if 'ExamSlotNumber' in group.columns else 0
             
             unit = {
                 'id': f"CM_{cm_id}",
                 'type': 'CM_GROUP',
-                'display_name': f"CM Group {cm_id}",
                 'branch_sem_combinations': list(set(branch_sem_combinations)),
                 'all_rows': all_indices,
-                'unique_semesters': list(unique_semesters),
+                'unique_semesters_raw': list(unique_semesters_raw),
                 'exam_slot_number': raw_slot_num,
-                'priority_score': 9999, # Highest priority to ensure they get scheduled first
+                'priority_score': 9999, # Highest priority
                 'student_count': group['StudentCount'].sum()
             }
             atomic_subject_units.append(unit)
             
-    # 2c. Process Standard Subjects (No CM Group)
-    # Group strictly by ModuleCode
+    # 2c. Process Standard Subjects (ModuleCode Grouping)
     if not df_no_cm.empty:
         for module_code, group in df_no_cm.groupby('ModuleCode'):
-            
             branch_sem_combinations = []
-            unique_semesters = set()
+            unique_semesters_raw = set()
             all_indices = []
             
             for _, row in group.iterrows():
                 branch_sem = f"{row['Branch']}_{row['Semester']}"
                 branch_sem_combinations.append(branch_sem)
-                unique_semesters.add(row['Semester'])
+                unique_semesters_raw.add(row['Semester'])
                 all_indices.append(row.name)
             
-            # Calculate frequency for standard priority
             frequency = len(set(branch_sem_combinations))
             raw_slot_num = group['ExamSlotNumber'].iloc[0] if 'ExamSlotNumber' in group.columns else 0
             
             unit = {
                 'id': f"MOD_{module_code}",
                 'type': 'STANDARD',
-                'display_name': str(group['Subject'].iloc[0]),
                 'branch_sem_combinations': list(set(branch_sem_combinations)),
                 'all_rows': all_indices,
-                'unique_semesters': list(unique_semesters),
+                'unique_semesters_raw': list(unique_semesters_raw),
                 'exam_slot_number': raw_slot_num,
-                'priority_score': frequency * 10, # Standard priority based on overlap
+                'priority_score': frequency * 10,
                 'student_count': group['StudentCount'].sum()
             }
             atomic_subject_units.append(unit)
 
-    # Sort units by priority
-    # CM Groups (9999) will naturally be first
     atomic_subject_units.sort(key=lambda x: x['priority_score'], reverse=True)
     
     # ---------------------------------------------------------
     # STEP 3: SCHEDULING ENGINE
     # ---------------------------------------------------------
     daily_scheduled_branch_sem = {}
-    scheduled_count = 0
     current_date = base_date
     scheduling_day = 0
-    target_days = 25 # Increased slightly to allow for more spread if needed
+    target_days = 35 # Increased slightly
     
     unscheduled_units = atomic_subject_units.copy()
     
     while scheduling_day < target_days and unscheduled_units:
         exam_date = find_next_valid_day_in_range(current_date, end_date, holidays)
-        if exam_date is None:
-            break
+        if exam_date is None: break
         
         date_str = exam_date.strftime("%d-%m-%Y")
         scheduling_day += 1
-        current_date = exam_date + timedelta(days=1) # Advance for next loop
+        current_date = exam_date + timedelta(days=1)
         
         if date_str not in daily_scheduled_branch_sem:
             daily_scheduled_branch_sem[date_str] = set()
         
         units_to_remove = []
         
-        # Try to schedule each unit on this day
         for atomic_unit in unscheduled_units:
             conflicts = False
-            
-            # Check overlap with ANY branch-sem already scheduled today
             for branch_sem in atomic_unit['branch_sem_combinations']:
                 if branch_sem in daily_scheduled_branch_sem[date_str]:
                     conflicts = True
                     break
             
             if not conflicts:
-                # Determine Slot
                 raw_slot_num = atomic_unit.get('exam_slot_number', 0)
                 if raw_slot_num > 0:
                     exam_slot_number = raw_slot_num
                 else:
-                    # Alternate Semester Logic: Sem 1,3,5 -> Slot 1 | Sem 2,4,6 -> Slot 2 (or based on config)
-                    # Logic: ((Sem + 1) // 2) % 2 == 1 -> Slot 1, else Slot 2
-                    primary_sem = atomic_unit['unique_semesters'][0] if atomic_unit['unique_semesters'] else 1
-                    slot_indicator = ((primary_sem + 1) // 2) % 2
+                    # --- FIXED LOGIC ---
+                    # We get the raw semester (String), convert it to Int, THEN do math.
+                    raw_sem = atomic_unit['unique_semesters_raw'][0] if atomic_unit['unique_semesters_raw'] else "1"
+                    numeric_sem = extract_numeric_sem(raw_sem)
+                    
+                    # Now we can safely do the math (int + int)
+                    slot_indicator = ((numeric_sem + 1) // 2) % 2
                     exam_slot_number = 1 if slot_indicator == 1 else 2
 
                 time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
                 
-                # Capacity Check
                 if can_fit_in_session(date_str, time_slot, atomic_unit['student_count']):
-                    # COMMIT SCHEDULE
                     for row_idx in atomic_unit['all_rows']:
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot
                         df.loc[row_idx, 'ExamSlotNumber'] = exam_slot_number
                     
-                    # Update Constraints
                     for branch_sem in atomic_unit['branch_sem_combinations']:
                         daily_scheduled_branch_sem[date_str].add(branch_sem)
                     
                     add_to_session_capacity(date_str, time_slot, atomic_unit['student_count'])
                     units_to_remove.append(atomic_unit)
-                    
-                # Note: If capacity full, we just skip for this day and try next day
         
         for unit in units_to_remove:
             unscheduled_units.remove(unit)
             
     if unscheduled_units:
-        st.warning(f"⚠️ Could not schedule {len(unscheduled_units)} subject groups within the date range.")
+        st.warning(f"⚠️ Could not schedule {len(unscheduled_units)} subject groups.")
     else:
         st.success("✅ All subjects scheduled successfully.")
 
     return df
-
 
 def validate_capacity_constraints(df_dict, max_capacity=2000):
     """
@@ -3958,6 +3950,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
