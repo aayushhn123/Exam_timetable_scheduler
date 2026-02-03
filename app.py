@@ -1795,8 +1795,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     sheets_processed += 1
             else:
                 # --- FIXED ELECTIVE PAGE LOGIC ---
-                # We expect the Clean Summary Columns: Exam Date, Time Slot, OE Type, Subjects
-                target_cols = ['Exam Date', 'Time Slot', 'OE Type', 'Subjects']
+                # We expect the Clean Summary Columns: Exam Date, OE Type, Subjects (Time Slot removed)
+                target_cols = ['Exam Date', 'OE Type', 'Subjects']
                 
                 # Check if we have these columns (intersection check)
                 available_cols = [c for c in target_cols if c in sheet_df.columns]
@@ -1815,8 +1815,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     
                     # Fixed widths for a cleaner look
                     # Page width approx 470mm (landscape)
-                    # Date: 60, Time: 50, OE: 30, Subjects: Remaining
-                    col_widths = [60, 50, 40]
+                    # Date: 60, OE: 40, Subjects: Remaining (Massive space now available)
+                    col_widths = [60, 40]
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
@@ -1826,7 +1826,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                                      declaration_date=declaration_date)
                     sheets_processed += 1
                 else:
-                    # Fallback if summary failed (unlikely)
                     pass
                 
         except Exception as e:
@@ -2386,7 +2385,7 @@ def convert_semester_to_number(semester_value):
 def save_to_excel(semester_wise_timetable):
     """
     Safely generates Excel with STRICT 31-char limit for sheet names.
-    Aggregates Electives into a clean summary table to prevent PDF messiness.
+    Aggregates Electives into a clean summary table without Time Slot (as it's in header).
     """
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
@@ -2523,7 +2522,7 @@ def save_to_excel(semester_wise_timetable):
                             sheets_created += 1
                         except: pass
 
-                    # --- 2. PROCESS ELECTIVES (CRITICAL FIX) ---
+                    # --- 2. PROCESS ELECTIVES (FIXED) ---
                     if not df_elec.empty:
                         suffix_elec = f"_|_{raw_sem_str}_Ele"
                         sheet_name_elec = get_safe_sheet_name(main_branch, suffix_elec)
@@ -2538,7 +2537,7 @@ def save_to_excel(semester_wise_timetable):
                                     lambda x: f"{x['Subject']} ({x['ModuleCode']})", axis=1
                                 )
                                 
-                                # Aggregate by Date, Slot, and OE Type to create a CLEAN summary
+                                # Aggregate by Date, Time Slot, and OE Type (Keep Time Slot for grouping)
                                 summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
                                     'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
                                 }).reset_index()
@@ -2550,6 +2549,10 @@ def save_to_excel(semester_wise_timetable):
                                 summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
                                 summary_df = summary_df.sort_values('DateObj').drop('DateObj', axis=1)
                                 
+                                # REMOVE Time Slot from output (it's in the header)
+                                if 'Time Slot' in summary_df.columns:
+                                    summary_df = summary_df.drop('Time Slot', axis=1)
+                                
                                 # Embed Metadata
                                 summary_df['Program'] = main_branch
                                 summary_df['Semester'] = raw_sem_str
@@ -2557,7 +2560,6 @@ def save_to_excel(semester_wise_timetable):
                                 summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                                 sheets_created += 1
                         except Exception as e:
-                            # st.error(f"Failed elective sheet: {e}")
                             pass
 
             if sheets_created == 0:
@@ -4039,6 +4041,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
