@@ -1407,23 +1407,33 @@ def read_timetable(uploaded_file):
             
         if "Category" not in df.columns: df["Category"] = "COMP"
         
-        # OE Handling
-        if "OE" not in df.columns: df["OE"] = ""
-        else: df["OE"] = df["OE"].fillna("").astype(str).replace('nan', '')
+        # 7. Clean OE Column (CRITICAL FIX)
+        if "OE" not in df.columns: 
+            df["OE"] = ""
+        else: 
+            df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
-        # RESET old logic columns
+        # Reset old logic columns
         df["CommonAcrossSems"] = False
         df["IsCommon"] = "NO"
 
-        # Split DataFrames
-        df_non = df[df["Category"] != "INTD"].copy()
-        df_ele = df[df["Category"] == "INTD"].copy()
+        # --- CRITICAL SPLIT LOGIC FIX ---
+        # A subject is an ELECTIVE if:
+        # 1. Category is 'INTD'
+        # OR
+        # 2. It has a value in the 'OE' column (e.g. 'OE-1')
+        is_elective_mask = (df["Category"] == "INTD") | (df["OE"] != "")
+        
+        df_ele = df[is_elective_mask].copy()
+        df_non = df[~is_elective_mask].copy()
 
         # Use raw Program/Stream for Main/Sub branch
-        df_non["MainBranch"] = df_non["Program"]
-        df_non["SubBranch"] = df_non["Stream"]
-        # Ensure consistency
-        df_non.loc[df_non["SubBranch"] == df_non["MainBranch"], "SubBranch"] = ""
+        for d in [df_non, df_ele]:
+            if not d.empty:
+                d["MainBranch"] = d["Program"]
+                d["SubBranch"] = d["Stream"]
+                # Clean up SubBranch if it duplicates MainBranch
+                d.loc[d["SubBranch"] == d["MainBranch"], "SubBranch"] = ""
 
         # Fill missing standard columns
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
@@ -2522,33 +2532,54 @@ def find_next_valid_day_for_electives(start_day, holidays):
 def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     """
     Schedule electives globally after non-elective scheduling is complete.
-    OE1 and OE5 on first day, OE2 on second day (immediately after).
+    Dynamically finds unique OE groups and schedules them sequentially.
     """
     if df_ele is None or df_ele.empty:
         return df_ele
     
     st.info("🎓 Scheduling electives globally...")
     
-    # Find the first and second valid elective days
-    elective_day1 = find_next_valid_day_for_electives(
-        datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), 
-        holidays_set
-    )
-    elective_day2 = find_next_valid_day_for_electives(elective_day1 + timedelta(days=1), holidays_set)
+    # 1. Identify Unique OE Groups
+    # We group by the 'OE' column. Any rows sharing the same 'OE' value 
+    # will be scheduled in the same slot.
+    unique_oes = df_ele['OE'].unique()
+    # Filter out empty/nan values
+    unique_oes = [oe for oe in unique_oes if pd.notna(oe) and str(oe).strip() != ""]
     
-    elective_day1_str = elective_day1.strftime("%d-%m-%Y")
-    elective_day2_str = elective_day2.strftime("%d-%m-%Y")
+    if not unique_oes:
+        st.warning("No specific OE groups found in elective data.")
+        return df_ele
+
+    # Sort to ensure consistent order (e.g., OE-1, OE-2, ...)
+    unique_oes.sort()
     
-    # Schedule OE1 and OE5 together on the first elective day (morning slot)
-    df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Exam Date'] = elective_day1_str
-    df_ele.loc[(df_ele['OE'] == 'OE1') | (df_ele['OE'] == 'OE5'), 'Time Slot'] = "10:00 AM - 1:00 PM"
+    # 2. Schedule each group
+    # We start searching for valid days starting the day AFTER the last core exam
+    current_date = datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1)
     
-    # Schedule OE2 on the second elective day (afternoon slot)
-    df_ele.loc[df_ele['OE'] == 'OE2', 'Exam Date'] = elective_day2_str
-    df_ele.loc[df_ele['OE'] == 'OE2', 'Time Slot'] = "2:00 PM - 5:00 PM"
+    scheduled_count = 0
     
-    #st.write(f"✅ OE1 and OE5 scheduled on {elective_day1_str} at 10:00 AM - 1:00 PM")
-    #st.write(f"✅ OE2 scheduled on {elective_day2_str} at 2:00 PM - 5:00 PM")
+    for oe_group in unique_oes:
+        # Find the next valid day (skips Sundays and Holidays)
+        exam_day = find_next_valid_day_for_electives(current_date, holidays_set)
+        exam_day_str = exam_day.strftime("%d-%m-%Y")
+        
+        # Apply schedule to all subjects in this OE group
+        mask = df_ele['OE'] == oe_group
+        
+        # Assign Date
+        df_ele.loc[mask, 'Exam Date'] = exam_day_str
+        
+        # Assign Slot (Defaulting to Morning Slot 10:00 AM - 1:00 PM for consistency)
+        # You can adjust this to alternate slots if desired, but sequential days is safer for conflicts.
+        df_ele.loc[mask, 'Time Slot'] = "10:00 AM - 1:00 PM"
+        df_ele.loc[mask, 'ExamSlotNumber'] = 1
+        
+        # Move to the next day for the next group
+        current_date = exam_day + timedelta(days=1)
+        scheduled_count += 1
+        
+    st.success(f"✅ Scheduled {scheduled_count} OE groups starting from {find_next_valid_day_for_electives(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), holidays_set).strftime('%d-%m-%Y')}")
     
     return df_ele
 
@@ -3954,6 +3985,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
