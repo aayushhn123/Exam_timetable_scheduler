@@ -3000,8 +3000,6 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays, optimizer=None):
     
     return sem_dict, moves_made, optimization_log
     
-
-
 def main():
     # Check if college is selected
     if st.session_state.selected_college is None:
@@ -3047,7 +3045,6 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = default_value
         
-    # --- CHANGE STARTS HERE ---
     # Get the selected college dynamically
     current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
 
@@ -3057,12 +3054,7 @@ def main():
         <p>{current_college}</p>
     </div>
     """, unsafe_allow_html=True)
-    # --- CHANGE ENDS HERE ---
 
-    
-
-    #---
-    # Replace the existing sidebar configuration with this:
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
         st.markdown("---")
@@ -3151,14 +3143,10 @@ def main():
                 full_slot = f"{start_time} - {end_time}"
                 st.info(f"Slot {slot_num}: {full_slot}")
     
-        
-
         st.markdown("---")
         st.markdown("#### 👥 Capacity Configuration")
         st.markdown("")
 
-        #-------
-    
         max_students_per_session = st.slider(
             "Maximum Students Per Session",
             min_value=0,
@@ -3177,7 +3165,6 @@ def main():
         with st.expander("🗓️ Holiday Configuration", expanded=False):
             st.markdown("##### 📌 Predefined Holidays")
         
-            # Initialize holiday_dates list
             holiday_dates = []
 
             col1, col2 = st.columns(2)
@@ -3211,12 +3198,10 @@ def main():
                 st.session_state.custom_holidays.append(None)
                 st.rerun()
     
-            # Add custom holidays to the main list
             custom_holidays = [h for h in st.session_state.custom_holidays if h is not None]
             for custom_holiday in custom_holidays:
                 holiday_dates.append(custom_holiday)
 
-            # Create the final holidays set
             holidays_set = set(holiday_dates)
             st.session_state.holidays_set = holidays_set
 
@@ -3225,7 +3210,7 @@ def main():
                 st.markdown("##### 📋 Selected Holidays")
                 for holiday in sorted(holidays_set):
                     st.markdown(f"• {holiday.strftime('%B %d, %Y')}")
-        #---
+        
     col1, col2 = st.columns([2, 1])
 
     with col1:
@@ -3243,8 +3228,6 @@ def main():
             label_visibility="collapsed"
         )
 
-        # --- START CHANGE: Add Template Download Button ---
-        # Make sure 'sample_timetable_template.xlsx' exists in your repo root
         template_file_path = "Template File.xlsx"
         
         if os.path.exists(template_file_path):
@@ -3258,9 +3241,7 @@ def main():
                     help="Click to download a sample format file"
                 )
         else:
-            # Fallback if file is missing in repo
             st.warning("⚠️ Template file not found. Please add 'sample_timetable_template.xlsx' to the app directory.")
-        # --- END CHANGE ---
 
         if uploaded_file is not None:
             st.markdown('<div class="status-success">✅ File uploaded successfully!</div>', unsafe_allow_html=True)
@@ -3275,68 +3256,55 @@ def main():
 
             for key, value in file_details.items():
                 st.markdown(f"**{key}:** `{value}`")
-    
-            #--
 
-        with col2:
-            # NEW: Button added here to sit beside the upload section
-            st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
-            st.link_button("♻️ Convert Verification File to PDF", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
-            
-            st.markdown("""
-            <div class="feature-card">
-                <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
-                <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                    <li>📊 Excel file processing</li>
-                    <li>🎯 Priority-based scheduling</li>
-                    <li>🔗 Common subject handling</li>
-                    <li>📍 Gap-filling optimization</li>
-                    <li>🔄 Stream-wise scheduling</li>
-                    <li>🎓 OE elective optimization</li>
-                    <li>⚡ Conflict prevention</li>
-                    <li>📋 PDF generation</li>
-                    <li>✅ Verification export</li>
-                    <li>📱 Responsive design</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
+        st.link_button("♻️ Convert Verification File to PDF", "https://verification-file-change-to-pdf-converter.streamlit.app/", use_container_width=True)
+        
+        st.markdown("""
+        <div class="feature-card">
+            <h4 style="margin: 0 0 1rem 0; color: #951C1C; font-size: 1.2rem;">🚀 Key Features</h4>
+            <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
+                <li>📊 Excel file processing</li>
+                <li>🎯 Priority-based scheduling</li>
+                <li>🔗 Common subject handling</li>
+                <li>📍 Gap-filling optimization</li>
+                <li>🔄 Stream-wise scheduling</li>
+                <li>🎓 OE elective optimization</li>
+                <li>⚡ Conflict prevention</li>
+                <li>📋 PDF generation</li>
+                <li>✅ Verification export</li>
+                <li>📱 Responsive design</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
     if uploaded_file is not None:
         st.markdown("")
         if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
             with st.spinner("⏳ Processing your timetable... Please wait..."):
-                # ... rest of the processing code
                 try:
-                    # Use holidays from session state
                     holidays_set = st.session_state.get('holidays_set', set())
-                    #st.write(f"🗓️ Using {len(holidays_set)} holidays: {[h.strftime('%d-%m-%Y') for h in sorted(holidays_set)]}")
                     
-                    # Display date range being used
                     date_range_days = (end_date - base_date).days + 1
                     valid_exam_days = len(get_valid_dates_in_range(base_date, end_date, holidays_set))
                     st.info(f"📅 Examination Period: {base_date.strftime('%d-%m-%Y')} to {end_date.strftime('%d-%m-%Y')} ({date_range_days} total days, {valid_exam_days} valid exam days)")
                 
-                    #st.write("Reading timetable...")
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        #st.write("Processing subjects...")
-                        
-                        # NEW THREE-PHASE IMPROVED SCHEDULING ORDER:
-                        # SUPER SCHEDULING: All subjects in one comprehensive function
                         st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
-                        # After super scheduling
-                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec,holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=st.session_state.capacity_slider)
-                        # Create semester dictionary for validation
+                        
+                        df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=st.session_state.capacity_slider)
+                        
                         sem_dict_temp = {}
                         for s in sorted(df_scheduled["Semester"].unique()):
                             sem_data = df_scheduled[df_scheduled["Semester"] == s].copy()
                             sem_dict_temp[s] = sem_data    
 
-                        # Validate capacity constraints
                         is_valid, violations = validate_capacity_constraints(
                             sem_dict_temp, 
-                                max_capacity=st.session_state.capacity_slider
+                            max_capacity=st.session_state.capacity_slider
                         )
 
                         if is_valid:
@@ -3350,16 +3318,11 @@ def main():
                                     f"{v['subjects_count']} subjects)"
                                 )
 
-                        
-                        # Step 5: Handle electives if they exist
                         if df_ele is not None and not df_ele.empty:
-                            # Find the maximum date from non-elective scheduling
                             non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                             if not non_elec_dates.empty:
                                 max_non_elec_date = max(non_elec_dates).date()
-                                #st.write(f"📅 Max non-elective date: {max_non_elec_date.strftime('%d-%m-%Y')}")
                                 
-                                # Check if electives can be scheduled within end date
                                 elective_day1 = find_next_valid_day_for_electives(
                                     datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), 
                                     holidays_set
@@ -3367,10 +3330,7 @@ def main():
                                 elective_day2 = find_next_valid_day_for_electives(elective_day1 + timedelta(days=1), holidays_set)
                                 
                                 if elective_day2 <= end_date:
-                                    # Schedule electives globally
                                     df_ele_scheduled = schedule_electives_globally(df_ele, max_non_elec_date, holidays_set)
-                                    
-                                    # Combine non-electives and electives
                                     all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
                                 else:
                                     st.warning(f"⚠️ Electives cannot be scheduled within end date ({end_date.strftime('%d-%m-%Y')})")
@@ -3380,53 +3340,41 @@ def main():
                         else:
                             all_scheduled_subjects = df_scheduled
                         
-                        # Step 6: Create semester dictionary - only include successfully scheduled subjects
                         successfully_scheduled = all_scheduled_subjects[
                             (all_scheduled_subjects['Exam Date'] != "") & 
                             (all_scheduled_subjects['Exam Date'] != "Out of Range")
                         ].copy()
                         
-                        # Count subjects that couldn't be scheduled
                         out_of_range_subjects = all_scheduled_subjects[
                             all_scheduled_subjects['Exam Date'] == "Out of Range"
                         ]
                         
                         if not out_of_range_subjects.empty:
                             st.warning(f"⚠️ {len(out_of_range_subjects)} subjects could not be scheduled within the specified date range")
-                            
-                            # Show breakdown by semester and branch
                             with st.expander("📋 Subjects Not Scheduled (Out of Range)"):
                                 for semester in sorted(out_of_range_subjects['Semester'].unique()):
                                     sem_subjects = out_of_range_subjects[out_of_range_subjects['Semester'] == semester]
-                                    #st.write(f"**Semester {semester}:** {len(sem_subjects)} subjects")
                                     for branch in sorted(sem_subjects['Branch'].unique()):
                                         branch_subjects = sem_subjects[sem_subjects['Branch'] == branch]
-                                        #st.write(f"  • {branch}: {len(branch_subjects)} subjects")
                         
                         if not successfully_scheduled.empty:
-                            # Sort by semester and date
                             successfully_scheduled = successfully_scheduled.sort_values(["Semester", "Exam Date"], ascending=True)
                             
-                            # Create semester dictionary
                             sem_dict = {}
                             for s in sorted(successfully_scheduled["Semester"].unique()):
                                 sem_data = successfully_scheduled[successfully_scheduled["Semester"] == s].copy()
                                 sem_dict[s] = sem_data
                             
-                            #st.write("Optimizing schedule by filling gaps...")
                             sem_dict, gap_moves_made, gap_optimization_log = optimize_schedule_by_filling_gaps(
-                            sem_dict, holidays_set, base_date, end_date
+                                sem_dict, holidays_set, base_date, end_date
                             )
 
-                            # Step 8: Optimize OE subjects AFTER gap optimization
                             if df_ele is not None and not df_ele.empty:
-                                #st.write("Optimizing OE subjects...")
                                 sem_dict, oe_moves_made, oe_optimization_log = optimize_oe_subjects_after_scheduling(sem_dict, holidays_set)        
                             else:
                                 oe_moves_made = 0
                                 oe_optimization_log = []
 
-                            # Show combined optimization results
                             total_optimizations = (oe_moves_made if df_ele is not None and not df_ele.empty else 0) + gap_moves_made
                             if total_optimizations > 0:
                                 st.success(f"🎯 Total Optimizations Made: {total_optimizations}")
@@ -3439,7 +3387,6 @@ def main():
                             st.session_state.original_df = original_df
                             st.session_state.processing_complete = True
 
-                            # Compute statistics
                             final_all_data = pd.concat(sem_dict.values(), ignore_index=True)
                             total_exams = len(final_all_data)
                             total_semesters = len(sem_dict)
@@ -3449,15 +3396,12 @@ def main():
                             overall_date_range = (max(all_dates) - min(all_dates)).days + 1 if all_dates.size > 0 else 0
                             unique_exam_days = len(all_dates.dt.date.unique())
 
-                            # Store statistics in session state
                             st.session_state.total_exams = total_exams
                             st.session_state.total_semesters = total_semesters
                             st.session_state.total_branches = total_branches
                             st.session_state.overall_date_range = overall_date_range
                             st.session_state.unique_exam_days = unique_exam_days
 
-                            # Generate and store downloadable files
-                            #st.write("Generating Excel...")
                             try:
                                 excel_data = save_to_excel(sem_dict)
                                 if excel_data:
@@ -3470,7 +3414,6 @@ def main():
                                 st.error(f"❌ Excel generation failed: {str(e)}")
                                 st.session_state.excel_data = None
 
-                            #st.write("Generating verification file...")
                             try:
                                 verification_data = save_verification_excel(original_df, sem_dict)
                                 if verification_data:
@@ -3483,15 +3426,12 @@ def main():
                                 st.error(f"❌ Verification file generation failed: {str(e)}")
                                 st.session_state.verification_data = None
 
-                            #st.write("Generating PDF...")
                             try:
                                 if sem_dict:
                                     pdf_output = io.BytesIO()
                                     temp_pdf_path = "temp_timetable.pdf"
-                                    # Pass declaration_date from the sidebar variable we created
                                     generate_pdf_timetable(sem_dict, temp_pdf_path, declaration_date=declaration_date)
                                     
-                                    # Check if PDF was created successfully
                                     if os.path.exists(temp_pdf_path):
                                         with open(temp_pdf_path, "rb") as f:
                                             pdf_output.write(f.read())
@@ -3512,38 +3452,39 @@ def main():
                             st.markdown('<div class="status-success">🎉 Timetable generated successfully with THREE-PHASE SCHEDULING and NO DOUBLE BOOKINGS!</div>',
                                         unsafe_allow_html=True)
                             
-                            # Show improved three-phase scheduling summary
                             st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple Programs)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
                             
-                            # Show efficiency improvement
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
                             st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
                             
-                            # Show date range utilization
                             date_range_utilization = (unique_exam_days / valid_exam_days) * 100 if valid_exam_days > 0 else 0
                             st.info(f"📅 **Date Range Utilization: {date_range_utilization:.1f}%** ({unique_exam_days}/{valid_exam_days} valid days used)")
                             
-                            # Count subjects by type for summary
-                            common_across_count = len(final_all_data[final_all_data['CommonAcrossSems'] == True])
+                            # --- FIXED SUMMARY STATISTICS (Check for column existence) ---
+                            if 'CommonAcrossSems' in final_all_data.columns:
+                                common_across_count = len(final_all_data[final_all_data['CommonAcrossSems'] == True])
+                            else:
+                                common_across_count = 0
                             
-                            # Count common within semester
-                            common_within_sem = final_all_data[
-                                (final_all_data['CommonAcrossSems'] == False) & 
-                                (final_all_data['Category'].isin(['COMP', 'ELEC']))
-                            ]
-                            common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
-                            common_within_count = len(common_within_sem[
-                                common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
-                                    lambda x: common_within_sem_groups.get(x, 1) > 1
-                                )
-                            ])
+                            if 'CommonAcrossSems' in final_all_data.columns and 'Category' in final_all_data.columns:
+                                common_within_sem = final_all_data[
+                                    (final_all_data['CommonAcrossSems'] == False) & 
+                                    (final_all_data['Category'].isin(['COMP', 'ELEC']))
+                                ]
+                                common_within_sem_groups = common_within_sem.groupby(['Semester', 'ModuleCode'])['Branch'].nunique()
+                                common_within_count = len(common_within_sem[
+                                    common_within_sem.set_index(['Semester', 'ModuleCode']).index.map(
+                                        lambda x: common_within_sem_groups.get(x, 1) > 1
+                                    )
+                                ])
+                            else:
+                                common_within_count = 0
                             
                             elective_count = len(final_all_data[final_all_data['OE'].notna() & (final_all_data['OE'].str.strip() != "")])
                             uncommon_count = total_exams - common_across_count - common_within_count - elective_count
                             
                             st.success(f"📈 **Scheduling Breakdown:**\n• Common Across Semesters: {common_across_count}\n• Common Within Semester: {common_within_count}\n• Truly Uncommon: {uncommon_count}\n• Electives: {elective_count}")
                             
-                            # Show double booking verification
                             st.success("✅ **No Double Bookings**: Each subbranch has max one exam per day")
                             
                         else:
@@ -3555,7 +3496,6 @@ def main():
                             unsafe_allow_html=True)
 
                 except Exception as e:
-                    # Get friendly message using the helper function defined earlier
                     friendly_msg = get_friendly_error_message(e)
                     
                     st.markdown("""
@@ -3569,20 +3509,15 @@ def main():
                     
                     st.info("💡 **Tip:** Try downloading the 'Input Template' to verify that your column names and data formats match exactly.")
                     
-                    # Hidden technical details for you (the developer)
                     with st.expander("Show Technical Error (For Developers)"):
                         st.write(f"**Error Type:** {type(e).__name__}")
                         st.code(str(e))
                         import traceback
                         st.code(traceback.format_exc())
 
-    # Display timetable results if processing is complete
     if st.session_state.processing_complete:
         st.markdown("---")
 
-        # Download options
-        #--
-        # Download options
         st.markdown("### 📥 Download Options")
         st.markdown("")
 
@@ -3632,7 +3567,6 @@ def main():
 
         with col5:
             if st.button("🔄 Regenerate", use_container_width=True):
-                # Clear session state and rerun
                 st.session_state.processing_complete = False
                 st.session_state.timetable_data = {}
                 st.session_state.original_df = None
@@ -3645,42 +3579,28 @@ def main():
                 st.session_state.overall_date_range = 0
                 st.session_state.unique_exam_days = 0
                 st.rerun()
-        #--
 
-        # Statistics Overview
-        # ... inside if st.session_state.processing_complete:
-        
-        # [Previous code: Download Options ...]
-
-        # ==========================================
-        # 📈 STATISTICS OVERVIEW
-        # ==========================================
         st.markdown("---")
         
-        # 1. Prepare Data & Calculate Metrics
         if st.session_state.timetable_data:
             final_stats_df = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
             
-            # --- Metrics Calculation ---
             s_exams = len(final_stats_df)
             s_sems = final_stats_df['Semester'].nunique() if 'Semester' in final_stats_df else 0
             s_progs = final_stats_df['MainBranch'].nunique() if 'MainBranch' in final_stats_df else 0
             
-            # Calculate Streams (SubBranch) - Filter out empty/null
             if 'SubBranch' in final_stats_df:
                 stream_list = final_stats_df['SubBranch'].dropna().astype(str)
                 s_streams = stream_list[stream_list.str.strip() != ''].nunique()
             else:
                 s_streams = 0
             
-            # Date Span Calculation
             d_dates = pd.to_datetime(final_stats_df['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
             s_span = (max(d_dates) - min(d_dates)).days + 1 if not d_dates.empty else 0
         else:
             final_stats_df = pd.DataFrame()
             s_exams, s_sems, s_progs, s_streams, s_span = 0, 0, 0, 0, 0
 
-        # 2. Styling (Maintains your aesthetic)
         st.markdown("""
         <style>
             div.row-widget.stButton > button {
@@ -3707,7 +3627,6 @@ def main():
                 margin-bottom: 0.2rem !important;
                 line-height: 1.2 !important;
             }
-            /* Helper to make the label text slightly smaller/lighter */
             div.row-widget.stButton > button div p:last-child {
                 font-size: 0.9rem !important;
                 opacity: 0.9;
@@ -3720,7 +3639,6 @@ def main():
         st.markdown("### 📈 Statistics Overview")
         st.caption("Click on any tile below for detailed breakdowns.")
 
-        # 3. Display Buttons (Updated 3rd Column)
         stat_c1, stat_c2, stat_c3, stat_c4 = st.columns(4)
         
         with stat_c1:
@@ -3732,8 +3650,6 @@ def main():
                 show_semesters_breakdown(final_stats_df)
 
         with stat_c3:
-            # UPDATED BUTTON LABEL: "6 / 12 \n PROGS / STREAMS"
-            #if st.button(f"{s_progs} / {s_streams}\nPROGS / STREAMS", key="stat_btn_progs", use_container_width=True):
             if st.button(f"{s_progs} \nPROGS / {s_streams} STREAMS", key="stat_btn_progs", use_container_width=True):
                 show_programs_streams_breakdown(final_stats_df)
 
@@ -3741,21 +3657,11 @@ def main():
             if st.button(f"{s_span}\nOVERALL SPAN", key="stat_btn_span", use_container_width=True):
                 show_span_breakdown(final_stats_df, st.session_state.get('holidays_set', set()))
 
-        
-        # ==========================================
-        # END STATISTICS OVERVIEW
-        # ==========================================
-
-        # ==========================================
-        # 🔄 RE-CALCULATE VARIABLES FOR BREAKDOWN
-        # ==========================================
         if st.session_state.timetable_data:
-            # Re-create the combined dataframe for calculations
             final_all_data_calc = pd.concat(st.session_state.timetable_data.values(), ignore_index=True)
             
-            # --- 1. Non-Elective Stats ---
             non_elective_data = final_all_data_calc[~(final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != ""))]
-            ne_count = len(non_elective_data)  # <--- NEW: Count exams
+            ne_count = len(non_elective_data)
             
             if not non_elective_data.empty:
                 ne_dates = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -3768,9 +3674,8 @@ def main():
             else:
                 non_elec_display = "No subjects"
 
-            # --- 2. OE Stats ---
             oe_data = final_all_data_calc[final_all_data_calc['OE'].notna() & (final_all_data_calc['OE'].str.strip() != "")]
-            oe_count = len(oe_data)  # <--- NEW: Count exams
+            oe_count = len(oe_data)
             
             if not oe_data.empty:
                 oe_dates = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -3789,7 +3694,6 @@ def main():
             else:
                 oe_display = "No OE subjects"
                 
-            # --- 3. Gap Calculation ---
             if not non_elective_data.empty and not oe_data.empty:
                 ne_dates_gap = pd.to_datetime(non_elective_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
                 oe_dates_gap = pd.to_datetime(oe_data['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
@@ -3804,16 +3708,12 @@ def main():
             else:
                 gap_display = "N/A"
         else:
-            # Default values if no data exists
             non_elec_display = "No data"
             ne_count = 0
             oe_display = "No data"
             oe_count = 0
             gap_display = "N/A"
 
-        # ==========================================
-        # 📅 EXAMINATION SCHEDULE BREAKDOWN (DISPLAY)
-        # ==========================================
         st.markdown("### 📅 Examination Schedule Breakdown")
 
         col1, col2 = st.columns(2)
@@ -3837,8 +3737,6 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-       
-        # Additional metrics row
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f'<div class="metric-card"><h3>📊 {st.session_state.unique_exam_days}</h3><p>Unique Exam Days</p></div>',
@@ -3847,7 +3745,6 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>⚡ {gap_display}</h3><p>Non-Elec to OE Gap</p></div>',
                         unsafe_allow_html=True)
         with col3:
-            # Calculate efficiency percentage
             if st.session_state.unique_exam_days > 0 and st.session_state.overall_date_range > 0:
                 efficiency = (st.session_state.unique_exam_days / st.session_state.overall_date_range) * 100
                 efficiency_display = f"{efficiency:.1f}%"
@@ -3857,9 +3754,7 @@ def main():
             st.markdown(f'<div class="metric-card"><h3>🎯 {efficiency_display}</h3><p>Schedule Efficiency</p></div>',
                         unsafe_allow_html=True)
 
-
-        # Show gap-filling efficiency
-        total_possible_slots = st.session_state.overall_date_range * 2  # 2 slots per day
+        total_possible_slots = st.session_state.overall_date_range * 2
         actual_exams = st.session_state.total_exams
         slot_utilization = min(100, (actual_exams / total_possible_slots * 100)) if total_possible_slots > 0 else 0
         
@@ -3870,7 +3765,6 @@ def main():
         else:
             st.warning(f"🔍 **Slot Utilization:** {slot_utilization:.1f}% (Room for improvement)")
 
-        # Timetable Results
         st.markdown("---")
         st.markdown("""
         <div class="results-section">
@@ -3878,19 +3772,13 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # Define the subject display formatting functions for Streamlit display
-        # Add inside the main() function where timetable results are displayed
-        #####
-        # Around line 2900 in main()
         def format_subject_display(row):
-            """Format subject display for non-electives in Streamlit interface"""
             subject = row['Subject']
             time_slot = row['Time Slot']
             duration = row.get('Exam Duration', 3)
             is_common = row.get('CommonAcrossSems', False)
             exam_slot_number = row.get('ExamSlotNumber', 1)
 
-            # Get time slots configuration
             time_slots_dict = st.session_state.get('time_slots', {
                 1: {"start": "10:00 AM", "end": "1:00 PM"},
                 2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -3898,7 +3786,6 @@ def main():
     
             preferred_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
 
-            # NEW: Add CM Group prefix
             cm_group = str(row.get('CMGroup', '')).strip()
             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
 
@@ -3913,15 +3800,10 @@ def main():
 
             return cm_group_prefix + subject + time_range
         
-
-        #####
-
         def format_elective_display(row):
-            """Format subject display for electives in Streamlit interface"""
             subject = row['Subject']
             oe_type = row.get('OE', '')
     
-            # NEW: Add CM Group prefix
             cm_group = str(row.get('CMGroup', '')).strip()
             cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
     
@@ -3939,9 +3821,6 @@ def main():
     
             return base_display + time_range
 
-       
-
-        # Display timetable data
         for sem, df_sem in st.session_state.timetable_data.items():
             st.markdown(f"### 📚 Semester {sem}")
 
@@ -3950,27 +3829,22 @@ def main():
                 df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
 
                 if not df_mb.empty:
-                    # Separate non-electives and electives for display
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
 
-                    # Display non-electives
                     if not df_non_elec.empty:
                         st.markdown(f"#### {main_branch_full} - Core Subjects")
                         
                         try:
-                            # Apply formatting
                             df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
                             df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                             df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
                            
-                            # Create a simple table format
                             display_data = []
                             for date, group in df_non_elec.groupby('Exam Date'):
                                 date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
                                 row_data = {'Exam Date': date_str}
                                
-                                # Add subjects for each SubBranch
                                 for subbranch in df_non_elec['SubBranch'].unique():
                                     subbranch_subjects = group[group['SubBranch'] == subbranch]['SubjectDisplay'].tolist()
                                     row_data[subbranch] = ", ".join(subbranch_subjects) if subbranch_subjects else "---"
@@ -3983,27 +3857,21 @@ def main():
                                 st.dataframe(display_df, use_container_width=True)
                             else:
                                 pass
-                                #st.write("No core subjects to display")
                                
                         except Exception as e:
                             st.error(f"Error displaying core subjects: {str(e)}")
-                            # Fallback: show raw data
-                            #st.write("Showing raw data:")
                             display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_non_elec.columns]
                             st.dataframe(df_non_elec[available_cols], use_container_width=True)
 
-                    # Display electives  
                     if not df_elec.empty:
                         st.markdown(f"#### {main_branch_full} - Open Electives")
                        
                         try:
-                            # Apply formatting
                             df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
                             df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                             df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                            
-                            # Create elective display
                             elec_display_data = []
                             for (oe_type, date), group in df_elec.groupby(['OE', 'Exam Date']):
                                 date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
@@ -4019,17 +3887,13 @@ def main():
                                 st.dataframe(elec_display_df, use_container_width=True)
                             else:
                                 pass
-                                #st.write("No elective subjects to display")
                                
                         except Exception as e:
                             st.error(f"Error displaying elective subjects: {str(e)}")
-                            # Fallback: show raw data
-                            #st.write("Showing raw data:")
                             display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
                             available_cols = [col for col in display_cols if col in df_elec.columns]
                             st.dataframe(df_elec[available_cols], use_container_width=True)
 
-    # Display footer
     st.markdown("---")
     st.markdown("""
     <div class="footer">
@@ -4041,35 +3905,4 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
