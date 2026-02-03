@@ -1729,21 +1729,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # --- INTELLIGENT NAME RECOVERY & CLEANUP ---
-            
-            # 1. Recover Full Program Name
-            # We look for the 'Program' or 'MainBranch' column we saved in save_to_excel
+            # --- INTELLIGENT NAME RECOVERY ---
             main_branch_full = ""
             if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
                  main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # 2. Extract and Clean Semester
             semester_raw = "General"
             if '_|_' in sheet_name:
                 parts = sheet_name.split('_|_')
-                # Fallback to sheet name if Program column was missing (unlikely now)
                 if not main_branch_full: main_branch_full = parts[0]
                 semester_raw = parts[1]
             else:
@@ -1756,25 +1751,22 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 semester_raw = semester_raw.replace('_Ele', '')
                 is_elective = True
             
-            # --- CRITICAL FIX: Clean "Semester" string ---
-            # If the string is "Semester I", strip the word "Semester" so we don't duplicate it.
-            # Result: "Semester Semester I" -> "Semester I"
+            # Clean "Semester" string
             display_sem = semester_raw.strip()
             if display_sem.lower().startswith("semester"):
-                display_sem = display_sem[8:].strip() # Remove 'Semester'
+                display_sem = display_sem[8:].strip()
             elif display_sem.lower().startswith("sem"):
-                display_sem = display_sem[3:].strip() # Remove 'Sem'
+                display_sem = display_sem[3:].strip()
             
-            # Display Headers
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
             header_exam_time = get_header_time_for_semester(semester_raw)
 
             # --- PDF GENERATION LOGIC ---
             if not is_elective:
+                # CORE SUBJECTS LOGIC (Standard)
                 if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols = ["Exam Date"]
-                # Exclude metadata columns from the visible table
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester'] and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
@@ -1802,15 +1794,40 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=10, header_content=header_content, Programs=chunk, time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
                     sheets_processed += 1
             else:
-                # Elective Page
-                cols = [c for c in ['Exam Date', 'OE Type', 'Subjects'] if c in sheet_df.columns]
-                if not cols: cols = [c for c in sheet_df.columns if c not in ['MainBranch', 'Program', 'Semester']]
+                # --- FIXED ELECTIVE PAGE LOGIC ---
+                # We expect the Clean Summary Columns: Exam Date, Time Slot, OE Type, Subjects
+                target_cols = ['Exam Date', 'Time Slot', 'OE Type', 'Subjects']
                 
-                pdf.add_page()
-                add_footer_with_page_number(pdf, 25)
-                col_widths = [60] + [(pdf.w - 80)/(len(cols)-1)] * (len(cols)-1) if len(cols) > 1 else [180]
-                print_table_custom(pdf, sheet_df, cols, col_widths, line_height=10, header_content=header_content, Programs=["Electives"], time_slot=header_exam_time, actual_time_slots=None, declaration_date=declaration_date)
-                sheets_processed += 1
+                # Check if we have these columns (intersection check)
+                available_cols = [c for c in target_cols if c in sheet_df.columns]
+                
+                if len(available_cols) >= 3: # We need at least Date, OE, Subjects
+                    # Filter empty rows
+                    sheet_df = sheet_df.dropna(subset=['Exam Date']).reset_index(drop=True)
+                    if sheet_df.empty: continue
+
+                    try:
+                        sheet_df["Exam Date"] = pd.to_datetime(sheet_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
+                    except: pass
+
+                    pdf.add_page()
+                    add_footer_with_page_number(pdf, 25)
+                    
+                    # Fixed widths for a cleaner look
+                    # Page width approx 470mm (landscape)
+                    # Date: 60, Time: 50, OE: 30, Subjects: Remaining
+                    col_widths = [60, 50, 40]
+                    remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
+                    col_widths.append(remaining_width)
+                    
+                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=10, 
+                                     header_content=header_content, Programs=["Electives"], 
+                                     time_slot=header_exam_time, actual_time_slots=None, 
+                                     declaration_date=declaration_date)
+                    sheets_processed += 1
+                else:
+                    # Fallback if summary failed (unlikely)
+                    pass
                 
         except Exception as e:
             st.warning(f"Error processing PDF sheet {sheet_name}: {e}")
@@ -2369,7 +2386,7 @@ def convert_semester_to_number(semester_value):
 def save_to_excel(semester_wise_timetable):
     """
     Safely generates Excel with STRICT 31-char limit for sheet names.
-    Embeds full metadata (Program, Semester) in the sheet for robust PDF recovery.
+    Aggregates Electives into a clean summary table to prevent PDF messiness.
     """
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
@@ -2399,11 +2416,9 @@ def save_to_excel(semester_wise_timetable):
             clean_branch = clean_branch.replace(char, '')
             clean_suffix = clean_suffix.replace(char, '')
             
-        # Max length allowed for branch part
-        # Excel max 31. Reserve space for suffix.
+        # Max length allowed for branch part (Excel max 31)
         max_len = 31 - len(clean_suffix)
         if max_len < 1: 
-            # Suffix is too long, truncate suffix too
             clean_suffix = clean_suffix[:10]
             max_len = 21
 
@@ -2411,7 +2426,6 @@ def save_to_excel(semester_wise_timetable):
         
         # Handle Collisions
         counter = 1
-        original_candidate = candidate
         while candidate.lower() in existing_sheet_names:
             counter_str = f"_{counter}"
             space_for_branch = 31 - len(clean_suffix) - len(counter_str)
@@ -2445,7 +2459,6 @@ def save_to_excel(semester_wise_timetable):
 
                 slot_indicator = ((sem_num + 1) // 2) % 2
                 primary_slot_num = 1 if slot_indicator == 1 else 2
-                
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
@@ -2457,7 +2470,7 @@ def save_to_excel(semester_wise_timetable):
                     df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
                     df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
                     
-                    # --- SAFE NAMING ---
+                    # --- 1. PROCESS CORE SUBJECTS ---
                     suffix = f"_|_{raw_sem_str}"
                     sheet_name = get_safe_sheet_name(main_branch, suffix)
                    
@@ -2497,11 +2510,9 @@ def save_to_excel(semester_wise_timetable):
                             pivot_df = pivot_df.sort_index(ascending=True).reset_index()
                             pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
                             
-                            # --- CRITICAL FIX: Embed Full Metadata ---
-                            # This saves the FULL program name inside the file so we don't rely on the truncated sheet name
+                            # Embed Metadata
                             pivot_df['Program'] = main_branch
                             pivot_df['Semester'] = raw_sem_str
-                            # ----------------------------------------
                             
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
@@ -2512,14 +2523,42 @@ def save_to_excel(semester_wise_timetable):
                             sheets_created += 1
                         except: pass
 
+                    # --- 2. PROCESS ELECTIVES (CRITICAL FIX) ---
                     if not df_elec.empty:
                         suffix_elec = f"_|_{raw_sem_str}_Ele"
                         sheet_name_elec = get_safe_sheet_name(main_branch, suffix_elec)
+                        
                         try:
-                            # Elective DF already has 'Program' and 'Semester' columns, so PDF generator will find them naturally
-                            df_elec.to_excel(writer, sheet_name=sheet_name_elec, index=False)
-                            sheets_created += 1
-                        except: pass
+                            # Filter for scheduled electives only
+                            df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
+                            
+                            if not df_elec_scheduled.empty:
+                                # Create a formatted display string for subjects
+                                df_elec_scheduled['DisplaySubject'] = df_elec_scheduled.apply(
+                                    lambda x: f"{x['Subject']} ({x['ModuleCode']})", axis=1
+                                )
+                                
+                                # Aggregate by Date, Slot, and OE Type to create a CLEAN summary
+                                summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
+                                    'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
+                                }).reset_index()
+                                
+                                # Rename for PDF generator to recognize
+                                summary_df.rename(columns={'DisplaySubject': 'Subjects', 'OE': 'OE Type'}, inplace=True)
+                                
+                                # Sort by Date
+                                summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
+                                summary_df = summary_df.sort_values('DateObj').drop('DateObj', axis=1)
+                                
+                                # Embed Metadata
+                                summary_df['Program'] = main_branch
+                                summary_df['Semester'] = raw_sem_str
+                                
+                                summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
+                                sheets_created += 1
+                        except Exception as e:
+                            # st.error(f"Failed elective sheet: {e}")
+                            pass
 
             if sheets_created == 0:
                 pd.DataFrame({'Message': ['No data available']}).to_excel(writer, sheet_name="No_Data", index=False)
@@ -4000,6 +4039,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
