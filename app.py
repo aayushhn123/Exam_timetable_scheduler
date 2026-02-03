@@ -1729,20 +1729,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # --- INTELLIGENT NAME RECOVERY ---
-            # 1. Try to get Full Program Name from the data itself (column 'MainBranch' or 'Program')
-            # This fixes the issue where Excel truncates "DIPLOMA IN MECHANICAL..."
-            main_branch_full = ""
-            if "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
-                 main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
-            elif "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
-                 main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
+            # --- INTELLIGENT NAME RECOVERY & CLEANUP ---
             
-            # 2. Extract Semester from sheet name delimiter
+            # 1. Recover Full Program Name
+            # We look for the 'Program' or 'MainBranch' column we saved in save_to_excel
+            main_branch_full = ""
+            if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
+                 main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
+            elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
+                 main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
+            
+            # 2. Extract and Clean Semester
             semester_raw = "General"
             if '_|_' in sheet_name:
                 parts = sheet_name.split('_|_')
-                # If we couldn't find the name in data, use the (possibly truncated) name from sheet
+                # Fallback to sheet name if Program column was missing (unlikely now)
                 if not main_branch_full: main_branch_full = parts[0]
                 semester_raw = parts[1]
             else:
@@ -1755,8 +1756,17 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 semester_raw = semester_raw.replace('_Ele', '')
                 is_elective = True
             
+            # --- CRITICAL FIX: Clean "Semester" string ---
+            # If the string is "Semester I", strip the word "Semester" so we don't duplicate it.
+            # Result: "Semester Semester I" -> "Semester I"
+            display_sem = semester_raw.strip()
+            if display_sem.lower().startswith("semester"):
+                display_sem = display_sem[8:].strip() # Remove 'Semester'
+            elif display_sem.lower().startswith("sem"):
+                display_sem = display_sem[3:].strip() # Remove 'Sem'
+            
             # Display Headers
-            header_content = {'main_branch_full': main_branch_full, 'semester_roman': semester_raw}
+            header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
             header_exam_time = get_header_time_for_semester(semester_raw)
 
             # --- PDF GENERATION LOGIC ---
@@ -1764,6 +1774,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols = ["Exam Date"]
+                # Exclude metadata columns from the visible table
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester'] and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
@@ -2358,7 +2369,7 @@ def convert_semester_to_number(semester_value):
 def save_to_excel(semester_wise_timetable):
     """
     Safely generates Excel with STRICT 31-char limit for sheet names.
-    Handles duplicates if truncation results in same name.
+    Embeds full metadata (Program, Semester) in the sheet for robust PDF recovery.
     """
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
@@ -2398,16 +2409,13 @@ def save_to_excel(semester_wise_timetable):
 
         candidate = f"{clean_branch[:max_len]}{clean_suffix}"
         
-        # Handle Collisions (e.g. "Diploma In Mech...Semester II" vs "Diploma In Mech...Semester IV")
+        # Handle Collisions
         counter = 1
         original_candidate = candidate
         while candidate.lower() in existing_sheet_names:
-            # Need to shorten branch further to make room for counter
             counter_str = f"_{counter}"
-            # Recalculate space
             space_for_branch = 31 - len(clean_suffix) - len(counter_str)
             if space_for_branch < 1: space_for_branch = 5
-            
             candidate = f"{clean_branch[:space_for_branch]}{counter_str}{clean_suffix}"
             counter += 1
             
@@ -2488,6 +2496,13 @@ def save_to_excel(semester_wise_timetable):
                             pivot_df = grouped.pivot_table(index="Exam Date", columns="SubBranch", values="SubjectDisplay", aggfunc='first').fillna("---")
                             pivot_df = pivot_df.sort_index(ascending=True).reset_index()
                             pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
+                            
+                            # --- CRITICAL FIX: Embed Full Metadata ---
+                            # This saves the FULL program name inside the file so we don't rely on the truncated sheet name
+                            pivot_df['Program'] = main_branch
+                            pivot_df['Semester'] = raw_sem_str
+                            # ----------------------------------------
+                            
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
                         except: pass
@@ -2501,6 +2516,7 @@ def save_to_excel(semester_wise_timetable):
                         suffix_elec = f"_|_{raw_sem_str}_Ele"
                         sheet_name_elec = get_safe_sheet_name(main_branch, suffix_elec)
                         try:
+                            # Elective DF already has 'Program' and 'Semester' columns, so PDF generator will find them naturally
                             df_elec.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                             sheets_created += 1
                         except: pass
@@ -2514,7 +2530,6 @@ def save_to_excel(semester_wise_timetable):
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
         return None
-        
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -3985,6 +4000,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
