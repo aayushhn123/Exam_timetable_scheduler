@@ -1107,8 +1107,18 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     })
     
     # 1. Define Valid Dates & Reserve Last 2 for OE
-    all_valid_dates = get_valid_dates_in_range(base_date, end_date, holidays)
+    # Note: get_valid_dates_in_range returns strings like "DD-MM-YYYY"
+    all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     
+    # FIX: Convert strings to datetime objects so we can use .strftime() and math logic later
+    all_valid_dates = []
+    for d_str in all_valid_strings:
+        try:
+            # Parse DD-MM-YYYY string to datetime object
+            all_valid_dates.append(datetime.strptime(d_str, "%d-%m-%Y"))
+        except ValueError:
+            continue
+
     if len(all_valid_dates) < 3:
         st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed.")
         core_valid_dates = all_valid_dates
@@ -1116,7 +1126,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         # Reserve last 2 days for OE
         core_valid_dates = all_valid_dates[:-2]
         oe_reserved_dates = all_valid_dates[-2:]
-        st.info(f"📅 Core Exams: {core_valid_dates[0].strftime('%d-%m')} to {core_valid_dates[-1].strftime('%d-%m')} | OE Reserved: {oe_reserved_dates[0].strftime('%d-%m')} & {oe_reserved_dates[1].strftime('%d-%m')}")
+        
+        # Now .strftime() will work because items are datetime objects
+        core_start = core_valid_dates[0].strftime('%d-%m')
+        core_end = core_valid_dates[-1].strftime('%d-%m')
+        oe_1 = oe_reserved_dates[0].strftime('%d-%m')
+        oe_2 = oe_reserved_dates[1].strftime('%d-%m')
+        
+        st.info(f"📅 Core Exams: {core_start} to {core_end} | OE Reserved: {oe_1} & {oe_2}")
 
     # Helper: Extract Numeric Semester
     def extract_numeric_sem(sem_val):
@@ -1233,6 +1250,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
         
         # SCAN DATES FROM START
+        # core_valid_dates contains DATETIME objects, so we format them to strings for the map keys
         for date_obj in core_valid_dates:
             date_str = date_obj.strftime("%d-%m-%Y")
             
@@ -1252,7 +1270,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                 
                 # Mark branches busy
-                daily_schedule_map[date_str].update(unit['branch_sems'])
+                if date_str in daily_schedule_map:
+                    daily_schedule_map[date_str].update(unit['branch_sems'])
+                else:
+                    daily_schedule_map[date_str] = set(unit['branch_sems'])
                 
                 # Update capacity
                 add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
@@ -3734,6 +3755,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
