@@ -1119,7 +1119,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             return int(digits[0])
         return 1
 
-    # Filter eligible subjects
+    # Filter eligible subjects (Exclude Electives/OE)
     eligible_subjects = df[
         (df['Category'] != 'INTD') & 
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
@@ -1130,15 +1130,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return df
     
     # --- UPDATED CAPACITY TRACKING (PER CAMPUS) ---
-    # Structure: session_capacity[date_str][time_slot][campus_name] = current_count
     session_capacity = {} 
     
     def check_campus_capacity(date_str, time_slot, unit_row_indices):
-        """
-        Checks if adding the students from this unit will exceed the limit 
-        for ANY specific campus involved.
-        """
-        # 1. Calculate impact of this unit per campus
+        """ Checks if adding this unit exceeds max capacity for any specific campus involved. """
         unit_impact = {}
         for idx in unit_row_indices:
             campus_val = df.loc[idx, 'Campus']
@@ -1146,7 +1141,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             count = df.loc[idx, 'StudentCount']
             unit_impact[campus] = unit_impact.get(campus, 0) + count
             
-        # 2. Check against current usage
+        # Check against current usage
         if date_str in session_capacity and time_slot in session_capacity[date_str]:
             current_slot_usage = session_capacity[date_str][time_slot]
         else:
@@ -1157,12 +1152,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             if (current_campus_load + required_count) > MAX_STUDENTS_PER_SESSION:
                 return False # This campus is full
         
-        return True # All involved campuses have space
+        return True
 
     def add_to_campus_capacity(date_str, time_slot, unit_row_indices):
-        """
-        Updates the capacity tracker for each campus.
-        """
+        """ Updates the capacity tracker. """
         if date_str not in session_capacity: session_capacity[date_str] = {}
         if time_slot not in session_capacity[date_str]: session_capacity[date_str][time_slot] = {}
         
@@ -1175,18 +1168,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
-    # STEP 2: CREATE ATOMIC SUBJECT UNITS
+    # STEP 2: CREATE ATOMIC SUBJECT UNITS (STRICT CM GROUP LOGIC)
     # ---------------------------------------------------------
     atomic_subject_units = []
     
-    # Separation: CM Group vs Standard
-    has_cm_group_mask = (eligible_subjects['CMGroup'].notna()) & (eligible_subjects['CMGroup'].str.strip() != "")
-    df_with_cm = eligible_subjects[has_cm_group_mask]
-    df_no_cm = eligible_subjects[~has_cm_group_mask]
+    # Check if CMGroup column exists and has values
+    if 'CMGroup' in eligible_subjects.columns:
+        # Convert to string and clean for consistent filtering
+        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip()
+        # Treat "0", "0.0", "nan" as empty
+        eligible_subjects.loc[eligible_subjects['CMGroup_Clean'].isin(["0", "0.0", "nan"]), 'CMGroup_Clean'] = ""
+    else:
+        eligible_subjects['CMGroup_Clean'] = ""
+
+    # Split: With CM Group vs Without
+    df_with_cm = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
+    df_no_cm = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # 2b. Process CM Groups (Highest Priority)
+    # 2a. Process CM Groups (Highest Priority - Locked Together)
     if not df_with_cm.empty:
-        for cm_id, group in df_with_cm.groupby('CMGroup'):
+        for cm_id, group in df_with_cm.groupby('CMGroup_Clean'):
             branch_sem_combinations = []
             unique_semesters_raw = set()
             all_indices = []
@@ -1211,7 +1212,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             atomic_subject_units.append(unit)
             
-    # 2c. Process Standard Subjects (ModuleCode Grouping)
+    # 2b. Process Standard Subjects (ModuleCode Grouping)
+    # Even if they don't have a CM Group, we group by ModuleCode to keep same subject on same day
     if not df_no_cm.empty:
         for module_code, group in df_no_cm.groupby('ModuleCode'):
             branch_sem_combinations = []
@@ -1224,6 +1226,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 unique_semesters_raw.add(row['Semester'])
                 all_indices.append(row.name)
             
+            # Priority based on frequency (how many branches take this)
             frequency = len(set(branch_sem_combinations))
             raw_slot_num = group['ExamSlotNumber'].iloc[0] if 'ExamSlotNumber' in group.columns else 0
             
@@ -1239,6 +1242,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             atomic_subject_units.append(unit)
 
+    # Sort units by priority
     atomic_subject_units.sort(key=lambda x: x['priority_score'], reverse=True)
     
     # ---------------------------------------------------------
@@ -1247,7 +1251,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     daily_scheduled_branch_sem = {}
     current_date = base_date
     scheduling_day = 0
-    target_days = 40 # Increased slightly to ensure coverage
+    target_days = 40 
     
     unscheduled_units = atomic_subject_units.copy()
     
@@ -1266,6 +1270,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         for atomic_unit in unscheduled_units:
             conflicts = False
+            # Check Branch Conflict
             for branch_sem in atomic_unit['branch_sem_combinations']:
                 if branch_sem in daily_scheduled_branch_sem[date_str]:
                     conflicts = True
@@ -2663,9 +2668,9 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
     Attempts to move exams from the end of the schedule to earlier 'gaps' (empty slots),
-    STRICTLY respecting Campus Capacity Constraints.
+    STRICTLY respecting Campus Capacity Constraints and SKIPPING only CM Groups.
     """
-    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware)...")
+    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
     
     moves_made = 0
     optimization_log = []
@@ -2674,7 +2679,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     MAX_CAPACITY = st.session_state.get('capacity_slider', 1250)
     
     # Pre-calculate campus loads for all currently scheduled slots
-    # Map: date -> slot -> campus -> current_count
     schedule_load_map = {}
     
     def refresh_load_map():
@@ -2701,21 +2705,25 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
 
     # Iterate through semesters to find gaps
     for sem, df in sem_dict.items():
-        # Identify schedule boundaries for this semester
         scheduled_dates = pd.to_datetime(df[df['Exam Date'].notna()]['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if scheduled_dates.empty:
             continue
             
         sem_start = min(scheduled_dates)
-        sem_end = max(scheduled_dates)
         
-        # Identify subjects that can be moved (candidates from the end of the schedule)
-        # We look at the last few days
+        # Identify subjects that can be moved
+        # CRITICAL UPDATE: Only skip if CMGroup is present. 
+        # Removed filters for IsCommon/CommonAcrossSems as requested.
+        
+        # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
+        cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
+        
         candidates = df[
             (df['Exam Date'].notna()) & 
-            (df['Category'] != 'INTD') & # Don't move electives
+            (df['Category'] != 'INTD') & 
             (df['OE'].isna() | (df['OE'] == "")) &
-            (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start) # Must be movable
+            (cm_col == "") & # Only move subjects that do NOT have a CM Group
+            (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start)
         ].sort_values('Exam Date', ascending=False)
         
         for idx, subject in candidates.iterrows():
@@ -2732,8 +2740,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     check_date += timedelta(days=1)
                     continue
 
-                # Check if this sub-branch is already busy on this check_date
-                # (Student Conflict Check)
+                # Check student conflict (Same Branch Same Day)
                 sub_branch = subject['SubBranch']
                 busy_on_date = df[
                     (df['Exam Date'] == check_date_str) & 
@@ -2741,15 +2748,8 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 ]
                 
                 if busy_on_date.empty:
-                    # CANDIDATE GAP FOUND
-                    # Now check CAPACITY Constraints
-                    
-                    target_slot_num = subject['ExamSlotNumber'] # Keep same slot preference (Morning/Evening)
-                    # OR we can try to fit into whatever slot is standard for that sem
-                    # Let's stick to the subject's assigned slot to minimize friction
+                    # Check CAPACITY Constraints per Campus
                     target_time_slot = subject['Time Slot']
-                    
-                    # Check Campus Capacity for this move
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
                     student_count = int(subject.get('StudentCount', 0))
                     
@@ -2760,19 +2760,17 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                         # 1. Update DataFrame
                         sem_dict[sem].at[idx, 'Exam Date'] = check_date_str
                         
-                        # 2. Update Load Map (Remove from old, add to new)
-                        # Remove from old
+                        # 2. Update Load Map
                         old_load = schedule_load_map[current_date_str][target_time_slot][campus]
                         schedule_load_map[current_date_str][target_time_slot][campus] = old_load - student_count
                         
-                        # Add to new
                         if check_date_str not in schedule_load_map: schedule_load_map[check_date_str] = {}
                         if target_time_slot not in schedule_load_map[check_date_str]: schedule_load_map[check_date_str][target_time_slot] = {}
                         schedule_load_map[check_date_str][target_time_slot][campus] = current_load + student_count
                         
                         moves_made += 1
                         optimization_log.append(f"Moved {subject['Subject']} from {current_date_str} to {check_date_str}")
-                        break # Stop checking for this subject, move to next candidate
+                        break
                 
                 check_date += timedelta(days=1)
 
@@ -3758,6 +3756,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
