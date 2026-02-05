@@ -1099,14 +1099,26 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per CAMPUS per session...")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common First -> Fill Gaps with Individual -> Reserve Last 2 Days for OE")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
     
-    # Helper to extract integer from raw semester string
+    # 1. Define Valid Dates & Reserve Last 2 for OE
+    all_valid_dates = get_valid_dates_in_range(base_date, end_date, holidays)
+    
+    if len(all_valid_dates) < 3:
+        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed.")
+        core_valid_dates = all_valid_dates
+    else:
+        # Reserve last 2 days for OE
+        core_valid_dates = all_valid_dates[:-2]
+        oe_reserved_dates = all_valid_dates[-2:]
+        st.info(f"📅 Core Exams: {core_valid_dates[0].strftime('%d-%m')} to {core_valid_dates[-1].strftime('%d-%m')} | OE Reserved: {oe_reserved_dates[0].strftime('%d-%m')} & {oe_reserved_dates[1].strftime('%d-%m')}")
+
+    # Helper: Extract Numeric Semester
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
         romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
@@ -1115,25 +1127,21 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 return r_val
         import re
         digits = re.findall(r'\d+', s)
-        if digits:
-            return int(digits[0])
-        return 1
+        return int(digits[0]) if digits else 1
 
-    # Filter eligible subjects (Exclude Electives/OE)
+    # Filter Eligible Subjects (Core Only)
     eligible_subjects = df[
         (df['Category'] != 'INTD') & 
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
     
     if eligible_subjects.empty:
-        st.info("No eligible subjects to schedule")
         return df
-    
-    # --- UPDATED CAPACITY TRACKING (PER CAMPUS) ---
+
+    # --- CAPACITY TRACKING (Per Campus) ---
     session_capacity = {} 
     
     def check_campus_capacity(date_str, time_slot, unit_row_indices):
-        """ Checks if adding this unit exceeds max capacity for any specific campus involved. """
         unit_impact = {}
         for idx in unit_row_indices:
             campus_val = df.loc[idx, 'Campus']
@@ -1141,21 +1149,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             count = df.loc[idx, 'StudentCount']
             unit_impact[campus] = unit_impact.get(campus, 0) + count
             
-        # Check against current usage
-        if date_str in session_capacity and time_slot in session_capacity[date_str]:
-            current_slot_usage = session_capacity[date_str][time_slot]
-        else:
-            current_slot_usage = {}
+        current_slot_usage = session_capacity.get(date_str, {}).get(time_slot, {})
 
         for campus, required_count in unit_impact.items():
             current_campus_load = current_slot_usage.get(campus, 0)
             if (current_campus_load + required_count) > MAX_STUDENTS_PER_SESSION:
-                return False # This campus is full
-        
+                return False 
         return True
 
     def add_to_campus_capacity(date_str, time_slot, unit_row_indices):
-        """ Updates the capacity tracker. """
         if date_str not in session_capacity: session_capacity[date_str] = {}
         if time_slot not in session_capacity[date_str]: session_capacity[date_str][time_slot] = {}
         
@@ -1168,149 +1170,112 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
-    # STEP 2: CREATE ATOMIC SUBJECT UNITS (STRICT CM GROUP LOGIC)
+    # STEP 2: PREPARE ATOMIC UNITS
     # ---------------------------------------------------------
-    atomic_subject_units = []
+    common_units = []
+    individual_units = []
     
-    # Check if CMGroup column exists and has values
+    # Check CMGroup column
     if 'CMGroup' in eligible_subjects.columns:
-        # Convert to string and clean for consistent filtering
-        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip()
-        # Treat "0", "0.0", "nan" as empty
-        eligible_subjects.loc[eligible_subjects['CMGroup_Clean'].isin(["0", "0.0", "nan"]), 'CMGroup_Clean'] = ""
+        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # Split: With CM Group vs Without
-    df_with_cm = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
-    df_no_cm = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
+    # Split Data
+    df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
+    df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # 2a. Process CM Groups (Highest Priority - Locked Together)
-    if not df_with_cm.empty:
-        for cm_id, group in df_with_cm.groupby('CMGroup_Clean'):
-            branch_sem_combinations = []
-            unique_semesters_raw = set()
-            all_indices = []
-            
-            for _, row in group.iterrows():
-                branch_sem = f"{row['Branch']}_{row['Semester']}"
-                branch_sem_combinations.append(branch_sem)
-                unique_semesters_raw.add(row['Semester'])
-                all_indices.append(row.name)
-            
-            raw_slot_num = group['ExamSlotNumber'].iloc[0] if 'ExamSlotNumber' in group.columns else 0
+    # Build Common Units (CM Group)
+    if not df_common.empty:
+        for cm_id, group in df_common.groupby('CMGroup_Clean'):
+            branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
+            all_indices = group.index.tolist()
+            raw_slot = group['ExamSlotNumber'].iloc[0]
             
             unit = {
-                'id': f"CM_{cm_id}",
-                'type': 'CM_GROUP',
-                'branch_sem_combinations': list(set(branch_sem_combinations)),
-                'all_rows': all_indices,
-                'unique_semesters_raw': list(unique_semesters_raw),
-                'exam_slot_number': raw_slot_num,
-                'priority_score': 9999, # Highest priority
-                'student_count': group['StudentCount'].sum()
+                'type': 'COMMON', 'id': f"CM_{cm_id}", 'indices': all_indices,
+                'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
+                'sem_raw': group['Semester'].iloc[0]
             }
-            atomic_subject_units.append(unit)
-            
-    # 2b. Process Standard Subjects (ModuleCode Grouping)
-    # Even if they don't have a CM Group, we group by ModuleCode to keep same subject on same day
-    if not df_no_cm.empty:
-        for module_code, group in df_no_cm.groupby('ModuleCode'):
-            branch_sem_combinations = []
-            unique_semesters_raw = set()
-            all_indices = []
-            
-            for _, row in group.iterrows():
-                branch_sem = f"{row['Branch']}_{row['Semester']}"
-                branch_sem_combinations.append(branch_sem)
-                unique_semesters_raw.add(row['Semester'])
-                all_indices.append(row.name)
-            
-            # Priority based on frequency (how many branches take this)
-            frequency = len(set(branch_sem_combinations))
-            raw_slot_num = group['ExamSlotNumber'].iloc[0] if 'ExamSlotNumber' in group.columns else 0
+            common_units.append(unit)
+
+    # Build Individual Units (Module Code)
+    if not df_individual.empty:
+        for mod_code, group in df_individual.groupby('ModuleCode'):
+            branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
+            all_indices = group.index.tolist()
+            raw_slot = group['ExamSlotNumber'].iloc[0]
             
             unit = {
-                'id': f"MOD_{module_code}",
-                'type': 'STANDARD',
-                'branch_sem_combinations': list(set(branch_sem_combinations)),
-                'all_rows': all_indices,
-                'unique_semesters_raw': list(unique_semesters_raw),
-                'exam_slot_number': raw_slot_num,
-                'priority_score': frequency * 10,
-                'student_count': group['StudentCount'].sum()
+                'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
+                'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
+                'sem_raw': group['Semester'].iloc[0]
             }
-            atomic_subject_units.append(unit)
+            individual_units.append(unit)
 
-    # Sort units by priority
-    atomic_subject_units.sort(key=lambda x: x['priority_score'], reverse=True)
-    
     # ---------------------------------------------------------
-    # STEP 3: SCHEDULING ENGINE
+    # STEP 3: SCHEDULING ENGINE (Two-Pass)
     # ---------------------------------------------------------
-    daily_scheduled_branch_sem = {}
-    current_date = base_date
-    scheduling_day = 0
-    target_days = 40 
     
-    unscheduled_units = atomic_subject_units.copy()
+    # Track which branch-sem is busy on which date
+    # Map: date_str -> set(branch_sem_strings)
+    daily_schedule_map = {d.strftime("%d-%m-%Y"): set() for d in core_valid_dates}
     
-    while scheduling_day < target_days and unscheduled_units:
-        exam_date = find_next_valid_day_in_range(current_date, end_date, holidays)
-        if exam_date is None: break
-        
-        date_str = exam_date.strftime("%d-%m-%Y")
-        scheduling_day += 1
-        current_date = exam_date + timedelta(days=1)
-        
-        if date_str not in daily_scheduled_branch_sem:
-            daily_scheduled_branch_sem[date_str] = set()
-        
-        units_to_remove = []
-        
-        for atomic_unit in unscheduled_units:
-            conflicts = False
-            # Check Branch Conflict
-            for branch_sem in atomic_unit['branch_sem_combinations']:
-                if branch_sem in daily_scheduled_branch_sem[date_str]:
-                    conflicts = True
-                    break
+    def attempt_schedule(unit, unit_list_name):
+        # Determine Slot
+        if unit['fixed_slot'] > 0:
+            slot_num = int(unit['fixed_slot'])
+        else:
+            # Auto-assign slot based on semester parity (Odd=Morning, Even=Afternoon)
+            num_sem = extract_numeric_sem(unit['sem_raw'])
+            slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
             
-            if not conflicts:
-                raw_slot_num = atomic_unit.get('exam_slot_number', 0)
-                if raw_slot_num > 0:
-                    exam_slot_number = raw_slot_num
-                else:
-                    raw_sem = atomic_unit['unique_semesters_raw'][0] if atomic_unit['unique_semesters_raw'] else "1"
-                    numeric_sem = extract_numeric_sem(raw_sem)
-                    slot_indicator = ((numeric_sem + 1) // 2) % 2
-                    exam_slot_number = 1 if slot_indicator == 1 else 2
-
-                time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
+        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+        
+        # SCAN DATES FROM START
+        for date_obj in core_valid_dates:
+            date_str = date_obj.strftime("%d-%m-%Y")
+            
+            # 1. Branch Conflict Check
+            # Are any branches in this unit already busy on this day?
+            busy_branches = daily_schedule_map.get(date_str, set())
+            if not set(unit['branch_sems']).isdisjoint(busy_branches):
+                continue # Conflict found, try next day
+            
+            # 2. Campus Capacity Check
+            # Will this unit overload any campus in this specific slot?
+            if check_campus_capacity(date_str, time_slot_str, unit['indices']):
+                # SUCCESS: Place here
+                for row_idx in unit['indices']:
+                    df.loc[row_idx, 'Exam Date'] = date_str
+                    df.loc[row_idx, 'Time Slot'] = time_slot_str
+                    df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                 
-                # --- CHECK CAPACITY PER CAMPUS ---
-                if check_campus_capacity(date_str, time_slot, atomic_unit['all_rows']):
-                    
-                    # Commit Schedule
-                    for row_idx in atomic_unit['all_rows']:
-                        df.loc[row_idx, 'Exam Date'] = date_str
-                        df.loc[row_idx, 'Time Slot'] = time_slot
-                        df.loc[row_idx, 'ExamSlotNumber'] = exam_slot_number
-                    
-                    for branch_sem in atomic_unit['branch_sem_combinations']:
-                        daily_scheduled_branch_sem[date_str].add(branch_sem)
-                    
-                    # Update Capacity
-                    add_to_campus_capacity(date_str, time_slot, atomic_unit['all_rows'])
-                    units_to_remove.append(atomic_unit)
+                # Mark branches busy
+                daily_schedule_map[date_str].update(unit['branch_sems'])
+                
+                # Update capacity
+                add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                return True
         
-        for unit in units_to_remove:
-            unscheduled_units.remove(unit)
+        return False
+
+    # PASS 1: Schedule ALL Common Units First
+    unscheduled = []
+    for unit in common_units:
+        if not attempt_schedule(unit, "Common"):
+            unscheduled.append(unit)
             
-    if unscheduled_units:
-        st.warning(f"⚠️ Could not schedule {len(unscheduled_units)} subject groups.")
+    # PASS 2: Schedule Individual Units (Filling Gaps)
+    # They will naturally fall into the earliest available slots found in Pass 1
+    for unit in individual_units:
+        if not attempt_schedule(unit, "Individual"):
+            unscheduled.append(unit)
+
+    if unscheduled:
+        st.warning(f"⚠️ Could not schedule {len(unscheduled)} subject groups within the Core Date Range.")
     else:
-        st.success("✅ All subjects scheduled successfully.")
+        st.success("✅ All Core subjects scheduled successfully (Common First > Gaps Filled).")
 
     return df
 
@@ -2613,55 +2578,60 @@ def find_next_valid_day_for_electives(start_day, holidays):
 
 def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     """
-    Schedule electives globally after non-elective scheduling is complete.
-    Dynamically finds unique OE groups and schedules them sequentially.
+    Schedule electives specifically on the reserved LAST 2 DAYS of the exam period if possible,
+    or immediately following the core exams.
     """
     if df_ele is None or df_ele.empty:
         return df_ele
     
-    st.info("🎓 Scheduling electives globally...")
+    st.info("🎓 Scheduling electives (Targeting Reserved OE Days)...")
     
     # 1. Identify Unique OE Groups
-    # We group by the 'OE' column. Any rows sharing the same 'OE' value 
-    # will be scheduled in the same slot.
     unique_oes = df_ele['OE'].unique()
-    # Filter out empty/nan values
     unique_oes = [oe for oe in unique_oes if pd.notna(oe) and str(oe).strip() != ""]
+    unique_oes.sort() # Ensure consistent order
     
     if not unique_oes:
-        st.warning("No specific OE groups found in elective data.")
         return df_ele
 
-    # Sort to ensure consistent order (e.g., OE-1, OE-2, ...)
-    unique_oes.sort()
+    # Determine Start Date for OE
+    # We prefer the date passed as 'max_non_elec_date' which should ideally be the start of the reserved block
+    # However, we calculate strictly next valid day to be safe.
     
-    # 2. Schedule each group
-    # We start searching for valid days starting the day AFTER the last core exam
-    current_date = datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1)
+    # In the main flow, we should pass the START of the reserved block as max_non_elec_date.
+    # Let's verify we find valid days from there.
+    
+    current_date = datetime.combine(max_non_elec_date, datetime.min.time())
+    # If max_non_elec_date was the last core exam, we start checking from next day
+    # But if the main function logic worked, max_non_elec_date IS the first reserved day.
+    # Let's assume current_date is the first candidate.
     
     scheduled_count = 0
     
+    # Time slot settings (Default Electives to Morning/Slot 1)
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"}
+    })
+    slot_1 = time_slots_dict[1]['start'] + " - " + time_slots_dict[1]['end']
+
     for oe_group in unique_oes:
-        # Find the next valid day (skips Sundays and Holidays)
-        exam_day = find_next_valid_day_for_electives(current_date, holidays_set)
-        exam_day_str = exam_day.strftime("%d-%m-%Y")
+        # Find next valid day
+        while current_date.date() in holidays_set or current_date.weekday() == 6: # Skip Sundays/Holidays
+            current_date += timedelta(days=1)
+            
+        exam_day_str = current_date.strftime("%d-%m-%Y")
         
-        # Apply schedule to all subjects in this OE group
+        # Apply schedule
         mask = df_ele['OE'] == oe_group
-        
-        # Assign Date
         df_ele.loc[mask, 'Exam Date'] = exam_day_str
-        
-        # Assign Slot (Defaulting to Morning Slot 10:00 AM - 1:00 PM for consistency)
-        # You can adjust this to alternate slots if desired, but sequential days is safer for conflicts.
-        df_ele.loc[mask, 'Time Slot'] = "10:00 AM - 1:00 PM"
+        df_ele.loc[mask, 'Time Slot'] = slot_1
         df_ele.loc[mask, 'ExamSlotNumber'] = 1
         
-        # Move to the next day for the next group
-        current_date = exam_day + timedelta(days=1)
+        # Move to next day for next OE group
+        current_date += timedelta(days=1)
         scheduled_count += 1
         
-    st.success(f"✅ Scheduled {scheduled_count} OE groups starting from {find_next_valid_day_for_electives(datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), holidays_set).strftime('%d-%m-%Y')}")
+    st.success(f"✅ Scheduled {scheduled_count} OE groups.")
     
     return df_ele
 
@@ -3144,7 +3114,7 @@ def main():
                     df_non_elec, df_ele, original_df = read_timetable(uploaded_file)
 
                     if df_non_elec is not None:
-                        st.info("🚀 SUPER SCHEDULING: All subjects with frequency-based priority and daily branch coverage")
+                        st.info("🚀 SCHEDULING STRATEGY: Common First -> Fill Gaps with Individual -> Reserve Last 2 Days for OE")
                         
                         df_scheduled = schedule_all_subjects_comprehensively(df_non_elec, holidays_set, base_date, end_date, MAX_STUDENTS_PER_SESSION=st.session_state.capacity_slider)
                         
@@ -3170,24 +3140,32 @@ def main():
                                 )
 
                         if df_ele is not None and not df_ele.empty:
-                            non_elec_dates = pd.to_datetime(df_scheduled['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
-                            if not non_elec_dates.empty:
-                                max_non_elec_date = max(non_elec_dates).date()
-                                
-                                elective_day1 = find_next_valid_day_for_electives(
-                                    datetime.combine(max_non_elec_date, datetime.min.time()) + timedelta(days=1), 
-                                    holidays_set
-                                )
-                                elective_day2 = find_next_valid_day_for_electives(elective_day1 + timedelta(days=1), holidays_set)
-                                
-                                if elective_day2 <= end_date:
-                                    df_ele_scheduled = schedule_electives_globally(df_ele, max_non_elec_date, holidays_set)
-                                    all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
-                                else:
-                                    st.warning(f"⚠️ Electives cannot be scheduled within end date ({end_date.strftime('%d-%m-%Y')})")
-                                    all_scheduled_subjects = df_scheduled
+                            # NEW LOGIC: Calculate Reserved Dates based on the Date Range
+                            # We reserved the last 2 valid days in the scheduler for OE.
+                            # We need to find those specific dates to pass to the OE scheduler.
+                            
+                            all_valid = get_valid_dates_in_range(base_date, end_date, holidays_set)
+                            
+                            # Convert strings back to date objects for calculation
+                            all_valid_objs = []
+                            for d_str in all_valid:
+                                try:
+                                    all_valid_objs.append(datetime.strptime(d_str, "%d-%m-%Y").date())
+                                except:
+                                    pass
+                            all_valid_objs.sort()
+
+                            if len(all_valid_objs) >= 2:
+                                # The start of the reserved block is the 2nd to last valid day
+                                oe_start_date = all_valid_objs[-2]
+                            elif len(all_valid_objs) == 1:
+                                oe_start_date = all_valid_objs[0]
                             else:
-                                all_scheduled_subjects = df_scheduled
+                                oe_start_date = end_date.date()
+                            
+                            # Pass this specific date as the start point for OE scheduling
+                            df_ele_scheduled = schedule_electives_globally(df_ele, oe_start_date, holidays_set)
+                            all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
                         else:
                             all_scheduled_subjects = df_scheduled
                         
