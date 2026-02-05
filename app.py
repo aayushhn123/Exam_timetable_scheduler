@@ -1371,22 +1371,31 @@ def read_timetable(uploaded_file):
 
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
-        # 1. Map Columns (Specific to your new MPSTME file)
+        # --- CRITICAL FIX: Clean Headers ---
+        # Removes leading/trailing spaces from column names (e.g., "Campus Name " -> "Campus Name")
+        df.columns = df.columns.str.strip()
+        
+        # 1. Map Columns
         column_mapping = {
-            # Standard & New File Variations
             "Program": "Program", "Programme": "Program", 
             "Stream": "Stream", "Specialization": "Stream", "Branch": "Stream",
             "Current Session": "Semester", "Academic Session": "Semester", "Session": "Semester", "Semester": "Semester",
             "Module Description": "SubjectName", "Subject Name": "SubjectName", "Subject Description": "SubjectName",
             "Module Abbreviation": "ModuleCode", "Module Code": "ModuleCode", "Subject Code": "ModuleCode", "Code": "ModuleCode",
-            "Campus Name": "Campus", "Campus": "Campus",
+            
+            # Mapped "Campus Name" explicitly
+            "Campus Name": "Campus", "Campus": "Campus", "School Name": "Campus", "Location": "Campus",
+            
             "Difficulty Score": "Difficulty", "Difficulty": "Difficulty",
             "Exam Duration": "Exam Duration", "Duration": "Exam Duration",
             "Student count": "StudentCount", "Student Count": "StudentCount", "Enrollment": "StudentCount", "Count": "StudentCount",
             "CM group": "CMGroup", "CM Group": "CMGroup", "cm group": "CMGroup", 
             "CMGroup": "CMGroup", "CM_Group": "CMGroup", "Common Module Group": "CMGroup",
             "Exam Slot Number": "ExamSlotNumber", "exam slot number": "ExamSlotNumber",
-            "ExamSlotNumber": "ExamSlotNumber", "Exam_Slot_Number": "ExamSlotNumber", "Slot Number": "ExamSlotNumber"
+            "ExamSlotNumber": "ExamSlotNumber", "Exam_Slot_Number": "ExamSlotNumber", "Slot Number": "ExamSlotNumber",
+            # Logic Columns
+            "Common across sems": "CommonAcrossSems", "CommonAcrossSems": "CommonAcrossSems",
+            "Is Common": "IsCommon", "IsCommon": "IsCommon"
         }
         
         df = df.rename(columns=column_mapping)
@@ -1398,18 +1407,16 @@ def read_timetable(uploaded_file):
             st.error(f"❌ **Missing Required Columns:** {', '.join(missing_required)}")
             return None, None, None
 
-        # 3. Clean Strings (Trim spaces from " INFORMATION TECHNOLOGY")
+        # 3. Clean Strings
         string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # 4. Clean CMGroup (Handle "00000528" format)
+        # 4. Clean CMGroup
         if "CMGroup" in df.columns:
             df["CMGroup"] = df["CMGroup"].astype(str).replace(['nan', 'NaN', '0', '0.0'], '')
-            # Remove decimals if any, strip spaces
             df["CMGroup"] = df["CMGroup"].apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
-            # Treat "0" string as empty
             df.loc[df["CMGroup"] == "0", "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
@@ -1424,7 +1431,6 @@ def read_timetable(uploaded_file):
         def create_branch_identifier(row):
             prog = row.get("Program", "")
             stream = row.get("Stream", "")
-            # If Stream is empty or same as Program, just use Program
             if not stream or stream == prog or stream == "":
                 return prog
             else:
@@ -1439,21 +1445,24 @@ def read_timetable(uploaded_file):
             
         if "Category" not in df.columns: df["Category"] = "COMP"
         
-        # 7. Clean OE Column (CRITICAL FIX)
+        # 7. Clean OE Column
         if "OE" not in df.columns: 
             df["OE"] = ""
         else: 
             df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
-        # Reset old logic columns
-        df["CommonAcrossSems"] = False
-        df["IsCommon"] = "NO"
+        # Reset/Initialize logic columns
+        if "CommonAcrossSems" not in df.columns:
+            df["CommonAcrossSems"] = False
+        else:
+            df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
+            
+        if "IsCommon" not in df.columns:
+            df["IsCommon"] = "NO"
+        else:
+            df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
 
-        # --- CRITICAL SPLIT LOGIC FIX ---
-        # A subject is an ELECTIVE if:
-        # 1. Category is 'INTD'
-        # OR
-        # 2. It has a value in the 'OE' column (e.g. 'OE-1')
+        # --- SPLIT LOGIC ---
         is_elective_mask = (df["Category"] == "INTD") | (df["OE"] != "")
         
         df_ele = df[is_elective_mask].copy()
@@ -1464,13 +1473,13 @@ def read_timetable(uploaded_file):
             if not d.empty:
                 d["MainBranch"] = d["Program"]
                 d["SubBranch"] = d["Stream"]
-                # Clean up SubBranch if it duplicates MainBranch
                 d.loc[d["SubBranch"] == d["MainBranch"], "SubBranch"] = ""
 
         # Fill missing standard columns
+        # CRITICAL: Added 'Campus' to this list so it is NOT dropped
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
                 "Exam Date", "Time Slot", "Exam Duration", "StudentCount", "ModuleCode", 
-                "CMGroup", "ExamSlotNumber", "Program"]
+                "CMGroup", "ExamSlotNumber", "Program", "CommonAcrossSems", "IsCommon", "Campus"]
         
         for c in cols:
             if c not in df_non.columns: df_non[c] = None
@@ -3937,5 +3946,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
