@@ -1098,33 +1098,25 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     # If no slot fits, return None
     return None
 
-
-def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=2000):
-    st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per session...")
+def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
+    st.info(f"🚀 SCHEDULING with {MAX_STUDENTS_PER_SESSION} students max per CAMPUS per session...")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
     
-    # --- HELPER: Extracts a number from the Semester string for Math ---
-    # e.g., "Sem IV" -> 4, "Year 1" -> 1, "Semester 3" -> 3
+    # Helper to extract integer from raw semester string
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
-        # 1. Try finding Roman Numerals first (Match whole word or end of string)
         romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
         for r_key, r_val in romans.items():
-            # Check for exact match or "Sem IV" format
             if s == r_key or s.endswith(f" {r_key}"):
                 return r_val
-        
-        # 2. Try finding digits (e.g., "Sem 4")
         import re
         digits = re.findall(r'\d+', s)
         if digits:
             return int(digits[0])
-            
-        # 3. Default to 1 if we can't figure it out
         return 1
 
     # Filter eligible subjects
@@ -1137,31 +1129,50 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         st.info("No eligible subjects to schedule")
         return df
     
-    # Capacity Tracking
+    # --- UPDATED CAPACITY TRACKING (PER CAMPUS) ---
+    # Structure: session_capacity[date_str][time_slot][campus_name] = current_count
     session_capacity = {} 
     
-    def get_session_capacity(date_str, time_slot):
-        if date_str not in session_capacity:
-            session_capacity[date_str] = {f"slot_{i}": 0 for i in time_slots_dict.keys()}
-        for slot_num, slot_config in time_slots_dict.items():
-            configured_slot = f"{slot_config['start']} - {slot_config['end']}"
-            if configured_slot == time_slot:
-                return session_capacity[date_str].get(f"slot_{slot_num}", 0)
-        return session_capacity[date_str].get('slot_1', 0)
-    
-    def add_to_session_capacity(date_str, time_slot, student_count):
-        if date_str not in session_capacity:
-            session_capacity[date_str] = {f"slot_{i}": 0 for i in time_slots_dict.keys()}
-        for slot_num, slot_config in time_slots_dict.items():
-            configured_slot = f"{slot_config['start']} - {slot_config['end']}"
-            if configured_slot == time_slot:
-                session_capacity[date_str][f"slot_{slot_num}"] += student_count
-                return
-        session_capacity[date_str]['slot_1'] += student_count
-    
-    def can_fit_in_session(date_str, time_slot, student_count):
-        current_capacity = get_session_capacity(date_str, time_slot)
-        return (current_capacity + student_count) <= MAX_STUDENTS_PER_SESSION
+    def check_campus_capacity(date_str, time_slot, unit_row_indices):
+        """
+        Checks if adding the students from this unit will exceed the limit 
+        for ANY specific campus involved.
+        """
+        # 1. Calculate impact of this unit per campus
+        unit_impact = {}
+        for idx in unit_row_indices:
+            campus_val = df.loc[idx, 'Campus']
+            campus = str(campus_val).strip().upper() if pd.notna(campus_val) else "UNKNOWN"
+            count = df.loc[idx, 'StudentCount']
+            unit_impact[campus] = unit_impact.get(campus, 0) + count
+            
+        # 2. Check against current usage
+        if date_str in session_capacity and time_slot in session_capacity[date_str]:
+            current_slot_usage = session_capacity[date_str][time_slot]
+        else:
+            current_slot_usage = {}
+
+        for campus, required_count in unit_impact.items():
+            current_campus_load = current_slot_usage.get(campus, 0)
+            if (current_campus_load + required_count) > MAX_STUDENTS_PER_SESSION:
+                return False # This campus is full
+        
+        return True # All involved campuses have space
+
+    def add_to_campus_capacity(date_str, time_slot, unit_row_indices):
+        """
+        Updates the capacity tracker for each campus.
+        """
+        if date_str not in session_capacity: session_capacity[date_str] = {}
+        if time_slot not in session_capacity[date_str]: session_capacity[date_str][time_slot] = {}
+        
+        for idx in unit_row_indices:
+            campus_val = df.loc[idx, 'Campus']
+            campus = str(campus_val).strip().upper() if pd.notna(campus_val) else "UNKNOWN"
+            count = df.loc[idx, 'StudentCount']
+            
+            current = session_capacity[date_str][time_slot].get(campus, 0)
+            session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
     # STEP 2: CREATE ATOMIC SUBJECT UNITS
@@ -1236,7 +1247,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     daily_scheduled_branch_sem = {}
     current_date = base_date
     scheduling_day = 0
-    target_days = 35 # Increased slightly
+    target_days = 40 # Increased slightly to ensure coverage
     
     unscheduled_units = atomic_subject_units.copy()
     
@@ -1265,18 +1276,17 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 if raw_slot_num > 0:
                     exam_slot_number = raw_slot_num
                 else:
-                    # --- FIXED LOGIC ---
-                    # We get the raw semester (String), convert it to Int, THEN do math.
                     raw_sem = atomic_unit['unique_semesters_raw'][0] if atomic_unit['unique_semesters_raw'] else "1"
                     numeric_sem = extract_numeric_sem(raw_sem)
-                    
-                    # Now we can safely do the math (int + int)
                     slot_indicator = ((numeric_sem + 1) // 2) % 2
                     exam_slot_number = 1 if slot_indicator == 1 else 2
 
                 time_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
                 
-                if can_fit_in_session(date_str, time_slot, atomic_unit['student_count']):
+                # --- CHECK CAPACITY PER CAMPUS ---
+                if check_campus_capacity(date_str, time_slot, atomic_unit['all_rows']):
+                    
+                    # Commit Schedule
                     for row_idx in atomic_unit['all_rows']:
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot
@@ -1285,7 +1295,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     for branch_sem in atomic_unit['branch_sem_combinations']:
                         daily_scheduled_branch_sem[date_str].add(branch_sem)
                     
-                    add_to_session_capacity(date_str, time_slot, atomic_unit['student_count'])
+                    # Update Capacity
+                    add_to_campus_capacity(date_str, time_slot, atomic_unit['all_rows'])
                     units_to_remove.append(atomic_unit)
         
         for unit in units_to_remove:
@@ -1298,32 +1309,53 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     return df
 
-def validate_capacity_constraints(df_dict, max_capacity=2000):
+
+def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
-    Validate that no session exceeds the maximum student capacity
-    Returns: (is_valid, violations_list)
+    Validates that the number of students per session PER CAMPUS does not exceed max_capacity.
     """
+    if not timetable_data:
+        return True, []
+
+    # Combine all semester dataframes
+    full_df = pd.concat(timetable_data.values(), ignore_index=True)
+    
+    # Filter only scheduled rows
+    scheduled_df = full_df[
+        (full_df['Exam Date'].notna()) & 
+        (full_df['Exam Date'] != "") & 
+        (full_df['Exam Date'] != "Out of Range") &
+        (full_df['Exam Date'] != "Not Scheduled")
+    ].copy()
+
+    if scheduled_df.empty:
+        return True, []
+
+    # Ensure Campus column exists and fill nans
+    if 'Campus' not in scheduled_df.columns:
+        scheduled_df['Campus'] = 'Unknown'
+    
+    scheduled_df['Campus'] = scheduled_df['Campus'].fillna('Unknown').astype(str).str.strip().str.upper()
+    
+    # Group by Date, Slot AND CAMPUS (Key Change)
+    session_counts = scheduled_df.groupby(['Exam Date', 'Time Slot', 'Campus']).agg({
+        'StudentCount': 'sum',
+        'Subject': 'count'
+    }).reset_index()
+
     violations = []
     
-    all_data = pd.concat(df_dict.values(), ignore_index=True)
-    
-    # Group by date and time slot
-    for (date_str, time_slot), group in all_data.groupby(['Exam Date', 'Time Slot']):
-        if pd.isna(date_str) or date_str == "" or date_str == "Out of Range":
-            continue
-        
-        # Calculate total students
-        total_students = group['StudentCount'].fillna(0).sum()
-        
-        if total_students > max_capacity:
+    for _, row in session_counts.iterrows():
+        if row['StudentCount'] > max_capacity:
             violations.append({
-                'date': date_str,
-                'time_slot': time_slot,
-                'student_count': int(total_students),
-                'excess': int(total_students - max_capacity),
-                'subjects_count': len(group)
+                'date': row['Exam Date'],
+                'time_slot': row['Time Slot'],
+                'campus': row['Campus'],
+                'student_count': int(row['StudentCount']),
+                'subjects_count': int(row['Subject']),
+                'excess': int(row['StudentCount'] - max_capacity)
             })
-    
+
     return len(violations) == 0, violations
 
 
@@ -3905,4 +3937,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
