@@ -1099,7 +1099,7 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    st.info(f"🚀 SCHEDULING STRATEGY: Common First -> Fill Gaps with Individual -> Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM Group != 0) First -> Fill Gaps with Individual (CM Group == 0) -> Reserve Last 2 Days for OE")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -1107,14 +1107,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     })
     
     # 1. Define Valid Dates & Reserve Last 2 for OE
-    # Note: get_valid_dates_in_range returns strings like "DD-MM-YYYY"
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     
-    # FIX: Convert strings to datetime objects so we can use .strftime() and math logic later
     all_valid_dates = []
     for d_str in all_valid_strings:
         try:
-            # Parse DD-MM-YYYY string to datetime object
             all_valid_dates.append(datetime.strptime(d_str, "%d-%m-%Y"))
         except ValueError:
             continue
@@ -1127,7 +1124,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         core_valid_dates = all_valid_dates[:-2]
         oe_reserved_dates = all_valid_dates[-2:]
         
-        # Now .strftime() will work because items are datetime objects
         core_start = core_valid_dates[0].strftime('%d-%m')
         core_end = core_valid_dates[-1].strftime('%d-%m')
         oe_1 = oe_reserved_dates[0].strftime('%d-%m')
@@ -1135,7 +1131,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         st.info(f"📅 Core Exams: {core_start} to {core_end} | OE Reserved: {oe_1} & {oe_2}")
 
-    # Helper: Extract Numeric Semester
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
         romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
@@ -1146,16 +1141,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         digits = re.findall(r'\d+', s)
         return int(digits[0]) if digits else 1
 
-    # Filter Eligible Subjects (Core Only)
+    # Filter Eligible Subjects (Core + Departmental Electives)
     eligible_subjects = df[
-        (df['Category'] != 'INTD') & 
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
     
     if eligible_subjects.empty:
         return df
 
-    # --- CAPACITY TRACKING (Per Campus) ---
+    # --- CAPACITY TRACKING ---
     session_capacity = {} 
     
     def check_campus_capacity(date_str, time_slot, unit_row_indices):
@@ -1187,22 +1181,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
-    # STEP 2: PREPARE ATOMIC UNITS
+    # STEP 2: PREPARE ATOMIC UNITS (0 vs Non-0 Logic)
     # ---------------------------------------------------------
     common_units = []
     individual_units = []
     
-    # Check CMGroup column
+    # 1. Clean CM Group for splitting logic
     if 'CMGroup' in eligible_subjects.columns:
-        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
+        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip()
+        # Treat "0", "0.0", "nan" as empty string (Uncommon)
+        eligible_subjects.loc[eligible_subjects['CMGroup_Clean'].isin(["0", "0.0", "nan"]), 'CMGroup_Clean'] = ""
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # Split Data
+    # 2. Split Logic:
+    # df_common: CMGroup is NOT empty (i.e. it was not 0)
+    # df_individual: CMGroup IS empty (i.e. it was 0 or blank)
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # Build Common Units (CM Group)
+    # Build Common Units (Grouped by CM ID)
     if not df_common.empty:
         for cm_id, group in df_common.groupby('CMGroup_Clean'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1216,7 +1214,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             common_units.append(unit)
 
-    # Build Individual Units (Module Code)
+    # Build Individual Units (Grouped by Module Code)
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1234,61 +1232,51 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # STEP 3: SCHEDULING ENGINE (Two-Pass)
     # ---------------------------------------------------------
     
-    # Track which branch-sem is busy on which date
-    # Map: date_str -> set(branch_sem_strings)
     daily_schedule_map = {d.strftime("%d-%m-%Y"): set() for d in core_valid_dates}
     
     def attempt_schedule(unit, unit_list_name):
-        # Determine Slot
         if unit['fixed_slot'] > 0:
             slot_num = int(unit['fixed_slot'])
         else:
-            # Auto-assign slot based on semester parity (Odd=Morning, Even=Afternoon)
             num_sem = extract_numeric_sem(unit['sem_raw'])
             slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
             
         time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
         
         # SCAN DATES FROM START
-        # core_valid_dates contains DATETIME objects, so we format them to strings for the map keys
         for date_obj in core_valid_dates:
             date_str = date_obj.strftime("%d-%m-%Y")
             
-            # 1. Branch Conflict Check
-            # Are any branches in this unit already busy on this day?
+            # Branch Conflict Check
             busy_branches = daily_schedule_map.get(date_str, set())
             if not set(unit['branch_sems']).isdisjoint(busy_branches):
-                continue # Conflict found, try next day
+                continue 
             
-            # 2. Campus Capacity Check
-            # Will this unit overload any campus in this specific slot?
+            # Campus Capacity Check
             if check_campus_capacity(date_str, time_slot_str, unit['indices']):
-                # SUCCESS: Place here
+                # SUCCESS
                 for row_idx in unit['indices']:
                     df.loc[row_idx, 'Exam Date'] = date_str
                     df.loc[row_idx, 'Time Slot'] = time_slot_str
                     df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                 
-                # Mark branches busy
                 if date_str in daily_schedule_map:
                     daily_schedule_map[date_str].update(unit['branch_sems'])
                 else:
                     daily_schedule_map[date_str] = set(unit['branch_sems'])
-                
-                # Update capacity
+                    
                 add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
                 return True
         
         return False
 
-    # PASS 1: Schedule ALL Common Units First
+    # PASS 1: Schedule ALL Common Units
     unscheduled = []
     for unit in common_units:
         if not attempt_schedule(unit, "Common"):
             unscheduled.append(unit)
             
     # PASS 2: Schedule Individual Units (Filling Gaps)
-    # They will naturally fall into the earliest available slots found in Pass 1
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual"):
             unscheduled.append(unit)
@@ -1296,10 +1284,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if unscheduled:
         st.warning(f"⚠️ Could not schedule {len(unscheduled)} subject groups within the Core Date Range.")
     else:
-        st.success("✅ All Core subjects scheduled successfully (Common First > Gaps Filled).")
+        st.success("✅ All Core subjects scheduled successfully.")
 
     return df
-
 
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
@@ -1363,7 +1350,6 @@ def read_timetable(uploaded_file):
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
         # --- CRITICAL FIX: Clean Headers ---
-        # Removes leading/trailing spaces from column names (e.g., "Campus Name " -> "Campus Name")
         df.columns = df.columns.str.strip()
         
         # 1. Map Columns
@@ -1373,10 +1359,7 @@ def read_timetable(uploaded_file):
             "Current Session": "Semester", "Academic Session": "Semester", "Session": "Semester", "Semester": "Semester",
             "Module Description": "SubjectName", "Subject Name": "SubjectName", "Subject Description": "SubjectName",
             "Module Abbreviation": "ModuleCode", "Module Code": "ModuleCode", "Subject Code": "ModuleCode", "Code": "ModuleCode",
-            
-            # Mapped "Campus Name" explicitly
             "Campus Name": "Campus", "Campus": "Campus", "School Name": "Campus", "Location": "Campus",
-            
             "Difficulty Score": "Difficulty", "Difficulty": "Difficulty",
             "Exam Duration": "Exam Duration", "Duration": "Exam Duration",
             "Student count": "StudentCount", "Student Count": "StudentCount", "Enrollment": "StudentCount", "Count": "StudentCount",
@@ -1384,7 +1367,6 @@ def read_timetable(uploaded_file):
             "CMGroup": "CMGroup", "CM_Group": "CMGroup", "Common Module Group": "CMGroup",
             "Exam Slot Number": "ExamSlotNumber", "exam slot number": "ExamSlotNumber",
             "ExamSlotNumber": "ExamSlotNumber", "Exam_Slot_Number": "ExamSlotNumber", "Slot Number": "ExamSlotNumber",
-            # Logic Columns
             "Common across sems": "CommonAcrossSems", "CommonAcrossSems": "CommonAcrossSems",
             "Is Common": "IsCommon", "IsCommon": "IsCommon"
         }
@@ -1404,11 +1386,18 @@ def read_timetable(uploaded_file):
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # 4. Clean CMGroup
+        # 4. Clean CMGroup (STRICT "0" HANDLING)
         if "CMGroup" in df.columns:
-            df["CMGroup"] = df["CMGroup"].astype(str).replace(['nan', 'NaN', '0', '0.0'], '')
+            # Convert to string first to handle numeric 0 vs string "0"
+            df["CMGroup"] = df["CMGroup"].astype(str)
+            
+            # Normalize "0.0" -> "0"
             df["CMGroup"] = df["CMGroup"].apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
-            df.loc[df["CMGroup"] == "0", "CMGroup"] = ""
+            
+            # IMPLEMENTING RULE: 0 means "Uncommon" (Empty String)
+            # Replace "0", "nan", "NaN" with empty string. 
+            # Any other value (e.g. "1", "10", "A") is kept as a Group ID.
+            df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
 
@@ -1454,10 +1443,10 @@ def read_timetable(uploaded_file):
             df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
 
         # --- SPLIT LOGIC ---
-        is_elective_mask = (df["Category"] == "INTD") | (df["OE"] != "")
+        is_true_oe_mask = (df["OE"] != "")
         
-        df_ele = df[is_elective_mask].copy()
-        df_non = df[~is_elective_mask].copy()
+        df_ele = df[is_true_oe_mask].copy()
+        df_non = df[~is_true_oe_mask].copy()
 
         # Use raw Program/Stream for Main/Sub branch
         for d in [df_non, df_ele]:
@@ -1466,8 +1455,6 @@ def read_timetable(uploaded_file):
                 d["SubBranch"] = d["Stream"]
                 d.loc[d["SubBranch"] == d["MainBranch"], "SubBranch"] = ""
 
-        # Fill missing standard columns
-        # CRITICAL: Added 'Campus' to this list so it is NOT dropped
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
                 "Exam Date", "Time Slot", "Exam Duration", "StudentCount", "ModuleCode", 
                 "CMGroup", "ExamSlotNumber", "Program", "CommonAcrossSems", "IsCommon", "Campus"]
@@ -3755,6 +3742,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
