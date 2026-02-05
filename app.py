@@ -1109,6 +1109,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # 1. Define Valid Dates & Reserve Last 2 for OE
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     
+    # Convert strings to datetime objects
     all_valid_dates = []
     for d_str in all_valid_strings:
         try:
@@ -1141,7 +1142,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         digits = re.findall(r'\d+', s)
         return int(digits[0]) if digits else 1
 
-    # Filter Eligible Subjects (Core + Departmental Electives)
+    # Filter Eligible Subjects
+    # Strict Filter: Exclude ONLY items that actually have an OE tag.
+    # Everything else (including Category='INTD' with empty OE) is processed here.
     eligible_subjects = df[
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
@@ -1215,6 +1218,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             common_units.append(unit)
 
     # Build Individual Units (Grouped by Module Code)
+    # This now receives all Departmental Electives (OE='') that were previously skipped
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1349,7 +1353,7 @@ def read_timetable(uploaded_file):
 
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
-        # --- CRITICAL FIX: Clean Headers ---
+        # --- Clean Headers ---
         df.columns = df.columns.str.strip()
         
         # 1. Map Columns
@@ -1390,13 +1394,9 @@ def read_timetable(uploaded_file):
         if "CMGroup" in df.columns:
             # Convert to string first to handle numeric 0 vs string "0"
             df["CMGroup"] = df["CMGroup"].astype(str)
-            
             # Normalize "0.0" -> "0"
             df["CMGroup"] = df["CMGroup"].apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
-            
             # IMPLEMENTING RULE: 0 means "Uncommon" (Empty String)
-            # Replace "0", "nan", "NaN" with empty string. 
-            # Any other value (e.g. "1", "10", "A") is kept as a Group ID.
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
@@ -1429,6 +1429,7 @@ def read_timetable(uploaded_file):
         if "OE" not in df.columns: 
             df["OE"] = ""
         else: 
+            # Ensure it's a clean string
             df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
         # Reset/Initialize logic columns
@@ -1442,7 +1443,9 @@ def read_timetable(uploaded_file):
         else:
             df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
 
-        # --- SPLIT LOGIC ---
+        # --- UPDATED SPLIT LOGIC (STRICT OE CHECK) ---
+        # ONLY split if "OE" column has a value.
+        # Ignore "Category" completely for classification.
         is_true_oe_mask = (df["OE"] != "")
         
         df_ele = df[is_true_oe_mask].copy()
@@ -3742,6 +3745,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
