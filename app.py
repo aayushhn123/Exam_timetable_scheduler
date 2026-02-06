@@ -995,26 +995,16 @@ def get_friendly_error_message(e):
 
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
-    Get all valid examination dates within the specified range.
-    Excludes weekends (Sundays) and holidays.
-    
-    Args:
-        start_date (datetime): Start date for examinations
-        end_date (datetime): End date for examinations
-        holidays_set (set): Set of holiday dates
-    
-    Returns:
-        list: List of valid date strings in DD-MM-YYYY format
+    Returns a list of date strings (DD-MM-YYYY) in the range,
+    strictly EXCLUDING Sundays and holidays.
     """
     valid_dates = []
     current_date = start_date
-    
     while current_date <= end_date:
-        # Skip Sundays (weekday 6) and holidays
+        # Check: Not a Sunday (6) AND Not in Holiday Set
         if current_date.weekday() != 6 and current_date.date() not in holidays_set:
             valid_dates.append(current_date.strftime("%d-%m-%Y"))
         current_date += timedelta(days=1)
-    
     return valid_dates
 
 def find_next_valid_day_in_range(start_date, end_date, holidays_set):
@@ -1112,7 +1102,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     all_valid_dates = []
     for d_str in all_valid_strings:
         try:
-            all_valid_dates.append(datetime.strptime(d_str, "%d-%m-%Y"))
+            d_obj = datetime.strptime(d_str, "%d-%m-%Y")
+            # DOUBLE SAFETY CHECK: Strictly skip Sundays and Holidays
+            if d_obj.weekday() != 6 and d_obj.date() not in holidays:
+                all_valid_dates.append(d_obj)
         except ValueError:
             continue
 
@@ -1127,8 +1120,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         core_start = core_valid_dates[0].strftime('%d-%m')
         core_end = core_valid_dates[-1].strftime('%d-%m')
-        oe_1 = oe_reserved_dates[0].strftime('%d-%m')
-        oe_2 = oe_reserved_dates[1].strftime('%d-%m')
+        oe_1 = oe_reserved_dates[0].strftime('%d-%m') if oe_reserved_dates else "N/A"
+        oe_2 = oe_reserved_dates[1].strftime('%d-%m') if len(oe_reserved_dates) > 1 else "N/A"
         
         st.info(f"📅 Core Exams: {core_start} to {core_end} | OE Reserved: {oe_1} & {oe_2}")
 
@@ -1226,55 +1219,42 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             individual_units.append(unit)
 
     # OPTIMIZATION: Sort Individual Units by Frequency/Size
-    # This ensures large common-but-not-CM-grouped subjects (like Strategic Management) 
-    # get placed first, reducing fragmentation.
     individual_units.sort(key=lambda x: x['student_count'], reverse=True)
 
     # ---------------------------------------------------------
-    # STEP 3: SCHEDULING ENGINE (Three-Pass)
+    # STEP 3: SCHEDULING ENGINE
     # ---------------------------------------------------------
-    
-    # Track which branch-sem is busy on which date to prevent Double Booking
     daily_schedule_map = {} 
-    
-    # Initialize map for all valid dates (Core + OE)
     for d in all_valid_dates:
         daily_schedule_map[d.strftime("%d-%m-%Y")] = set()
     
     def attempt_schedule(unit, unit_list_name, allowed_dates):
-        # 1. Determine Preferred Slot
         if unit['fixed_slot'] > 0:
             preferred_slot_num = int(unit['fixed_slot'])
         else:
             num_sem = extract_numeric_sem(unit['sem_raw'])
             preferred_slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
             
-        # 2. Define Slots to Try (Preferred First, then Alternate)
-        # This fixes Capacity Overload by allowing flexibility if the preferred slot is full
         slots_to_try = [preferred_slot_num]
-        
-        # Calculate alternate slot
         available_slots = sorted(time_slots_dict.keys())
         for s in available_slots:
             if s != preferred_slot_num:
                 slots_to_try.append(s)
         
-        # 3. Scan Dates
         for date_obj in allowed_dates:
             date_str = date_obj.strftime("%d-%m-%Y")
             
-            # A. Branch Conflict Check (Hard Constraint)
-            # Cannot have ANY exam on this day if already busy, regardless of slot
+            # Branch Conflict Check
             busy_branches = daily_schedule_map.get(date_str, set())
             if not set(unit['branch_sems']).isdisjoint(busy_branches):
-                continue # Conflict found, try next day
+                continue
             
-            # B. Slot Check (Capacity)
+            # Capacity Check
             for slot_num in slots_to_try:
                 time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                 
                 if check_campus_capacity(date_str, time_slot_str, unit['indices']):
-                    # SUCCESS: Place here
+                    # SUCCESS
                     for row_idx in unit['indices']:
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot_str
@@ -1288,36 +1268,32 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1: Schedule Common Units (Core Dates Only)
+    # PASS 1 & 2: Core Dates
     unscheduled = []
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # PASS 2: Schedule Individual Units (Core Dates Only)
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
 
-    # PASS 3: Emergency Fallback (OE Dates)
-    # If subjects are still unscheduled (due to packed Core dates), try the reserved OE dates.
-    # This prevents them from being dropped completely.
+    # PASS 3: Fallback to OE Dates
     if unscheduled:
         st.info(f"⚠️ {len(unscheduled)} groups could not fit in Core Dates. Attempting to fit in OE Reserved Dates...")
         final_failed = []
         for unit in unscheduled:
-            # Try to schedule on OE Reserved Dates
             if not attempt_schedule(unit, "Emergency", oe_reserved_dates):
                 final_failed.append(unit)
         unscheduled = final_failed
 
     if unscheduled:
-        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups even after utilizing OE dates.")
+        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups.")
     else:
         st.success("✅ All Core subjects scheduled successfully.")
 
     return df
-
+    
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
     Validates that the number of students per session PER CAMPUS does not exceed max_capacity.
@@ -2674,10 +2650,10 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 
 def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
-    Attempts to move exams from the end of the schedule to earlier 'gaps' (empty slots),
-    STRICTLY respecting Campus Capacity Constraints and SKIPPING only CM Groups.
+    Attempts to move exams from the end of the schedule to earlier 'gaps',
+    STRICTLY respecting Campus Capacity Constraints and SKIPPING Sundays/Holidays.
     """
-    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
+    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & Safe Mode)...")
     
     moves_made = 0
     optimization_log = []
@@ -2685,7 +2661,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     # Get capacity limit from session state
     MAX_CAPACITY = st.session_state.get('capacity_slider', 1250)
     
-    # Pre-calculate campus loads for all currently scheduled slots
+    # Pre-calculate campus loads
     schedule_load_map = {}
     
     def refresh_load_map():
@@ -2704,7 +2680,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 if d not in schedule_load_map: schedule_load_map[d] = {}
                 if t not in schedule_load_map[d]: schedule_load_map[d][t] = {}
-                
                 schedule_load_map[d][t][c] = schedule_load_map[d][t].get(c, 0) + cnt
 
     # Initial build
@@ -2718,18 +2693,13 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             
         sem_start = min(scheduled_dates)
         
-        # Identify subjects that can be moved
-        # CRITICAL UPDATE: Only skip if CMGroup is present. 
-        # Removed filters for IsCommon/CommonAcrossSems as requested.
-        
-        # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
+        # Only move non-CM, non-OE subjects
         cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
         
         candidates = df[
             (df['Exam Date'].notna()) & 
-            (df['Category'] != 'INTD') & 
             (df['OE'].isna() | (df['OE'] == "")) &
-            (cm_col == "") & # Only move subjects that do NOT have a CM Group
+            (cm_col == "") & 
             (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start)
         ].sort_values('Exam Date', ascending=False)
         
@@ -2742,12 +2712,12 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             while check_date < current_date_obj:
                 check_date_str = check_date.strftime("%d-%m-%Y")
                 
-                # SKIP if check_date is a holiday
-                if check_date.date() in holidays:
+                # SKIP if check_date is a Holiday OR SUNDAY (weekday==6)
+                if check_date.date() in holidays or check_date.weekday() == 6:
                     check_date += timedelta(days=1)
                     continue
 
-                # Check student conflict (Same Branch Same Day)
+                # Check student conflict
                 sub_branch = subject['SubBranch']
                 busy_on_date = df[
                     (df['Exam Date'] == check_date_str) & 
@@ -2755,7 +2725,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 ]
                 
                 if busy_on_date.empty:
-                    # Check CAPACITY Constraints per Campus
+                    # Check CAPACITY
                     target_time_slot = subject['Time Slot']
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
                     student_count = int(subject.get('StudentCount', 0))
@@ -2764,10 +2734,10 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     
                     if (current_load + student_count) <= MAX_CAPACITY:
                         # VALID MOVE!
-                        # 1. Update DataFrame
+                        # Update DataFrame
                         sem_dict[sem].at[idx, 'Exam Date'] = check_date_str
                         
-                        # 2. Update Load Map
+                        # Update Load Map
                         old_load = schedule_load_map[current_date_str][target_time_slot][campus]
                         schedule_load_map[current_date_str][target_time_slot][campus] = old_load - student_count
                         
@@ -3771,6 +3741,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
