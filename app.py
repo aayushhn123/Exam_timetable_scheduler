@@ -1099,7 +1099,7 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM Group != 0) First -> Fill Gaps with Individual (CM Group == 0) -> Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> Reserve Last 2 Days for OE")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -1109,7 +1109,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # 1. Define Valid Dates & Reserve Last 2 for OE
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     
-    # Convert strings to datetime objects
     all_valid_dates = []
     for d_str in all_valid_strings:
         try:
@@ -1120,6 +1119,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if len(all_valid_dates) < 3:
         st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed.")
         core_valid_dates = all_valid_dates
+        oe_reserved_dates = []
     else:
         # Reserve last 2 days for OE
         core_valid_dates = all_valid_dates[:-2]
@@ -1143,8 +1143,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return int(digits[0]) if digits else 1
 
     # Filter Eligible Subjects
-    # Strict Filter: Exclude ONLY items that actually have an OE tag.
-    # Everything else (including Category='INTD' with empty OE) is processed here.
     eligible_subjects = df[
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
@@ -1184,26 +1182,20 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
-    # STEP 2: PREPARE ATOMIC UNITS (0 vs Non-0 Logic)
+    # STEP 2: PREPARE ATOMIC UNITS
     # ---------------------------------------------------------
     common_units = []
     individual_units = []
     
-    # 1. Clean CM Group for splitting logic
     if 'CMGroup' in eligible_subjects.columns:
-        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip()
-        # Treat "0", "0.0", "nan" as empty string (Uncommon)
-        eligible_subjects.loc[eligible_subjects['CMGroup_Clean'].isin(["0", "0.0", "nan"]), 'CMGroup_Clean'] = ""
+        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # 2. Split Logic:
-    # df_common: CMGroup is NOT empty (i.e. it was not 0)
-    # df_individual: CMGroup IS empty (i.e. it was 0 or blank)
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # Build Common Units (Grouped by CM ID)
+    # Build Common Units
     if not df_common.empty:
         for cm_id, group in df_common.groupby('CMGroup_Clean'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1213,12 +1205,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             unit = {
                 'type': 'COMMON', 'id': f"CM_{cm_id}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
-                'sem_raw': group['Semester'].iloc[0]
+                'sem_raw': group['Semester'].iloc[0],
+                'student_count': group['StudentCount'].sum()
             }
             common_units.append(unit)
 
-    # Build Individual Units (Grouped by Module Code)
-    # This now receives all Departmental Electives (OE='') that were previously skipped
+    # Build Individual Units
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1228,65 +1220,99 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             unit = {
                 'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
-                'sem_raw': group['Semester'].iloc[0]
+                'sem_raw': group['Semester'].iloc[0],
+                'student_count': group['StudentCount'].sum()
             }
             individual_units.append(unit)
 
+    # OPTIMIZATION: Sort Individual Units by Frequency/Size
+    # This ensures large common-but-not-CM-grouped subjects (like Strategic Management) 
+    # get placed first, reducing fragmentation.
+    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
+
     # ---------------------------------------------------------
-    # STEP 3: SCHEDULING ENGINE (Two-Pass)
+    # STEP 3: SCHEDULING ENGINE (Three-Pass)
     # ---------------------------------------------------------
     
-    daily_schedule_map = {d.strftime("%d-%m-%Y"): set() for d in core_valid_dates}
+    # Track which branch-sem is busy on which date to prevent Double Booking
+    daily_schedule_map = {} 
     
-    def attempt_schedule(unit, unit_list_name):
+    # Initialize map for all valid dates (Core + OE)
+    for d in all_valid_dates:
+        daily_schedule_map[d.strftime("%d-%m-%Y")] = set()
+    
+    def attempt_schedule(unit, unit_list_name, allowed_dates):
+        # 1. Determine Preferred Slot
         if unit['fixed_slot'] > 0:
-            slot_num = int(unit['fixed_slot'])
+            preferred_slot_num = int(unit['fixed_slot'])
         else:
             num_sem = extract_numeric_sem(unit['sem_raw'])
-            slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
+            preferred_slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
             
-        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+        # 2. Define Slots to Try (Preferred First, then Alternate)
+        # This fixes Capacity Overload by allowing flexibility if the preferred slot is full
+        slots_to_try = [preferred_slot_num]
         
-        # SCAN DATES FROM START
-        for date_obj in core_valid_dates:
+        # Calculate alternate slot
+        available_slots = sorted(time_slots_dict.keys())
+        for s in available_slots:
+            if s != preferred_slot_num:
+                slots_to_try.append(s)
+        
+        # 3. Scan Dates
+        for date_obj in allowed_dates:
             date_str = date_obj.strftime("%d-%m-%Y")
             
-            # Branch Conflict Check
+            # A. Branch Conflict Check (Hard Constraint)
+            # Cannot have ANY exam on this day if already busy, regardless of slot
             busy_branches = daily_schedule_map.get(date_str, set())
             if not set(unit['branch_sems']).isdisjoint(busy_branches):
-                continue 
+                continue # Conflict found, try next day
             
-            # Campus Capacity Check
-            if check_campus_capacity(date_str, time_slot_str, unit['indices']):
-                # SUCCESS
-                for row_idx in unit['indices']:
-                    df.loc[row_idx, 'Exam Date'] = date_str
-                    df.loc[row_idx, 'Time Slot'] = time_slot_str
-                    df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+            # B. Slot Check (Capacity)
+            for slot_num in slots_to_try:
+                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                 
-                if date_str in daily_schedule_map:
-                    daily_schedule_map[date_str].update(unit['branch_sems'])
-                else:
-                    daily_schedule_map[date_str] = set(unit['branch_sems'])
+                if check_campus_capacity(date_str, time_slot_str, unit['indices']):
+                    # SUCCESS: Place here
+                    for row_idx in unit['indices']:
+                        df.loc[row_idx, 'Exam Date'] = date_str
+                        df.loc[row_idx, 'Time Slot'] = time_slot_str
+                        df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                     
-                add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                return True
+                    if date_str in daily_schedule_map:
+                        daily_schedule_map[date_str].update(unit['branch_sems'])
+                        
+                    add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                    return True
         
         return False
 
-    # PASS 1: Schedule ALL Common Units
+    # PASS 1: Schedule Common Units (Core Dates Only)
     unscheduled = []
     for unit in common_units:
-        if not attempt_schedule(unit, "Common"):
+        if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # PASS 2: Schedule Individual Units (Filling Gaps)
+    # PASS 2: Schedule Individual Units (Core Dates Only)
     for unit in individual_units:
-        if not attempt_schedule(unit, "Individual"):
+        if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
 
+    # PASS 3: Emergency Fallback (OE Dates)
+    # If subjects are still unscheduled (due to packed Core dates), try the reserved OE dates.
+    # This prevents them from being dropped completely.
     if unscheduled:
-        st.warning(f"⚠️ Could not schedule {len(unscheduled)} subject groups within the Core Date Range.")
+        st.info(f"⚠️ {len(unscheduled)} groups could not fit in Core Dates. Attempting to fit in OE Reserved Dates...")
+        final_failed = []
+        for unit in unscheduled:
+            # Try to schedule on OE Reserved Dates
+            if not attempt_schedule(unit, "Emergency", oe_reserved_dates):
+                final_failed.append(unit)
+        unscheduled = final_failed
+
+    if unscheduled:
+        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups even after utilizing OE dates.")
     else:
         st.success("✅ All Core subjects scheduled successfully.")
 
@@ -3745,6 +3771,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
