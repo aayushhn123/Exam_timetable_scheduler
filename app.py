@@ -1089,7 +1089,7 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> STRICTLY Reserve Last 2 Days for OE")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -1110,7 +1110,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             continue
 
     if len(all_valid_dates) < 3:
-        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed.")
+        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed (No Reservation).")
         core_valid_dates = all_valid_dates
         oe_reserved_dates = []
     else:
@@ -1120,10 +1120,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         core_start = core_valid_dates[0].strftime('%d-%m')
         core_end = core_valid_dates[-1].strftime('%d-%m')
-        oe_1 = oe_reserved_dates[0].strftime('%d-%m') if oe_reserved_dates else "N/A"
-        oe_2 = oe_reserved_dates[1].strftime('%d-%m') if len(oe_reserved_dates) > 1 else "N/A"
+        oe_1 = oe_reserved_dates[0].strftime('%d-%m')
+        oe_2 = oe_reserved_dates[1].strftime('%d-%m')
         
-        st.info(f"📅 Core Exams: {core_start} to {core_end} | OE Reserved: {oe_1} & {oe_2}")
+        st.success(f"🔒 RESERVATION ENFORCED: Core Exams [{core_start} to {core_end}] | OE ONLY [{oe_1} & {oe_2}]")
 
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
@@ -1225,6 +1225,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # STEP 3: SCHEDULING ENGINE
     # ---------------------------------------------------------
     daily_schedule_map = {} 
+    # Only initialize map for ALL valid dates (to track conflicts if we did have overlap, but we stick to core)
     for d in all_valid_dates:
         daily_schedule_map[d.strftime("%d-%m-%Y")] = set()
     
@@ -1268,7 +1269,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1 & 2: Core Dates
+    # PASS 1 & 2: Core Dates ONLY
+    # We strictly pass 'core_valid_dates' to ensure NO scheduling happens on OE reserved days.
     unscheduled = []
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
@@ -1278,17 +1280,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
 
-    # PASS 3: Fallback to OE Dates
-    if unscheduled:
-        st.info(f"⚠️ {len(unscheduled)} groups could not fit in Core Dates. Attempting to fit in OE Reserved Dates...")
-        final_failed = []
-        for unit in unscheduled:
-            if not attempt_schedule(unit, "Emergency", oe_reserved_dates):
-                final_failed.append(unit)
-        unscheduled = final_failed
+    # REMOVED PASS 3 (Emergency Fallback to OE) 
+    # to strictly satisfy: "on the days of OE no exam should be scheduled other than OE"
 
     if unscheduled:
-        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups.")
+        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups within the Core Date Range (OE Days Reserved).")
+        # Display the specific failures to help user debug
+        with st.expander("Show Unscheduled Groups"):
+            for u in unscheduled:
+                st.write(f"ID: {u['id']}, Students: {u['student_count']}")
     else:
         st.success("✅ All Core subjects scheduled successfully.")
 
@@ -3741,6 +3741,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
