@@ -3038,11 +3038,11 @@ def main():
     
         col1, col2 = st.columns(2)
         with col1:
-            base_date = st.date_input("📆 Start Date", value=datetime(2025, 4, 1))
+            base_date = st.date_input("📆 Start Date", value=datetime(2026, 5, 2))
             base_date = datetime.combine(base_date, datetime.min.time())
     
         with col2:
-            end_date = st.date_input("📆 End Date", value=datetime(2025, 5, 30))
+            end_date = st.date_input("📆 End Date", value=datetime(2026, 5, 16))
             end_date = datetime.combine(end_date, datetime.min.time())
 
         # Validate date range
@@ -3887,6 +3887,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
