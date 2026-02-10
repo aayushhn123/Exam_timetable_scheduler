@@ -1888,120 +1888,266 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
         
-def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
-    #st.write("🔄 Starting PDF generation process...")
-    
-    temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
-    
-    #st.write("📊 Generating Excel file first...")
-    excel_data = save_to_excel(semester_wise_timetable)
-    
-    if excel_data:
-        #st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
-        try:
-            with open(temp_excel, "wb") as f:
-                f.write(excel_data.getvalue())
-            #st.write("✅ Temporary Excel file saved successfully")
-            
-            # Verify the Excel file was created and has content
-            if os.path.exists(temp_excel):
-                file_size = os.path.getsize(temp_excel)
-                #st.write(f"📋 Excel file size: {file_size} bytes")
-                
-                # Read back and verify sheets
-                try:
-                    test_sheets = pd.read_excel(temp_excel, sheet_name=None)
-                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
-                    
-                    # Show structure of first few sheets
-                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
-                        if i < 3:  # Only show first 3 sheets
-                            pass
-                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
-                            
-                except Exception as e:
-                    st.error(f"❌ Error reading back Excel file for verification: {e}")
-            else:
-                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
-                return
-            
-        except Exception as e:
-            st.error(f"❌ Error saving temporary Excel file: {e}")
-            return
-            
-        #st.write("🎨 Converting Excel to PDF...")
-        try:
-            convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date)
-            #st.write("✅ PDF conversion completed")
-        except Exception as e:
-            st.error(f"❌ Error during Excel to PDF conversion: {e}")
-            import traceback
-            st.error(f"Traceback: {traceback.format_exc()}")
-            return
-        
-        # Clean up temporary file
-        try:
-            if os.path.exists(temp_excel):
-                os.remove(temp_excel)
-                #st.write("🗑️ Temporary Excel file cleaned up")
-        except Exception as e:
-            st.warning(f"⚠️ Could not remove temporary file: {e}")
-    else:
-        st.error("❌ No Excel data generated - cannot create PDF")
-        return
-    
-    # Post-process PDF to remove blank pages
-    #st.write("🔧 Post-processing PDF to remove blank pages...")
+
+def generate_pdf_timetable(sem_dict, output_path="timetable.pdf", declaration_date=None):
     try:
-        if not os.path.exists(output_pdf):
-            st.error(f"❌ PDF file was not created at {output_pdf}")
-            return
+        if not sem_dict:
+            return None
+
+        # Custom PDF Class for Headers/Footers
+        class PDF(FPDF):
+            def __init__(self, orientation='L', unit='mm', format='A4'):
+                super().__init__(orientation, unit, format)
+                self.college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
             
-        reader = PdfReader(output_pdf)
-        writer = PdfWriter()
-        page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
+            def header(self):
+                # We handle headers manually in the body to allow dynamic semester-based headers
+                pass
+
+            def footer(self):
+                self.set_y(-15)
+                self.set_font('Arial', 'I', 8)
+                self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', 0, 0, 'C')
+
+        pdf = PDF(orientation='L', unit='mm', format='A4')
+        pdf.alias_nb_pages()
         
-        original_pages = len(reader.pages)
-        #st.write(f"📄 Original PDF has {original_pages} pages")
-        
-        pages_kept = 0
-        for page_num in range(len(reader.pages)):
-            page = reader.pages[page_num]
+        # Sort semesters logically (I, II, III... or 1, 2, 3...)
+        def sem_sorter(x):
             try:
-                text = page.extract_text() if page else ""
+                return int(re.findall(r'\d+', str(x))[0])
             except:
-                text = ""
-            cleaned_text = text.strip() if text else ""
-            is_blank_or_page_number = (
-                    not cleaned_text or
-                    page_number_pattern.match(cleaned_text) or
-                    len(cleaned_text) <= 10
-            )
-            if not is_blank_or_page_number:
-                writer.add_page(page)
-                pages_kept += 1
-                
-        #st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
+                return 0
         
-        if len(writer.pages) > 0:
-            with open(output_pdf, 'wb') as output_file:
-                writer.write(output_file)
-            st.success(f"✅ PDF post-processing completed - final PDF has {len(writer.pages)} pages")
-        else:
-            st.warning("⚠️ All pages were filtered out - keeping original PDF")
+        sorted_semesters = sorted(sem_dict.keys(), key=sem_sorter)
+
+        for sem in sorted_semesters:
+            df_sem = sem_dict[sem]
+            if df_sem.empty:
+                continue
+
+            # -----------------------------------------------------------
+            # DYNAMIC TIME HEADER LOGIC (THE FIX)
+            # -----------------------------------------------------------
+            # Instead of a fixed logic, we extract the MOST FREQUENT time slot 
+            # assigned to this semester from the scheduled data.
+            # This ensures it matches the Verification File exactly.
+            header_time_str = "10:00 AM - 01:00 PM" # Default
             
-    except Exception as e:
-        st.error(f"❌ Error during PDF post-processing: {str(e)}")
-        import traceback
-        st.error(f"Traceback: {traceback.format_exc()}")
+            try:
+                # Filter for valid time slots (containing " - " or "AM/PM")
+                valid_slots = df_sem[
+                    df_sem['Time Slot'].astype(str).str.contains('-', na=False)
+                ]['Time Slot']
+                
+                if not valid_slots.empty:
+                    # Get the mode (most common time slot)
+                    header_time_str = valid_slots.mode().iloc[0]
+            except Exception:
+                # Fallback to User's Alternating Logic if data is missing
+                # Sem 2, 6, 10 -> Morning (10-1)
+                # Sem 4, 8, 12 -> Afternoon (2-5)
+                try:
+                    sem_num = int(re.findall(r'\d+', str(sem))[0])
+                    if (sem_num // 2) % 2 == 0: # 4, 8, 12
+                        header_time_str = "02:00 PM - 05:00 PM"
+                    else: # 2, 6, 10 (and usually 1, 3, 5)
+                        header_time_str = "10:00 AM - 01:00 PM"
+                except:
+                    pass
+
+            # Group by Main Branch (Program)
+            # Each Program-Semester combination gets a page
+            for main_branch in df_sem['MainBranch'].unique():
+                pdf.add_page()
+                
+                # --- HEADER SECTION ---
+                pdf.set_font('Arial', 'B', 16)
+                pdf.cell(0, 8, st.session_state.get('selected_college', "SVKM's NMIMS University"), 0, 1, 'C')
+                
+                pdf.set_font('Arial', 'B', 12)
+                school_name = str(df_sem['Campus'].iloc[0]) if 'Campus' in df_sem.columns and not pd.isna(df_sem['Campus'].iloc[0]) else "School of Technology Management & Engineering"
+                pdf.cell(0, 7, school_name, 0, 1, 'C')
+                
+                pdf.set_font('Arial', 'B', 11)
+                pdf.cell(0, 6, f"Term End Examination {st.session_state.get('exam_period_name', '')}", 0, 1, 'C')
+                
+                # Dynamic Sub-Header Info
+                program_name = str(main_branch)
+                # Clean up program name if needed
+                pdf.cell(0, 6, f"Programme: {program_name}", 0, 1, 'C')
+                pdf.cell(0, 6, f"Semester: {sem}", 0, 1, 'C')
+                
+                # Timings and Declaration Date Row
+                pdf.ln(2)
+                pdf.set_font('Arial', 'B', 10)
+                
+                # Left Side: Time (Using the Dynamic Fix)
+                pdf.cell(100, 6, f"Time: {header_time_str}", 0, 0, 'L')
+                
+                # Right Side: Declaration Date
+                if declaration_date:
+                    date_str = declaration_date.strftime("%d %B %Y")
+                    pdf.cell(0, 6, f"Date: {date_str}", 0, 1, 'R')
+                else:
+                    pdf.ln(6)
+                
+                pdf.ln(4)
+
+                # --- TABLE SETUP ---
+                # Get data for this specific Main Branch & Semester
+                branch_data = df_sem[df_sem['MainBranch'] == main_branch].copy()
+                
+                # Sort by Date
+                branch_data['DateObj'] = pd.to_datetime(branch_data['Exam Date'], format="%d-%m-%Y", errors='coerce')
+                branch_data = branch_data.sort_values('DateObj')
+                
+                # Define Columns: Date, Day | Stream1 | Stream2 | ...
+                # Get unique sub-branches (Streams)
+                sub_branches = sorted([sb for sb in branch_data['SubBranch'].unique() if pd.notna(sb) and str(sb).strip() != ""])
+                
+                # If no sub-branches (common program), treat as single column
+                if not sub_branches:
+                    sub_branches = ["Subject"]
+
+                # Calculate Column Widths
+                # Date: 25, Day: 25, Remaining divided by sub-branches
+                page_width = pdf.w - 20 # 10mm margin L/R
+                date_w = 25
+                day_w = 20
+                remaining_w = page_width - date_w - day_w
+                
+                # Limit max columns to avoid squishing
+                max_cols_per_page = 6
+                
+                # Chunk sub-branches if too many
+                sub_branch_chunks = [sub_branches[i:i + max_cols_per_page] for i in range(0, len(sub_branches), max_cols_per_page)]
+                
+                for chunk_idx, current_sub_branches in enumerate(sub_branch_chunks):
+                    if chunk_idx > 0:
+                        pdf.add_page()
+                        # Repeat simplified header
+                        pdf.set_font('Arial', 'B', 12)
+                        pdf.cell(0, 6, f"{program_name} - Semester {sem} (Contd.)", 0, 1, 'C')
+                        pdf.ln(5)
+
+                    col_w = remaining_w / len(current_sub_branches)
+                    
+                    # Table Header
+                    pdf.set_fill_color(240, 240, 240)
+                    pdf.set_font('Arial', 'B', 9)
+                    
+                    pdf.cell(date_w, 8, "Date", 1, 0, 'C', True)
+                    pdf.cell(day_w, 8, "Day", 1, 0, 'C', True)
+                    
+                    for sb in current_sub_branches:
+                        # Clean header name
+                        header_name = sb if sb != "Subject" else "Subject Name"
+                        # Truncate if too long
+                        if len(header_name) > 20:
+                            header_name = header_name[:18] + ".."
+                        pdf.cell(col_w, 8, header_name, 1, 0, 'C', True)
+                    pdf.ln()
+                    
+                    # Table Body
+                    pdf.set_font('Arial', '', 8)
+                    
+                    # Group by Date
+                    dates = sorted(branch_data['DateObj'].dropna().unique())
+                    
+                    for d_obj in dates:
+                        d_str = d_obj.strftime("%d-%m-%Y")
+                        day_str = d_obj.strftime("%A")
+                        
+                        # Row height calculation based on max text wrapping
+                        row_h = 10
+                        max_lines = 1
+                        
+                        # Prepare row data
+                        row_texts = [d_str, day_str]
+                        
+                        for sb in current_sub_branches:
+                            # Get subject for this date & sub-branch
+                            if sb == "Subject":
+                                subj_row = branch_data[branch_data['Exam Date'] == d_str]
+                            else:
+                                subj_row = branch_data[
+                                    (branch_data['Exam Date'] == d_str) & 
+                                    (branch_data['SubBranch'] == sb)
+                                ]
+                            
+                            if not subj_row.empty:
+                                subj_name = str(subj_row['SubjectName'].iloc[0])
+                                oe_val = str(subj_row['OE'].iloc[0]) if 'OE' in subj_row.columns and pd.notna(subj_row['OE'].iloc[0]) and str(subj_row['OE'].iloc[0]).strip() != "" else ""
+                                
+                                display_text = subj_name
+                                if oe_val:
+                                    display_text += f" ({oe_val})"
+                                
+                                # Check line wrapping
+                                lines = pdf.get_string_width(display_text) / (col_w - 2)
+                                max_lines = max(max_lines, int(lines) + 1)
+                                row_texts.append(display_text)
+                            else:
+                                row_texts.append("-")
+                        
+                        final_h = row_h * max_lines
+                        
+                        # Draw Cells
+                        x = pdf.get_x()
+                        y = pdf.get_y()
+                        
+                        # Check page break
+                        if y + final_h > pdf.h - 15:
+                            pdf.add_page()
+                            # Redraw header
+                            pdf.set_font('Arial', 'B', 9)
+                            pdf.cell(date_w, 8, "Date", 1, 0, 'C', True)
+                            pdf.cell(day_w, 8, "Day", 1, 0, 'C', True)
+                            for sb in current_sub_branches:
+                                header_name = sb if sb != "Subject" else "Subject Name"
+                                if len(header_name) > 20: header_name = header_name[:18] + ".."
+                                pdf.cell(col_w, 8, header_name, 1, 0, 'C', True)
+                            pdf.ln()
+                            y = pdf.get_y()
+                            pdf.set_font('Arial', '', 8)
+
+                        # Draw Date & Day
+                        pdf.rect(x, y, date_w, final_h)
+                        pdf.multi_cell(date_w, final_h if max_lines == 1 else final_h/2, row_texts[0], 0, 'C')
+                        pdf.set_xy(x + date_w, y)
+                        
+                        pdf.rect(x + date_w, y, day_w, final_h)
+                        pdf.multi_cell(day_w, final_h if max_lines == 1 else final_h/2, row_texts[1], 0, 'C')
+                        pdf.set_xy(x + date_w + day_w, y)
+                        
+                        # Draw Subjects
+                        for i, text in enumerate(row_texts[2:]):
+                            pdf.rect(pdf.get_x(), y, col_w, final_h)
+                            
+                            # Vertical centering offset
+                            # Simplistic vertical center for multi_cell
+                            pdf.multi_cell(col_w, 6, text, 0, 'C')
+                            pdf.set_xy(x + date_w + day_w + (col_w * (i + 1)), y)
+                            
+                        pdf.ln(final_h)
+                
+                # Footer for this semester/branch (Signatories)
+                pdf.ln(10)
+                if pdf.get_y() > pdf.h - 40:
+                    pdf.add_page()
+                
+                # Signatory placeholders
+                sig_y = pdf.get_y()
+                pdf.set_font('Arial', 'B', 9)
+                pdf.cell(90, 6, "Controller of Examinations", 0, 0, 'C')
+                pdf.cell(90, 6, "Dean", 0, 1, 'C')
+
+        pdf.output(output_path)
         
-    # Final verification
-    if os.path.exists(output_pdf):
-        final_size = os.path.getsize(output_pdf)
-        #st.write(f"📄 Final PDF size: {final_size} bytes")
-        st.success("🎉 PDF generation process completed successfully!")
-    else:
-        st.error("❌ Final PDF file does not exist!")
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -3741,6 +3887,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
