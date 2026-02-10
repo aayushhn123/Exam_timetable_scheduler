@@ -1423,6 +1423,16 @@ def read_timetable(uploaded_file):
             st.error(f"❌ **Missing Required Columns:** {', '.join(missing_required)}")
             return None, None, None
 
+        # --- CRITICAL FIX FOR MERGED CELLS ---
+        # Forward fill key columns to handle merged cells in Input Excel
+        # This prevents "Unnamed" or NaN values if the user merged the Program Name cell rows
+        cols_to_fill = ["Program", "Semester"]
+        if "Stream" in df.columns: cols_to_fill.append("Stream")
+        
+        for col in cols_to_fill:
+            if col in df.columns:
+                df[col] = df[col].ffill()
+
         # 3. Clean Strings
         string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
@@ -1826,6 +1836,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
+            # --- FIX FOR "UNNAMED" ISSUE ---
+            # If the extracted name is garbage (Unnamed: 1), try to recover it from the sheet name
+            if "Unnamed" in main_branch_full or main_branch_full == "":
+                if '_|_' in sheet_name:
+                    main_branch_full = sheet_name.split('_|_')[0]
+            
             # --- DYNAMIC COLLEGE NAME LOGIC ---
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
             
@@ -1891,7 +1907,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     
                     pdf.add_page()
                     add_footer_with_page_number(pdf, 25)
-                    # Pass the dynamic sheet_college_name here
                     add_header_to_page(pdf, (pdf.w-45)/2, 45, header_content, chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date, 
@@ -1921,7 +1936,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
-                    # Pass the dynamic sheet_college_name here
                     add_header_to_page(pdf, (pdf.w-45)/2, 45, header_content, ["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date,
@@ -1941,12 +1955,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         st.error("No valid sheets generated in PDF.")
         return
 
-    # Instructions Page
     try:
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        # Pass session state name for instructions (generic)
         add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
                          Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
                          declaration_date=declaration_date, 
@@ -1972,7 +1984,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.output(pdf_path)
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
-
 
         
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
@@ -3872,6 +3883,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
