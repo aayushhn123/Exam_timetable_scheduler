@@ -2413,6 +2413,7 @@ def save_to_excel(semester_wise_timetable):
     """
     Safely generates Excel with STRICT 31-char limit for sheet names.
     Aggregates Electives into a clean summary table without Time Slot (as it's in header).
+    Uses Robust Roman Numeral Parsing to correctly determine Standard Slots.
     """
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
@@ -2426,9 +2427,10 @@ def save_to_excel(semester_wise_timetable):
     def normalize_time(t_str):
         if not isinstance(t_str, str): return ""
         t_str = t_str.strip()
+        # Handle 01:00 to 1:00 conversion to match standard formats
         for i in range(1, 10):
             t_str = t_str.replace(f"0{i}:", f"{i}:")
-        return t_str
+        return t_str.upper()
     
     # Helper to generate unique, valid sheet name
     existing_sheet_names = set()
@@ -2473,21 +2475,39 @@ def save_to_excel(semester_wise_timetable):
                 
                 raw_sem_str = str(sem).strip()
                 
-                # Slot calculation logic
-                import re
-                digits = re.findall(r'\d+', raw_sem_str)
+                # --- CORRECTED SLOT CALCULATION LOGIC ---
+                # This ensures the Excel generator knows exactly which slot is "Standard" 
+                # so it only appends [Time] when the subject is in a NON-Standard slot.
                 sem_num = 1
-                if digits: sem_num = int(digits[0])
-                else:
-                    romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
-                    for k,v in romans.items():
-                         if k in raw_sem_str.upper(): sem_num = v; break
+                try:
+                    s_upper = raw_sem_str.upper()
+                    romans = {
+                        'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 
+                        'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 
+                        'XI': 11, 'XII': 12
+                    }
+                    found_roman = False
+                    for r_key, r_val in romans.items():
+                        # Strict matching to avoid "I" matching "IV"
+                        if s_upper == r_key or s_upper.endswith(f" {r_key}") or s_upper.endswith(f"_{r_key}"):
+                            sem_num = r_val
+                            found_roman = True
+                            break
+                    
+                    if not found_roman:
+                        import re
+                        digits = re.findall(r'\d+', raw_sem_str)
+                        if digits: sem_num = int(digits[0])
+                except:
+                    sem_num = 1
 
+                # Sem 1,2,5,6 -> Slot 1 | Sem 3,4,7,8 -> Slot 2
                 slot_indicator = ((sem_num + 1) // 2) % 2
                 primary_slot_num = 1 if slot_indicator == 1 else 2
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
+                # ----------------------------------------
                    
                 for main_branch in df_sem["MainBranch"].unique():
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
@@ -2520,7 +2540,13 @@ def save_to_excel(semester_wise_timetable):
                             except: pass
 
                             subj_time_norm = normalize_time(calculated_time_str)
-                            time_suffix = f" [{calculated_time_str}]" if subj_time_norm != primary_slot_norm and subj_time_norm != "" else ""
+                            
+                            # Only append time if it differs from the Semester Header Time
+                            if subj_time_norm != primary_slot_norm and subj_time_norm != "":
+                                time_suffix = f" [{calculated_time_str}]" 
+                            else:
+                                time_suffix = ""
+                                
                             subject_displays.append(cm_group_prefix + base_subject + time_suffix)
                        
                         df_processed["SubjectDisplay"] = subject_displays
@@ -2549,38 +2575,31 @@ def save_to_excel(semester_wise_timetable):
                             sheets_created += 1
                         except: pass
 
-                    # --- 2. PROCESS ELECTIVES (FIXED) ---
+                    # --- 2. PROCESS ELECTIVES ---
                     if not df_elec.empty:
                         suffix_elec = f"_|_{raw_sem_str}_Ele"
                         sheet_name_elec = get_safe_sheet_name(main_branch, suffix_elec)
                         
                         try:
-                            # Filter for scheduled electives only
                             df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
                             
                             if not df_elec_scheduled.empty:
-                                # Create a formatted display string for subjects
                                 df_elec_scheduled['DisplaySubject'] = df_elec_scheduled.apply(
                                     lambda x: f"{x['Subject']} ({x['ModuleCode']})", axis=1
                                 )
                                 
-                                # Aggregate by Date, Time Slot, and OE Type (Keep Time Slot for grouping)
                                 summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
                                     'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
                                 }).reset_index()
                                 
-                                # Rename for PDF generator to recognize
                                 summary_df.rename(columns={'DisplaySubject': 'Subjects', 'OE': 'OE Type'}, inplace=True)
                                 
-                                # Sort by Date
                                 summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
                                 summary_df = summary_df.sort_values('DateObj').drop('DateObj', axis=1)
                                 
-                                # REMOVE Time Slot from output (it's in the header)
                                 if 'Time Slot' in summary_df.columns:
                                     summary_df = summary_df.drop('Time Slot', axis=1)
                                 
-                                # Embed Metadata
                                 summary_df['Program'] = main_branch
                                 summary_df['Semester'] = raw_sem_str
                                 
@@ -3770,6 +3789,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
