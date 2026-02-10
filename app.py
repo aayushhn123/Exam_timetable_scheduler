@@ -995,16 +995,26 @@ def get_friendly_error_message(e):
 
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
     """
-    Returns a list of date strings (DD-MM-YYYY) in the range,
-    strictly EXCLUDING Sundays and holidays.
+    Get all valid examination dates within the specified range.
+    Excludes weekends (Sundays) and holidays.
+    
+    Args:
+        start_date (datetime): Start date for examinations
+        end_date (datetime): End date for examinations
+        holidays_set (set): Set of holiday dates
+    
+    Returns:
+        list: List of valid date strings in DD-MM-YYYY format
     """
     valid_dates = []
     current_date = start_date
+    
     while current_date <= end_date:
-        # Check: Not a Sunday (6) AND Not in Holiday Set
+        # Skip Sundays (weekday 6) and holidays
         if current_date.weekday() != 6 and current_date.date() not in holidays_set:
             valid_dates.append(current_date.strftime("%d-%m-%Y"))
         current_date += timedelta(days=1)
+    
     return valid_dates
 
 def find_next_valid_day_in_range(start_date, end_date, holidays_set):
@@ -1089,7 +1099,7 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> STRICTLY Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM Group != 0) First -> Fill Gaps with Individual (CM Group == 0) -> Reserve Last 2 Days for OE")
     
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -1099,20 +1109,17 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # 1. Define Valid Dates & Reserve Last 2 for OE
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     
+    # Convert strings to datetime objects
     all_valid_dates = []
     for d_str in all_valid_strings:
         try:
-            d_obj = datetime.strptime(d_str, "%d-%m-%Y")
-            # DOUBLE SAFETY CHECK: Strictly skip Sundays and Holidays
-            if d_obj.weekday() != 6 and d_obj.date() not in holidays:
-                all_valid_dates.append(d_obj)
+            all_valid_dates.append(datetime.strptime(d_str, "%d-%m-%Y"))
         except ValueError:
             continue
 
     if len(all_valid_dates) < 3:
-        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed (No Reservation).")
+        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed.")
         core_valid_dates = all_valid_dates
-        oe_reserved_dates = []
     else:
         # Reserve last 2 days for OE
         core_valid_dates = all_valid_dates[:-2]
@@ -1123,7 +1130,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         oe_1 = oe_reserved_dates[0].strftime('%d-%m')
         oe_2 = oe_reserved_dates[1].strftime('%d-%m')
         
-        st.success(f"🔒 RESERVATION ENFORCED: Core Exams [{core_start} to {core_end}] | OE ONLY [{oe_1} & {oe_2}]")
+        st.info(f"📅 Core Exams: {core_start} to {core_end} | OE Reserved: {oe_1} & {oe_2}")
 
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
@@ -1136,6 +1143,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return int(digits[0]) if digits else 1
 
     # Filter Eligible Subjects
+    # Strict Filter: Exclude ONLY items that actually have an OE tag.
+    # Everything else (including Category='INTD' with empty OE) is processed here.
     eligible_subjects = df[
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
@@ -1175,20 +1184,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             session_capacity[date_str][time_slot][campus] = current + count
 
     # ---------------------------------------------------------
-    # STEP 2: PREPARE ATOMIC UNITS
+    # STEP 2: PREPARE ATOMIC UNITS (0 vs Non-0 Logic)
     # ---------------------------------------------------------
     common_units = []
     individual_units = []
     
+    # 1. Clean CM Group for splitting logic
     if 'CMGroup' in eligible_subjects.columns:
-        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
+        eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip()
+        # Treat "0", "0.0", "nan" as empty string (Uncommon)
+        eligible_subjects.loc[eligible_subjects['CMGroup_Clean'].isin(["0", "0.0", "nan"]), 'CMGroup_Clean'] = ""
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
+    # 2. Split Logic:
+    # df_common: CMGroup is NOT empty (i.e. it was not 0)
+    # df_individual: CMGroup IS empty (i.e. it was 0 or blank)
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # Build Common Units
+    # Build Common Units (Grouped by CM ID)
     if not df_common.empty:
         for cm_id, group in df_common.groupby('CMGroup_Clean'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1198,12 +1213,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             unit = {
                 'type': 'COMMON', 'id': f"CM_{cm_id}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
-                'sem_raw': group['Semester'].iloc[0],
-                'student_count': group['StudentCount'].sum()
+                'sem_raw': group['Semester'].iloc[0]
             }
             common_units.append(unit)
 
-    # Build Individual Units
+    # Build Individual Units (Grouped by Module Code)
+    # This now receives all Departmental Electives (OE='') that were previously skipped
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1213,87 +1228,70 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             unit = {
                 'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
-                'sem_raw': group['Semester'].iloc[0],
-                'student_count': group['StudentCount'].sum()
+                'sem_raw': group['Semester'].iloc[0]
             }
             individual_units.append(unit)
 
-    # OPTIMIZATION: Sort Individual Units by Frequency/Size
-    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
-
     # ---------------------------------------------------------
-    # STEP 3: SCHEDULING ENGINE
+    # STEP 3: SCHEDULING ENGINE (Two-Pass)
     # ---------------------------------------------------------
-    daily_schedule_map = {} 
-    # Only initialize map for ALL valid dates (to track conflicts if we did have overlap, but we stick to core)
-    for d in all_valid_dates:
-        daily_schedule_map[d.strftime("%d-%m-%Y")] = set()
     
-    def attempt_schedule(unit, unit_list_name, allowed_dates):
+    daily_schedule_map = {d.strftime("%d-%m-%Y"): set() for d in core_valid_dates}
+    
+    def attempt_schedule(unit, unit_list_name):
         if unit['fixed_slot'] > 0:
-            preferred_slot_num = int(unit['fixed_slot'])
+            slot_num = int(unit['fixed_slot'])
         else:
             num_sem = extract_numeric_sem(unit['sem_raw'])
-            preferred_slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
+            slot_num = 1 if ((num_sem + 1) // 2) % 2 == 1 else 2
             
-        slots_to_try = [preferred_slot_num]
-        available_slots = sorted(time_slots_dict.keys())
-        for s in available_slots:
-            if s != preferred_slot_num:
-                slots_to_try.append(s)
+        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
         
-        for date_obj in allowed_dates:
+        # SCAN DATES FROM START
+        for date_obj in core_valid_dates:
             date_str = date_obj.strftime("%d-%m-%Y")
             
             # Branch Conflict Check
             busy_branches = daily_schedule_map.get(date_str, set())
             if not set(unit['branch_sems']).isdisjoint(busy_branches):
-                continue
+                continue 
             
-            # Capacity Check
-            for slot_num in slots_to_try:
-                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+            # Campus Capacity Check
+            if check_campus_capacity(date_str, time_slot_str, unit['indices']):
+                # SUCCESS
+                for row_idx in unit['indices']:
+                    df.loc[row_idx, 'Exam Date'] = date_str
+                    df.loc[row_idx, 'Time Slot'] = time_slot_str
+                    df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                 
-                if check_campus_capacity(date_str, time_slot_str, unit['indices']):
-                    # SUCCESS
-                    for row_idx in unit['indices']:
-                        df.loc[row_idx, 'Exam Date'] = date_str
-                        df.loc[row_idx, 'Time Slot'] = time_slot_str
-                        df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                if date_str in daily_schedule_map:
+                    daily_schedule_map[date_str].update(unit['branch_sems'])
+                else:
+                    daily_schedule_map[date_str] = set(unit['branch_sems'])
                     
-                    if date_str in daily_schedule_map:
-                        daily_schedule_map[date_str].update(unit['branch_sems'])
-                        
-                    add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                    return True
+                add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                return True
         
         return False
 
-    # PASS 1 & 2: Core Dates ONLY
-    # We strictly pass 'core_valid_dates' to ensure NO scheduling happens on OE reserved days.
+    # PASS 1: Schedule ALL Common Units
     unscheduled = []
     for unit in common_units:
-        if not attempt_schedule(unit, "Common", core_valid_dates):
+        if not attempt_schedule(unit, "Common"):
             unscheduled.append(unit)
             
+    # PASS 2: Schedule Individual Units (Filling Gaps)
     for unit in individual_units:
-        if not attempt_schedule(unit, "Individual", core_valid_dates):
+        if not attempt_schedule(unit, "Individual"):
             unscheduled.append(unit)
 
-    # REMOVED PASS 3 (Emergency Fallback to OE) 
-    # to strictly satisfy: "on the days of OE no exam should be scheduled other than OE"
-
     if unscheduled:
-        st.error(f"❌ Could not schedule {len(unscheduled)} subject groups within the Core Date Range (OE Days Reserved).")
-        # Display the specific failures to help user debug
-        with st.expander("Show Unscheduled Groups"):
-            for u in unscheduled:
-                st.write(f"ID: {u['id']}, Students: {u['student_count']}")
+        st.warning(f"⚠️ Could not schedule {len(unscheduled)} subject groups within the Core Date Range.")
     else:
         st.success("✅ All Core subjects scheduled successfully.")
 
     return df
-    
+
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
     Validates that the number of students per session PER CAMPUS does not exceed max_capacity.
@@ -1888,266 +1886,120 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
         
-
-def generate_pdf_timetable(sem_dict, output_path="timetable.pdf", declaration_date=None):
-    try:
-        if not sem_dict:
-            return None
-
-        # Custom PDF Class for Headers/Footers
-        class PDF(FPDF):
-            def __init__(self, orientation='L', unit='mm', format='A4'):
-                super().__init__(orientation, unit, format)
-                self.college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
+def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
+    #st.write("🔄 Starting PDF generation process...")
+    
+    temp_excel = os.path.join(os.path.dirname(output_pdf), "temp_timetable.xlsx")
+    
+    #st.write("📊 Generating Excel file first...")
+    excel_data = save_to_excel(semester_wise_timetable)
+    
+    if excel_data:
+        #st.write(f"💾 Saving temporary Excel file to: {temp_excel}")
+        try:
+            with open(temp_excel, "wb") as f:
+                f.write(excel_data.getvalue())
+            #st.write("✅ Temporary Excel file saved successfully")
             
-            def header(self):
-                # We handle headers manually in the body to allow dynamic semester-based headers
-                pass
-
-            def footer(self):
-                self.set_y(-15)
-                self.set_font('Arial', 'I', 8)
-                self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', 0, 0, 'C')
-
-        pdf = PDF(orientation='L', unit='mm', format='A4')
-        pdf.alias_nb_pages()
-        
-        # Sort semesters logically (I, II, III... or 1, 2, 3...)
-        def sem_sorter(x):
-            try:
-                return int(re.findall(r'\d+', str(x))[0])
-            except:
-                return 0
-        
-        sorted_semesters = sorted(sem_dict.keys(), key=sem_sorter)
-
-        for sem in sorted_semesters:
-            df_sem = sem_dict[sem]
-            if df_sem.empty:
-                continue
-
-            # -----------------------------------------------------------
-            # DYNAMIC TIME HEADER LOGIC (THE FIX)
-            # -----------------------------------------------------------
-            # Instead of a fixed logic, we extract the MOST FREQUENT time slot 
-            # assigned to this semester from the scheduled data.
-            # This ensures it matches the Verification File exactly.
-            header_time_str = "10:00 AM - 01:00 PM" # Default
-            
-            try:
-                # Filter for valid time slots (containing " - " or "AM/PM")
-                valid_slots = df_sem[
-                    df_sem['Time Slot'].astype(str).str.contains('-', na=False)
-                ]['Time Slot']
+            # Verify the Excel file was created and has content
+            if os.path.exists(temp_excel):
+                file_size = os.path.getsize(temp_excel)
+                #st.write(f"📋 Excel file size: {file_size} bytes")
                 
-                if not valid_slots.empty:
-                    # Get the mode (most common time slot)
-                    header_time_str = valid_slots.mode().iloc[0]
-            except Exception:
-                # Fallback to User's Alternating Logic if data is missing
-                # Sem 2, 6, 10 -> Morning (10-1)
-                # Sem 4, 8, 12 -> Afternoon (2-5)
+                # Read back and verify sheets
                 try:
-                    sem_num = int(re.findall(r'\d+', str(sem))[0])
-                    if (sem_num // 2) % 2 == 0: # 4, 8, 12
-                        header_time_str = "02:00 PM - 05:00 PM"
-                    else: # 2, 6, 10 (and usually 1, 3, 5)
-                        header_time_str = "10:00 AM - 01:00 PM"
-                except:
-                    pass
-
-            # Group by Main Branch (Program)
-            # Each Program-Semester combination gets a page
-            for main_branch in df_sem['MainBranch'].unique():
-                pdf.add_page()
-                
-                # --- HEADER SECTION ---
-                pdf.set_font('Arial', 'B', 16)
-                pdf.cell(0, 8, st.session_state.get('selected_college', "SVKM's NMIMS University"), 0, 1, 'C')
-                
-                pdf.set_font('Arial', 'B', 12)
-                school_name = str(df_sem['Campus'].iloc[0]) if 'Campus' in df_sem.columns and not pd.isna(df_sem['Campus'].iloc[0]) else "School of Technology Management & Engineering"
-                pdf.cell(0, 7, school_name, 0, 1, 'C')
-                
-                pdf.set_font('Arial', 'B', 11)
-                pdf.cell(0, 6, f"Term End Examination {st.session_state.get('exam_period_name', '')}", 0, 1, 'C')
-                
-                # Dynamic Sub-Header Info
-                program_name = str(main_branch)
-                # Clean up program name if needed
-                pdf.cell(0, 6, f"Programme: {program_name}", 0, 1, 'C')
-                pdf.cell(0, 6, f"Semester: {sem}", 0, 1, 'C')
-                
-                # Timings and Declaration Date Row
-                pdf.ln(2)
-                pdf.set_font('Arial', 'B', 10)
-                
-                # Left Side: Time (Using the Dynamic Fix)
-                pdf.cell(100, 6, f"Time: {header_time_str}", 0, 0, 'L')
-                
-                # Right Side: Declaration Date
-                if declaration_date:
-                    date_str = declaration_date.strftime("%d %B %Y")
-                    pdf.cell(0, 6, f"Date: {date_str}", 0, 1, 'R')
-                else:
-                    pdf.ln(6)
-                
-                pdf.ln(4)
-
-                # --- TABLE SETUP ---
-                # Get data for this specific Main Branch & Semester
-                branch_data = df_sem[df_sem['MainBranch'] == main_branch].copy()
-                
-                # Sort by Date
-                branch_data['DateObj'] = pd.to_datetime(branch_data['Exam Date'], format="%d-%m-%Y", errors='coerce')
-                branch_data = branch_data.sort_values('DateObj')
-                
-                # Define Columns: Date, Day | Stream1 | Stream2 | ...
-                # Get unique sub-branches (Streams)
-                sub_branches = sorted([sb for sb in branch_data['SubBranch'].unique() if pd.notna(sb) and str(sb).strip() != ""])
-                
-                # If no sub-branches (common program), treat as single column
-                if not sub_branches:
-                    sub_branches = ["Subject"]
-
-                # Calculate Column Widths
-                # Date: 25, Day: 25, Remaining divided by sub-branches
-                page_width = pdf.w - 20 # 10mm margin L/R
-                date_w = 25
-                day_w = 20
-                remaining_w = page_width - date_w - day_w
-                
-                # Limit max columns to avoid squishing
-                max_cols_per_page = 6
-                
-                # Chunk sub-branches if too many
-                sub_branch_chunks = [sub_branches[i:i + max_cols_per_page] for i in range(0, len(sub_branches), max_cols_per_page)]
-                
-                for chunk_idx, current_sub_branches in enumerate(sub_branch_chunks):
-                    if chunk_idx > 0:
-                        pdf.add_page()
-                        # Repeat simplified header
-                        pdf.set_font('Arial', 'B', 12)
-                        pdf.cell(0, 6, f"{program_name} - Semester {sem} (Contd.)", 0, 1, 'C')
-                        pdf.ln(5)
-
-                    col_w = remaining_w / len(current_sub_branches)
+                    test_sheets = pd.read_excel(temp_excel, sheet_name=None)
+                    #st.write(f"📊 Excel file contains {len(test_sheets)} sheets: {list(test_sheets.keys())}")
                     
-                    # Table Header
-                    pdf.set_fill_color(240, 240, 240)
-                    pdf.set_font('Arial', 'B', 9)
-                    
-                    pdf.cell(date_w, 8, "Date", 1, 0, 'C', True)
-                    pdf.cell(day_w, 8, "Day", 1, 0, 'C', True)
-                    
-                    for sb in current_sub_branches:
-                        # Clean header name
-                        header_name = sb if sb != "Subject" else "Subject Name"
-                        # Truncate if too long
-                        if len(header_name) > 20:
-                            header_name = header_name[:18] + ".."
-                        pdf.cell(col_w, 8, header_name, 1, 0, 'C', True)
-                    pdf.ln()
-                    
-                    # Table Body
-                    pdf.set_font('Arial', '', 8)
-                    
-                    # Group by Date
-                    dates = sorted(branch_data['DateObj'].dropna().unique())
-                    
-                    for d_obj in dates:
-                        d_str = d_obj.strftime("%d-%m-%Y")
-                        day_str = d_obj.strftime("%A")
-                        
-                        # Row height calculation based on max text wrapping
-                        row_h = 10
-                        max_lines = 1
-                        
-                        # Prepare row data
-                        row_texts = [d_str, day_str]
-                        
-                        for sb in current_sub_branches:
-                            # Get subject for this date & sub-branch
-                            if sb == "Subject":
-                                subj_row = branch_data[branch_data['Exam Date'] == d_str]
-                            else:
-                                subj_row = branch_data[
-                                    (branch_data['Exam Date'] == d_str) & 
-                                    (branch_data['SubBranch'] == sb)
-                                ]
+                    # Show structure of first few sheets
+                    for i, (sheet_name, sheet_df) in enumerate(test_sheets.items()):
+                        if i < 3:  # Only show first 3 sheets
+                            pass
+                            #st.write(f"  📄 Sheet '{sheet_name}': {sheet_df.shape} with columns: {list(sheet_df.columns)}")
                             
-                            if not subj_row.empty:
-                                subj_name = str(subj_row['SubjectName'].iloc[0])
-                                oe_val = str(subj_row['OE'].iloc[0]) if 'OE' in subj_row.columns and pd.notna(subj_row['OE'].iloc[0]) and str(subj_row['OE'].iloc[0]).strip() != "" else ""
-                                
-                                display_text = subj_name
-                                if oe_val:
-                                    display_text += f" ({oe_val})"
-                                
-                                # Check line wrapping
-                                lines = pdf.get_string_width(display_text) / (col_w - 2)
-                                max_lines = max(max_lines, int(lines) + 1)
-                                row_texts.append(display_text)
-                            else:
-                                row_texts.append("-")
-                        
-                        final_h = row_h * max_lines
-                        
-                        # Draw Cells
-                        x = pdf.get_x()
-                        y = pdf.get_y()
-                        
-                        # Check page break
-                        if y + final_h > pdf.h - 15:
-                            pdf.add_page()
-                            # Redraw header
-                            pdf.set_font('Arial', 'B', 9)
-                            pdf.cell(date_w, 8, "Date", 1, 0, 'C', True)
-                            pdf.cell(day_w, 8, "Day", 1, 0, 'C', True)
-                            for sb in current_sub_branches:
-                                header_name = sb if sb != "Subject" else "Subject Name"
-                                if len(header_name) > 20: header_name = header_name[:18] + ".."
-                                pdf.cell(col_w, 8, header_name, 1, 0, 'C', True)
-                            pdf.ln()
-                            y = pdf.get_y()
-                            pdf.set_font('Arial', '', 8)
-
-                        # Draw Date & Day
-                        pdf.rect(x, y, date_w, final_h)
-                        pdf.multi_cell(date_w, final_h if max_lines == 1 else final_h/2, row_texts[0], 0, 'C')
-                        pdf.set_xy(x + date_w, y)
-                        
-                        pdf.rect(x + date_w, y, day_w, final_h)
-                        pdf.multi_cell(day_w, final_h if max_lines == 1 else final_h/2, row_texts[1], 0, 'C')
-                        pdf.set_xy(x + date_w + day_w, y)
-                        
-                        # Draw Subjects
-                        for i, text in enumerate(row_texts[2:]):
-                            pdf.rect(pdf.get_x(), y, col_w, final_h)
-                            
-                            # Vertical centering offset
-                            # Simplistic vertical center for multi_cell
-                            pdf.multi_cell(col_w, 6, text, 0, 'C')
-                            pdf.set_xy(x + date_w + day_w + (col_w * (i + 1)), y)
-                            
-                        pdf.ln(final_h)
-                
-                # Footer for this semester/branch (Signatories)
-                pdf.ln(10)
-                if pdf.get_y() > pdf.h - 40:
-                    pdf.add_page()
-                
-                # Signatory placeholders
-                sig_y = pdf.get_y()
-                pdf.set_font('Arial', 'B', 9)
-                pdf.cell(90, 6, "Controller of Examinations", 0, 0, 'C')
-                pdf.cell(90, 6, "Dean", 0, 1, 'C')
-
-        pdf.output(output_path)
+                except Exception as e:
+                    st.error(f"❌ Error reading back Excel file for verification: {e}")
+            else:
+                st.error(f"❌ Temporary Excel file was not created at {temp_excel}")
+                return
+            
+        except Exception as e:
+            st.error(f"❌ Error saving temporary Excel file: {e}")
+            return
+            
+        #st.write("🎨 Converting Excel to PDF...")
+        try:
+            convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date)
+            #st.write("✅ PDF conversion completed")
+        except Exception as e:
+            st.error(f"❌ Error during Excel to PDF conversion: {e}")
+            import traceback
+            st.error(f"Traceback: {traceback.format_exc()}")
+            return
         
+        # Clean up temporary file
+        try:
+            if os.path.exists(temp_excel):
+                os.remove(temp_excel)
+                #st.write("🗑️ Temporary Excel file cleaned up")
+        except Exception as e:
+            st.warning(f"⚠️ Could not remove temporary file: {e}")
+    else:
+        st.error("❌ No Excel data generated - cannot create PDF")
+        return
+    
+    # Post-process PDF to remove blank pages
+    #st.write("🔧 Post-processing PDF to remove blank pages...")
+    try:
+        if not os.path.exists(output_pdf):
+            st.error(f"❌ PDF file was not created at {output_pdf}")
+            return
+            
+        reader = PdfReader(output_pdf)
+        writer = PdfWriter()
+        page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
+        
+        original_pages = len(reader.pages)
+        #st.write(f"📄 Original PDF has {original_pages} pages")
+        
+        pages_kept = 0
+        for page_num in range(len(reader.pages)):
+            page = reader.pages[page_num]
+            try:
+                text = page.extract_text() if page else ""
+            except:
+                text = ""
+            cleaned_text = text.strip() if text else ""
+            is_blank_or_page_number = (
+                    not cleaned_text or
+                    page_number_pattern.match(cleaned_text) or
+                    len(cleaned_text) <= 10
+            )
+            if not is_blank_or_page_number:
+                writer.add_page(page)
+                pages_kept += 1
+                
+        #st.write(f"📄 Kept {pages_kept} pages out of {original_pages}")
+        
+        if len(writer.pages) > 0:
+            with open(output_pdf, 'wb') as output_file:
+                writer.write(output_file)
+            st.success(f"✅ PDF post-processing completed - final PDF has {len(writer.pages)} pages")
+        else:
+            st.warning("⚠️ All pages were filtered out - keeping original PDF")
+            
     except Exception as e:
-        st.error(f"Error generating PDF: {str(e)}")
-
+        st.error(f"❌ Error during PDF post-processing: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
+        
+    # Final verification
+    if os.path.exists(output_pdf):
+        final_size = os.path.getsize(output_pdf)
+        #st.write(f"📄 Final PDF size: {final_size} bytes")
+        st.success("🎉 PDF generation process completed successfully!")
+    else:
+        st.error("❌ Final PDF file does not exist!")
 
 def save_verification_excel(original_df, semester_wise_timetable):
     if not semester_wise_timetable:
@@ -2796,10 +2648,10 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 
 def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
-    Attempts to move exams from the end of the schedule to earlier 'gaps',
-    STRICTLY respecting Campus Capacity Constraints and SKIPPING Sundays/Holidays.
+    Attempts to move exams from the end of the schedule to earlier 'gaps' (empty slots),
+    STRICTLY respecting Campus Capacity Constraints and SKIPPING only CM Groups.
     """
-    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & Safe Mode)...")
+    st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
     
     moves_made = 0
     optimization_log = []
@@ -2807,7 +2659,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     # Get capacity limit from session state
     MAX_CAPACITY = st.session_state.get('capacity_slider', 1250)
     
-    # Pre-calculate campus loads
+    # Pre-calculate campus loads for all currently scheduled slots
     schedule_load_map = {}
     
     def refresh_load_map():
@@ -2826,6 +2678,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 if d not in schedule_load_map: schedule_load_map[d] = {}
                 if t not in schedule_load_map[d]: schedule_load_map[d][t] = {}
+                
                 schedule_load_map[d][t][c] = schedule_load_map[d][t].get(c, 0) + cnt
 
     # Initial build
@@ -2839,13 +2692,18 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             
         sem_start = min(scheduled_dates)
         
-        # Only move non-CM, non-OE subjects
+        # Identify subjects that can be moved
+        # CRITICAL UPDATE: Only skip if CMGroup is present. 
+        # Removed filters for IsCommon/CommonAcrossSems as requested.
+        
+        # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
         cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
         
         candidates = df[
             (df['Exam Date'].notna()) & 
+            (df['Category'] != 'INTD') & 
             (df['OE'].isna() | (df['OE'] == "")) &
-            (cm_col == "") & 
+            (cm_col == "") & # Only move subjects that do NOT have a CM Group
             (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start)
         ].sort_values('Exam Date', ascending=False)
         
@@ -2858,12 +2716,12 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             while check_date < current_date_obj:
                 check_date_str = check_date.strftime("%d-%m-%Y")
                 
-                # SKIP if check_date is a Holiday OR SUNDAY (weekday==6)
-                if check_date.date() in holidays or check_date.weekday() == 6:
+                # SKIP if check_date is a holiday
+                if check_date.date() in holidays:
                     check_date += timedelta(days=1)
                     continue
 
-                # Check student conflict
+                # Check student conflict (Same Branch Same Day)
                 sub_branch = subject['SubBranch']
                 busy_on_date = df[
                     (df['Exam Date'] == check_date_str) & 
@@ -2871,7 +2729,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 ]
                 
                 if busy_on_date.empty:
-                    # Check CAPACITY
+                    # Check CAPACITY Constraints per Campus
                     target_time_slot = subject['Time Slot']
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
                     student_count = int(subject.get('StudentCount', 0))
@@ -2880,10 +2738,10 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     
                     if (current_load + student_count) <= MAX_CAPACITY:
                         # VALID MOVE!
-                        # Update DataFrame
+                        # 1. Update DataFrame
                         sem_dict[sem].at[idx, 'Exam Date'] = check_date_str
                         
-                        # Update Load Map
+                        # 2. Update Load Map
                         old_load = schedule_load_map[current_date_str][target_time_slot][campus]
                         schedule_load_map[current_date_str][target_time_slot][campus] = old_load - student_count
                         
@@ -3038,11 +2896,11 @@ def main():
     
         col1, col2 = st.columns(2)
         with col1:
-            base_date = st.date_input("📆 Start Date", value=datetime(2026, 5, 2))
+            base_date = st.date_input("📆 Start Date", value=datetime(2025, 4, 1))
             base_date = datetime.combine(base_date, datetime.min.time())
     
         with col2:
-            end_date = st.date_input("📆 End Date", value=datetime(2026, 5, 16))
+            end_date = st.date_input("📆 End Date", value=datetime(2025, 5, 30))
             end_date = datetime.combine(end_date, datetime.min.time())
 
         # Validate date range
@@ -3887,11 +3745,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
 
 
