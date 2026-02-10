@@ -1733,11 +1733,36 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
     def get_header_time_for_semester(sem_str):
         try:
-            import re
-            digits = re.findall(r'\d+', str(sem_str))
-            sem_int = int(digits[0]) if digits else 1
+            s = str(sem_str).strip().upper()
+            sem_int = 1
+            
+            # --- FIXED LOGIC: Handle Roman Numerals ---
+            romans = {
+                'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 
+                'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 
+                'XI': 11, 'XII': 12
+            }
+            
+            found = False
+            for r_key, r_val in romans.items():
+                # Check for exact match or suffix match (e.g., "Semester IV")
+                if s == r_key or s.endswith(f" {r_key}") or s.endswith(f"_{r_key}"):
+                    sem_int = r_val
+                    found = True
+                    break
+            
+            if not found:
+                # Fallback to digits if no Roman numeral found
+                import re
+                digits = re.findall(r'\d+', s)
+                if digits:
+                    sem_int = int(digits[0])
+
+            # Alternating Logic: ((sem + 1) // 2) % 2
+            # Sem 1,2,5,6 -> Slot 1 | Sem 3,4,7,8 -> Slot 2
             slot_indicator = ((sem_int + 1) // 2) % 2
             slot_num = 1 if slot_indicator == 1 else 2
+            
             slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
             return f"{slot_cfg['start']} - {slot_cfg['end']}"
         except:
@@ -3745,6 +3770,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
