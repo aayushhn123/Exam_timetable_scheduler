@@ -1162,10 +1162,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if IS_LAW_SCHOOL:
         sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
         
-        # Robust Elective Detection: Matches Category OR '0E' in Module Code
+        # FIXED: Changed 'SubjectName' to 'Subject' since SubjectName is dropped in read_timetable
         is_elec = (eligible_subjects['Category'].astype(str).str.upper().str.contains('ELEC')) | \
                   (eligible_subjects['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)) | \
-                  (eligible_subjects['SubjectName'].astype(str).str.upper().str.contains('ELECTIVE'))
+                  (eligible_subjects['Subject'].astype(str).str.upper().str.contains('ELECTIVE'))
         
         # Sem 6 ELEC -> Treat as Individual (Schedule Different Days via natural individual placement)
         sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
@@ -1245,9 +1245,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             
             is_elec_unit = False
             if IS_LAW_SCHOOL:
+                # FIXED: Changed 'SubjectName' to 'Subject'
                 if (group['Category'].astype(str).str.upper().str.contains('ELEC')).any() or \
                    (group['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)).any() or \
-                   (group['SubjectName'].astype(str).str.upper().str.contains('ELECTIVE')).any():
+                   (group['Subject'].astype(str).str.upper().str.contains('ELECTIVE')).any():
                     is_elec_unit = True
             
             unit = {
@@ -3910,3 +3911,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
