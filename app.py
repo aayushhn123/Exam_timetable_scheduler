@@ -2773,6 +2773,10 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
     st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
     
+    # Detect Law Context to apply Alternate Day logic during gap filling
+    current_college = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
+    
     moves_made = 0
     optimization_log = []
     
@@ -2812,10 +2816,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             
         sem_start = min(scheduled_dates)
         
-        # Identify subjects that can be moved
-        # CRITICAL UPDATE: Only skip if CMGroup is present. 
-        # Removed filters for IsCommon/CommonAcrossSems as requested.
-        
         # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
         cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
         
@@ -2836,7 +2836,7 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             while check_date < current_date_obj:
                 check_date_str = check_date.strftime("%d-%m-%Y")
                 
-                # --- FIXED: SKIP if check_date is a holiday OR SUNDAY ---
+                # SKIP if check_date is a holiday OR SUNDAY
                 if check_date.date() in holidays or check_date.weekday() == 6:
                     check_date += timedelta(days=1)
                     continue
@@ -2848,7 +2848,20 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     (df['SubBranch'] == sub_branch)
                 ]
                 
-                if busy_on_date.empty:
+                conflict_found = not busy_on_date.empty
+                
+                # --- NEW: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
+                if not conflict_found and IS_LAW_SCHOOL:
+                    prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
+                    next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
+                    
+                    busy_prev = not df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)].empty
+                    busy_next = not df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)].empty
+                    
+                    if busy_prev or busy_next:
+                        conflict_found = True
+                
+                if not conflict_found:
                     # Check CAPACITY Constraints per Campus
                     target_time_slot = subject['Time Slot']
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
@@ -3879,6 +3892,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
