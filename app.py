@@ -1201,11 +1201,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # --- FIXED: LAW SCHOOL SEM 6 ELECTIVE BREAKDOWN ---
-    # Done AFTER CMGroup_Clean initialization so it doesn't get overwritten!
+    # --- LAW SCHOOL SEM 6 ELECTIVE BREAKDOWN ---
     if IS_LAW_SCHOOL:
         sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
         
+        # Robust Elective Detection: Matches Category OR 'E' in Module Code OR 'Elective' in Subject
         is_elec = (eligible_subjects['Category'].astype(str).str.upper().str.contains('ELEC')) | \
                   (eligible_subjects['ModuleCode'].astype(str).str.contains(r'([0O]E\d+|E\d{3})', regex=True, case=False)) | \
                   (eligible_subjects['Subject'].astype(str).str.upper().str.contains('ELECTIVE'))
@@ -1213,8 +1213,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
         
         if sem6_elec_mask.any():
-            # Clear CMGroup_Clean so they drop to the back of the queue (Individual units)
-            # This preserves the original [375] in the PDF but schedules them properly!
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup_Clean'] = ""
 
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
@@ -1293,14 +1291,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             if IS_LAW_SCHOOL:
                 conflict_found = False
                 
-                # Check previous day for ANY exam for this branch
                 prev_date = date_obj - timedelta(days=1)
                 prev_date_str = prev_date.strftime("%d-%m-%Y")
                 if prev_date_str in daily_schedule_map:
                     if not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]):
                         conflict_found = True 
                         
-                # Check NEXT day (Crucial to prevent electives from causing back-to-back exams)
                 next_date = date_obj + timedelta(days=1)
                 next_date_str = next_date.strftime("%d-%m-%Y")
                 if next_date_str in daily_schedule_map:
@@ -1334,7 +1330,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1, 2, 3: Core Dates ONLY in Order: Common -> Uncommon -> Elective
+    # PASS 1 & 2: Schedule CORE subjects first
     unscheduled = []
     
     for unit in common_units:
@@ -1345,8 +1341,37 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         if not attempt_schedule(unit, "Uncommon", core_valid_dates):
             unscheduled.append(unit)
             
+    # --- CHRONOLOGICAL ELECTIVE PLACEMENT LOGIC ---
+    # Find the absolute latest date scheduled for each branch so electives don't snipe early gaps
+    max_date_per_branch_sem = {}
+    for idx, row in df.iterrows():
+        d_str = row.get('Exam Date', "")
+        if pd.notna(d_str) and isinstance(d_str, str) and "-" in d_str:
+            try:
+                d_obj = datetime.strptime(d_str, "%d-%m-%Y")
+                b_s = f"{row.get('Branch', '')}_{row.get('Semester', '')}"
+                if b_s not in max_date_per_branch_sem or d_obj > max_date_per_branch_sem[b_s]:
+                    max_date_per_branch_sem[b_s] = d_obj
+            except:
+                continue
+                
+    # PASS 3: Schedule ELECTIVES only AFTER the Core is completely finished
     for unit in elec_units:
-        if not attempt_schedule(unit, "Elective", core_valid_dates):
+        if IS_LAW_SCHOOL:
+            min_allowed_date = None
+            for b_s in unit['branch_sems']:
+                if b_s in max_date_per_branch_sem:
+                    if min_allowed_date is None or max_date_per_branch_sem[b_s] > min_allowed_date:
+                        min_allowed_date = max_date_per_branch_sem[b_s]
+            
+            if min_allowed_date:
+                valid_dates_for_elec = [d for d in core_valid_dates if d > min_allowed_date]
+            else:
+                valid_dates_for_elec = core_valid_dates
+        else:
+            valid_dates_for_elec = core_valid_dates
+            
+        if not attempt_schedule(unit, "Elective", valid_dates_for_elec):
             unscheduled.append(unit)
 
     if unscheduled:
@@ -2847,11 +2872,17 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
         # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
         cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
         
+        # Identify Electives so the Gap Filler leaves them entirely alone
+        is_elec = (df['Category'].astype(str).str.upper().str.contains('ELEC')) | \
+                  (df['ModuleCode'].astype(str).str.contains(r'([0O]E\d+|E\d{3})', regex=True, case=False)) | \
+                  (df['Subject'].astype(str).str.upper().str.contains('ELECTIVE'))
+        
         candidates = df[
             (df['Exam Date'].notna()) & 
             (df['Category'] != 'INTD') & 
+            (~is_elec) & # BANS electives from jumping into early gaps
             (df['OE'].isna() | (df['OE'] == "")) &
-            (cm_col == "") & # Only move subjects that do NOT have a CM Group
+            (cm_col == "") & 
             (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start)
         ].sort_values('Exam Date', ascending=False)
         
@@ -2883,7 +2914,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
                     
-                    # Ensure we don't count the subject we are currently moving as a conflict against itself!
                     busy_prev_df = df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)]
                     busy_prev = not busy_prev_df[busy_prev_df.index != idx].empty
                     
@@ -3924,6 +3954,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
