@@ -1158,20 +1158,26 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if eligible_subjects.empty:
         return df
 
-    # --- LAW SCHOOL ELECTIVE PRE-PROCESSING (For Sem 6 Only) ---
+    # --- LAW SCHOOL ELECTIVE PRE-PROCESSING ---
     if IS_LAW_SCHOOL:
         sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
+        is_elec = eligible_subjects['Category'] == 'ELEC'
         
-        # FIXED: Changed 'SubjectName' to 'Subject' since SubjectName is dropped in read_timetable
-        is_elec = (eligible_subjects['Category'].astype(str).str.upper().str.contains('ELEC')) | \
-                  (eligible_subjects['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)) | \
-                  (eligible_subjects['Subject'].astype(str).str.upper().str.contains('ELECTIVE'))
+        # 1. Sem 8 ELEC -> Treat as Common Group (Schedule Same Day)
+        # Using endswith to prevent "Semester VIII" from accidentally matching "VI"
+        sem8_elec_mask = is_elec & (sem_upper.str.endswith('VIII') | sem_upper.str.endswith(' 8') | (sem_upper == '8'))
         
-        # Sem 6 ELEC -> Treat as Individual (Schedule Different Days via natural individual placement)
+        if sem8_elec_mask.any():
+            # Force them into a single CM Group so they are scheduled together on the same day
+            eligible_subjects.loc[sem8_elec_mask, 'CMGroup'] = "LAW_SEM8_ELEC_GROUP"
+            eligible_subjects.loc[sem8_elec_mask, 'CMGroup_Clean'] = "LAW_SEM8_ELEC_GROUP"
+
+        # 2. Sem 6 ELEC -> Treat as Individual (Schedule Different Days)
         sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
         
         if sem6_elec_mask.any():
-            # Clear CMGroup so they drop to the back of the queue, allowing Core to take consecutive alternate days
+            # Clear CMGroup so they are broken down into individual modules. 
+            # The conflict checker will naturally push them to alternate different days.
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup'] = ""
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup_Clean'] = ""
 
@@ -1210,8 +1216,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # STEP 2: PREPARE ATOMIC UNITS
     # ---------------------------------------------------------
     common_units = []
-    uncommon_units = []
-    elec_units = []
+    individual_units = []
     
     if 'CMGroup' in eligible_subjects.columns:
         eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
@@ -1236,37 +1241,23 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             common_units.append(unit)
 
-    # Build Individual Units (Split into Uncommon and Elec)
+    # Build Individual Units
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
             all_indices = group.index.tolist()
             raw_slot = group['ExamSlotNumber'].iloc[0]
             
-            is_elec_unit = False
-            if IS_LAW_SCHOOL:
-                # FIXED: Changed 'SubjectName' to 'Subject'
-                if (group['Category'].astype(str).str.upper().str.contains('ELEC')).any() or \
-                   (group['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)).any() or \
-                   (group['Subject'].astype(str).str.upper().str.contains('ELECTIVE')).any():
-                    is_elec_unit = True
-            
             unit = {
-                'type': 'ELECTIVE' if is_elec_unit else 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
+                'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            
-            if is_elec_unit:
-                elec_units.append(unit)
-            else:
-                uncommon_units.append(unit)
+            individual_units.append(unit)
 
-    # OPTIMIZATION: Sort Units by Frequency/Size to prevent schedule fragmentation
-    common_units.sort(key=lambda x: x['student_count'], reverse=True)
-    uncommon_units.sort(key=lambda x: x['student_count'], reverse=True)
-    elec_units.sort(key=lambda x: x['student_count'], reverse=True)
+    # OPTIMIZATION: Sort Individual Units by Frequency/Size
+    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
 
     # ---------------------------------------------------------
     # STEP 3: SCHEDULING ENGINE
@@ -1325,19 +1316,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1, 2, 3: Core Dates ONLY in Order: Common -> Uncommon -> Elective
+    # PASS 1 & 2: Core Dates ONLY
     unscheduled = []
-    
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    for unit in uncommon_units:
-        if not attempt_schedule(unit, "Uncommon", core_valid_dates):
-            unscheduled.append(unit)
-            
-    for unit in elec_units:
-        if not attempt_schedule(unit, "Elective", core_valid_dates):
+    for unit in individual_units:
+        if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
 
     if unscheduled:
@@ -3911,4 +3897,10 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
 
