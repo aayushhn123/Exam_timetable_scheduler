@@ -1159,20 +1159,27 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         return df
 
     # --- LAW SCHOOL ELECTIVE PRE-PROCESSING ---
-    # Logic: Sem 8 ELEC -> Treat as Common Group (Schedule Same Day)
-    #        Sem 6 ELEC -> Treat as Individual (Schedule Different Days via natural individual placement)
     if IS_LAW_SCHOOL:
-        # Identify Sem 8 Electives
-        sem8_elec_mask = (
-            (eligible_subjects['Category'] == 'ELEC') & 
-            (eligible_subjects['Semester'].astype(str).str.contains('VIII') | 
-             eligible_subjects['Semester'].astype(str).str.contains('8'))
-        )
+        sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
+        is_elec = eligible_subjects['Category'] == 'ELEC'
+        
+        # 1. Sem 8 ELEC -> Treat as Common Group (Schedule Same Day)
+        # Using endswith to prevent "Semester VIII" from accidentally matching "VI"
+        sem8_elec_mask = is_elec & (sem_upper.str.endswith('VIII') | sem_upper.str.endswith(' 8') | (sem_upper == '8'))
         
         if sem8_elec_mask.any():
-            # Force them into a CM Group so they are scheduled together
+            # Force them into a single CM Group so they are scheduled together on the same day
             eligible_subjects.loc[sem8_elec_mask, 'CMGroup'] = "LAW_SEM8_ELEC_GROUP"
             eligible_subjects.loc[sem8_elec_mask, 'CMGroup_Clean'] = "LAW_SEM8_ELEC_GROUP"
+
+        # 2. Sem 6 ELEC -> Treat as Individual (Schedule Different Days)
+        sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
+        
+        if sem6_elec_mask.any():
+            # Clear CMGroup so they are broken down into individual modules. 
+            # The conflict checker will naturally push them to alternate different days.
+            eligible_subjects.loc[sem6_elec_mask, 'CMGroup'] = ""
+            eligible_subjects.loc[sem6_elec_mask, 'CMGroup_Clean'] = ""
 
     # --- CAPACITY TRACKING ---
     session_capacity = {} 
@@ -1256,7 +1263,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # STEP 3: SCHEDULING ENGINE
     # ---------------------------------------------------------
     daily_schedule_map = {} 
-    # Only initialize map for ALL valid dates
     for d in all_valid_dates:
         daily_schedule_map[d.strftime("%d-%m-%Y")] = set()
     
@@ -1283,7 +1289,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 prev_date_str = prev_date.strftime("%d-%m-%Y")
                 if prev_date_str in daily_schedule_map:
                     prev_busy_branches = daily_schedule_map[prev_date_str]
-                    # If this branch had an exam yesterday, SKIP today
                     if not set(unit['branch_sems']).isdisjoint(prev_busy_branches):
                         continue 
             
@@ -3892,6 +3897,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
