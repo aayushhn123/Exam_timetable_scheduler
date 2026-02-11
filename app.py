@@ -1158,26 +1158,20 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if eligible_subjects.empty:
         return df
 
-    # --- LAW SCHOOL ELECTIVE PRE-PROCESSING ---
+    # --- LAW SCHOOL ELECTIVE PRE-PROCESSING (For Sem 6 Only) ---
     if IS_LAW_SCHOOL:
         sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
-        is_elec = eligible_subjects['Category'] == 'ELEC'
         
-        # 1. Sem 8 ELEC -> Treat as Common Group (Schedule Same Day)
-        # Using endswith to prevent "Semester VIII" from accidentally matching "VI"
-        sem8_elec_mask = is_elec & (sem_upper.str.endswith('VIII') | sem_upper.str.endswith(' 8') | (sem_upper == '8'))
+        # Robust Elective Detection: Matches Category OR '0E' in Module Code
+        is_elec = (eligible_subjects['Category'].astype(str).str.upper().str.contains('ELEC')) | \
+                  (eligible_subjects['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)) | \
+                  (eligible_subjects['SubjectName'].astype(str).str.upper().str.contains('ELECTIVE'))
         
-        if sem8_elec_mask.any():
-            # Force them into a single CM Group so they are scheduled together on the same day
-            eligible_subjects.loc[sem8_elec_mask, 'CMGroup'] = "LAW_SEM8_ELEC_GROUP"
-            eligible_subjects.loc[sem8_elec_mask, 'CMGroup_Clean'] = "LAW_SEM8_ELEC_GROUP"
-
-        # 2. Sem 6 ELEC -> Treat as Individual (Schedule Different Days)
+        # Sem 6 ELEC -> Treat as Individual (Schedule Different Days via natural individual placement)
         sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
         
         if sem6_elec_mask.any():
-            # Clear CMGroup so they are broken down into individual modules. 
-            # The conflict checker will naturally push them to alternate different days.
+            # Clear CMGroup so they drop to the back of the queue, allowing Core to take consecutive alternate days
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup'] = ""
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup_Clean'] = ""
 
@@ -1256,7 +1250,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             individual_units.append(unit)
 
-    # OPTIMIZATION: Sort Individual Units by Frequency/Size
+    # OPTIMIZATION: Sort Units by Frequency/Size to prevent schedule fragmentation
+    common_units.sort(key=lambda x: x['student_count'], reverse=True)
     individual_units.sort(key=lambda x: x['student_count'], reverse=True)
 
     # ---------------------------------------------------------
@@ -1834,12 +1829,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # --- FIX FOR "UNNAMED" ISSUE ---
+            # --- FIX FOR "UNNAMED" ISSUE (Safety Net) ---
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
 
-            # --- FALLBACK: Rename any 'Unnamed: X' stream columns back to the Program Name ---
             rename_cols = {}
             for col in sheet_df.columns:
                 if str(col).startswith("Unnamed:"):
@@ -1965,7 +1959,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        # Pass session state name for instructions (generic)
         add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
                          Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
                          declaration_date=declaration_date, 
@@ -2855,13 +2848,17 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 conflict_found = not busy_on_date.empty
                 
-                # --- NEW: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
+                # --- FIXED: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
                 if not conflict_found and IS_LAW_SCHOOL:
                     prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
                     
-                    busy_prev = not df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)].empty
-                    busy_next = not df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)].empty
+                    # Ensure we don't count the subject we are currently moving as a conflict against itself
+                    busy_prev_df = df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)]
+                    busy_prev = not busy_prev_df[busy_prev_df.index != idx].empty
+                    
+                    busy_next_df = df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)]
+                    busy_next = not busy_next_df[busy_next_df.index != idx].empty
                     
                     if busy_prev or busy_next:
                         conflict_found = True
@@ -3897,6 +3894,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
