@@ -1424,8 +1424,6 @@ def read_timetable(uploaded_file):
             return None, None, None
 
         # --- CRITICAL FIX FOR MERGED CELLS ---
-        # Forward fill key columns to handle merged cells in Input Excel
-        # This prevents "Unnamed" or NaN values if the user merged the Program Name cell rows
         cols_to_fill = ["Program", "Semester"]
         if "Stream" in df.columns: cols_to_fill.append("Stream")
         
@@ -1441,11 +1439,8 @@ def read_timetable(uploaded_file):
 
         # 4. Clean CMGroup (STRICT "0" HANDLING)
         if "CMGroup" in df.columns:
-            # Convert to string first to handle numeric 0 vs string "0"
             df["CMGroup"] = df["CMGroup"].astype(str)
-            # Normalize "0.0" -> "0"
             df["CMGroup"] = df["CMGroup"].apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
-            # IMPLEMENTING RULE: 0 means "Uncommon" (Empty String)
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
@@ -1478,7 +1473,6 @@ def read_timetable(uploaded_file):
         if "OE" not in df.columns: 
             df["OE"] = ""
         else: 
-            # Ensure it's a clean string
             df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
         # Reset/Initialize logic columns
@@ -1492,9 +1486,6 @@ def read_timetable(uploaded_file):
         else:
             df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
 
-        # --- UPDATED SPLIT LOGIC (STRICT OE CHECK) ---
-        # ONLY split if "OE" column has a value.
-        # Ignore "Category" completely for classification.
         is_true_oe_mask = (df["OE"] != "")
         
         df_ele = df[is_true_oe_mask].copy()
@@ -1505,7 +1496,9 @@ def read_timetable(uploaded_file):
             if not d.empty:
                 d["MainBranch"] = d["Program"]
                 d["SubBranch"] = d["Stream"]
-                d.loc[d["SubBranch"] == d["MainBranch"], "SubBranch"] = ""
+                
+                # --- FIX: Ensure SubBranch is never empty so Pandas doesn't name it 'Unnamed: 1' ---
+                d.loc[(d["SubBranch"] == "") | (d["SubBranch"].isna()) | (d["SubBranch"] == "nan"), "SubBranch"] = d["MainBranch"]
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
                 "Exam Date", "Time Slot", "Exam Duration", "StudentCount", "ModuleCode", 
@@ -1837,10 +1830,17 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
             # --- FIX FOR "UNNAMED" ISSUE ---
-            # If the extracted name is garbage (Unnamed: 1), try to recover it from the sheet name
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
+
+            # --- FALLBACK: Rename any 'Unnamed: X' stream columns back to the Program Name ---
+            rename_cols = {}
+            for col in sheet_df.columns:
+                if str(col).startswith("Unnamed:"):
+                    rename_cols[col] = main_branch_full
+            if rename_cols:
+                sheet_df = sheet_df.rename(columns=rename_cols)
             
             # --- DYNAMIC COLLEGE NAME LOGIC ---
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
@@ -1955,10 +1955,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         st.error("No valid sheets generated in PDF.")
         return
 
+    # Instructions Page
     try:
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
+        # Pass session state name for instructions (generic)
         add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
                          Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
                          declaration_date=declaration_date, 
@@ -1984,7 +1986,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.output(pdf_path)
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
-
         
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
@@ -3878,6 +3879,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
