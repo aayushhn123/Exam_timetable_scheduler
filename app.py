@@ -2835,8 +2835,8 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             while check_date < current_date_obj:
                 check_date_str = check_date.strftime("%d-%m-%Y")
                 
-                # SKIP if check_date is a holiday
-                if check_date.date() in holidays:
+                # --- FIXED: SKIP if check_date is a holiday OR SUNDAY ---
+                if check_date.date() in holidays or check_date.weekday() == 6:
                     check_date += timedelta(days=1)
                     continue
 
@@ -2962,6 +2962,7 @@ def main():
     # -----------------------------------------------------------
     current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
     IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college 
+    IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
     
     # Display selected college in sidebar
     with st.sidebar:
@@ -2992,7 +2993,7 @@ def main():
         'total_branches': 0,
         'overall_date_range': 0,
         'unique_exam_days': 0,
-        'capacity_slider': 449 if IS_LAW_SCHOOL else 2000, # Default capacity for Law
+        'capacity_slider': 1250 if IS_MPSTME else (449 if IS_LAW_SCHOOL else 2000), # Default capacity switching
         'holidays_set': set(),
         'original_df': None
     }
@@ -3016,8 +3017,11 @@ def main():
         st.markdown("#### 📅 Examination Period")
         st.markdown("")
     
-        # Default Dates Logic
-        if IS_LAW_SCHOOL:
+        # Default Dates Logic based on College
+        if IS_MPSTME:
+            def_start = datetime(2026, 5, 2)
+            def_end = datetime(2026, 5, 16)
+        elif IS_LAW_SCHOOL:
             def_start = datetime(2026, 5, 2)
             def_end = datetime(2026, 5, 20)
         else:
@@ -3116,14 +3120,12 @@ def main():
         st.markdown("")
 
         # Capacity slider logic
-        def_cap = 449 if IS_LAW_SCHOOL else 2000
-        
         max_students_per_session = st.slider(
             "Maximum Students Per Session",
             min_value=0,
             max_value=3000,
             value=st.session_state.capacity_slider,
-            step=1, # Granular step for Law specific number
+            step=1, 
             help="Set the maximum number of students allowed in a single session",
             key="capacity_slider"
         )
@@ -3289,13 +3291,8 @@ def main():
                                 )
 
                         if df_ele is not None and not df_ele.empty:
-                            # NEW LOGIC: Calculate Reserved Dates based on the Date Range
-                            # We reserved the last 2 valid days in the scheduler for OE.
-                            # We need to find those specific dates to pass to the OE scheduler.
-                            
                             all_valid = get_valid_dates_in_range(base_date, end_date, holidays_set)
                             
-                            # Convert strings back to date objects for calculation
                             all_valid_objs = []
                             for d_str in all_valid:
                                 try:
@@ -3305,14 +3302,12 @@ def main():
                             all_valid_objs.sort()
 
                             if len(all_valid_objs) >= 2:
-                                # The start of the reserved block is the 2nd to last valid day
                                 oe_start_date = all_valid_objs[-2]
                             elif len(all_valid_objs) == 1:
                                 oe_start_date = all_valid_objs[0]
                             else:
                                 oe_start_date = end_date.date()
                             
-                            # Pass this specific date as the start point for OE scheduling
                             df_ele_scheduled = schedule_electives_globally(df_ele, oe_start_date, holidays_set)
                             all_scheduled_subjects = pd.concat([df_scheduled, df_ele_scheduled], ignore_index=True)
                         else:
@@ -3883,7 +3878,6 @@ def main():
     
 if __name__ == "__main__":
     main()
-
 
 
 
