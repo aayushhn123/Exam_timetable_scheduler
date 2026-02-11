@@ -1210,7 +1210,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # STEP 2: PREPARE ATOMIC UNITS
     # ---------------------------------------------------------
     common_units = []
-    individual_units = []
+    uncommon_units = []
+    elec_units = []
     
     if 'CMGroup' in eligible_subjects.columns:
         eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
@@ -1235,24 +1236,36 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             }
             common_units.append(unit)
 
-    # Build Individual Units
+    # Build Individual Units (Split into Uncommon and Elec)
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
             all_indices = group.index.tolist()
             raw_slot = group['ExamSlotNumber'].iloc[0]
             
+            is_elec_unit = False
+            if IS_LAW_SCHOOL:
+                if (group['Category'].astype(str).str.upper().str.contains('ELEC')).any() or \
+                   (group['ModuleCode'].astype(str).str.contains(r'0E\d+', regex=True, case=False)).any() or \
+                   (group['SubjectName'].astype(str).str.upper().str.contains('ELECTIVE')).any():
+                    is_elec_unit = True
+            
             unit = {
-                'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
+                'type': 'ELECTIVE' if is_elec_unit else 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            individual_units.append(unit)
+            
+            if is_elec_unit:
+                elec_units.append(unit)
+            else:
+                uncommon_units.append(unit)
 
     # OPTIMIZATION: Sort Units by Frequency/Size to prevent schedule fragmentation
     common_units.sort(key=lambda x: x['student_count'], reverse=True)
-    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
+    uncommon_units.sort(key=lambda x: x['student_count'], reverse=True)
+    elec_units.sort(key=lambda x: x['student_count'], reverse=True)
 
     # ---------------------------------------------------------
     # STEP 3: SCHEDULING ENGINE
@@ -1311,14 +1324,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1 & 2: Core Dates ONLY
+    # PASS 1, 2, 3: Core Dates ONLY in Order: Common -> Uncommon -> Elective
     unscheduled = []
+    
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    for unit in individual_units:
-        if not attempt_schedule(unit, "Individual", core_valid_dates):
+    for unit in uncommon_units:
+        if not attempt_schedule(unit, "Uncommon", core_valid_dates):
+            unscheduled.append(unit)
+            
+    for unit in elec_units:
+        if not attempt_schedule(unit, "Elective", core_valid_dates):
             unscheduled.append(unit)
 
     if unscheduled:
@@ -1829,11 +1847,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # --- FIX FOR "UNNAMED" ISSUE (Safety Net) ---
+            # --- FIX FOR "UNNAMED" ISSUE ---
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
 
+            # --- FALLBACK: Rename any 'Unnamed: X' stream columns back to the Program Name ---
             rename_cols = {}
             for col in sheet_df.columns:
                 if str(col).startswith("Unnamed:"):
@@ -1959,6 +1978,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
+        # Pass session state name for instructions (generic)
         add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
                          Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
                          declaration_date=declaration_date, 
@@ -2848,17 +2868,13 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 conflict_found = not busy_on_date.empty
                 
-                # --- FIXED: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
+                # --- NEW: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
                 if not conflict_found and IS_LAW_SCHOOL:
                     prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
                     
-                    # Ensure we don't count the subject we are currently moving as a conflict against itself
-                    busy_prev_df = df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)]
-                    busy_prev = not busy_prev_df[busy_prev_df.index != idx].empty
-                    
-                    busy_next_df = df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)]
-                    busy_next = not busy_next_df[busy_next_df.index != idx].empty
+                    busy_prev = not df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)].empty
+                    busy_next = not df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)].empty
                     
                     if busy_prev or busy_next:
                         conflict_found = True
@@ -3894,11 +3910,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
