@@ -2855,13 +2855,17 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 conflict_found = not busy_on_date.empty
                 
-                # --- NEW: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
+                # --- FIXED: LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
                 if not conflict_found and IS_LAW_SCHOOL:
                     prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
                     
-                    busy_prev = not df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)].empty
-                    busy_next = not df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)].empty
+                    # Ensure we don't count the subject we are currently moving as a conflict against itself!
+                    busy_prev_df = df[(df['Exam Date'] == prev_date_str) & (df['SubBranch'] == sub_branch)]
+                    busy_prev = not busy_prev_df[busy_prev_df.index != idx].empty
+                    
+                    busy_next_df = df[(df['Exam Date'] == next_date_str) & (df['SubBranch'] == sub_branch)]
+                    busy_next = not busy_next_df[busy_next_df.index != idx].empty
                     
                     if busy_prev or busy_next:
                         conflict_found = True
@@ -3897,6 +3901,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
