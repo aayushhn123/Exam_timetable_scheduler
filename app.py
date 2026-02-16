@@ -1774,10 +1774,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
-    # Detect Law School Context
+    # Detect College Contexts
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college_context or "Law" in current_college_context
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
     
+    # --- MPSTME LAYOUT OPTIMIZATION ---
+    # Maximize space utilization by fitting more columns per page and reducing fixed widths
+    if IS_MPSTME:
+        sub_branch_cols_per_page = 8  # Increase columns per page to minimize page count
+        date_col_width = 40           # Reduce Date column width to save space
+    else:
+        # Default behavior for other schools
+        # sub_branch_cols_per_page remains 4 (or whatever was passed)
+        date_col_width = 60
+
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -1834,12 +1845,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # --- FIX FOR "UNNAMED" ISSUE ---
+            # --- FIX FOR "UNNAMED" ISSUE (Safety Net) ---
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
 
-            # --- FALLBACK: Rename any 'Unnamed: X' stream columns back to the Program Name ---
             rename_cols = {}
             for col in sheet_df.columns:
                 if str(col).startswith("Unnamed:"):
@@ -1891,6 +1901,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester'] and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
+                # Use updated sub_branch_cols_per_page here (8 for MPSTME)
                 for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
                     chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
                     cols_to_print = fixed_cols + chunk
@@ -1907,8 +1918,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     except: pass
 
                     page_width = pdf.w - 2 * pdf.l_margin
-                    sub_width = (page_width - 60) / max(len(chunk), 1)
-                    col_widths = [60] + [sub_width] * len(chunk)
+                    
+                    # Layout Calculation using optimized date_col_width
+                    sub_width = (page_width - date_col_width) / max(len(chunk), 1)
+                    col_widths = [date_col_width] + [sub_width] * len(chunk)
                     
                     pdf.add_page()
                     add_footer_with_page_number(pdf, 25)
@@ -1937,7 +1950,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     pdf.add_page()
                     add_footer_with_page_number(pdf, 25)
                     
-                    col_widths = [60, 40]
+                    # Optimized Elective Layout
+                    col_widths = [date_col_width, 40]
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
@@ -1965,7 +1979,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.add_page()
         add_footer_with_page_number(pdf, 25)
         instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        # Pass session state name for instructions (generic)
         add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
                          Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
                          declaration_date=declaration_date, 
@@ -3897,6 +3910,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
