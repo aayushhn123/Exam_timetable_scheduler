@@ -1586,70 +1586,83 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
-    # Footer
-    footer_height = 25
-    pdf.set_xy(10, pdf.h - footer_height)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
-    pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+    # --- LAYOUT SETTINGS FOR A4 ---
+    footer_height = 20  # Reduced footer height
+    header_end_y = 65   # Table starts higher up now
     
-    pdf.set_font("Arial", size=14)
-    pdf.set_text_color(0, 0, 0)
-    page_text = f"{pdf.page_no()} of {{nb}}"
-    text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
-    pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 12)
-    pdf.cell(text_width, 5, page_text, 0, 0, 'R')
-    
-    # Header
-    header_height = 95
-    pdf.set_y(0)
-    
-    if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
+    # Footer Rendering Function (Internal)
+    def render_footer():
+        pdf.set_xy(10, pdf.h - footer_height)
+        pdf.set_font("Arial", 'B', 10) # Slightly smaller footer font
+        pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+        
+        pdf.set_font("Arial", size=10)
         pdf.set_text_color(0, 0, 0)
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
-        pdf.set_xy(pdf.w - 60, 10)
-        pdf.cell(50, 10, decl_str, 0, 0, 'R')
+        page_text = f"{pdf.page_no()} of {{nb}}"
+        text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
+        pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 5)
+        pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-    logo_width = 45
-    logo_x = (pdf.w - logo_width) / 2
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    
-    college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
-    pdf.set_font("Arial", 'B', 16 if len(college_name) <= 60 else (14 if len(college_name) <= 80 else 12))
-    
-    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
-    
-    pdf.set_font("Arial", 'B', 15)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(10, 51)
-    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    # SIMPLE TIME SLOT DISPLAY
-    if time_slot:
-        pdf.set_font("Arial", 'B', 13)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
+    # Header Rendering Function (Internal)
+    def render_header():
+        pdf.set_y(0)
+        if declaration_date:
+            pdf.set_font("Arial", 'B', 9)
+            pdf.set_text_color(0, 0, 0)
+            decl_str = f"Date: {declaration_date.strftime('%d-%m-%Y')}"
+            pdf.set_xy(pdf.w - 50, 8)
+            pdf.cell(40, 10, decl_str, 0, 0, 'R')
+
+        # Compact Logo
+        logo_width = 35 # Smaller logo for A4
+        logo_x = (pdf.w - logo_width) / 2
+        if os.path.exists(LOGO_PATH):
+            pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
-        pdf.set_font("Arial", 'I', 10)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
+        # College Name Band
+        pdf.set_fill_color(149, 33, 28)
+        pdf.set_text_color(255, 255, 255)
+        college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
+        pdf.set_font("Arial", 'B', 12 if len(college_name) > 60 else 14)
         
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
-        pdf.set_y(85)
-    else:
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
-        pdf.set_y(75)
+        pdf.rect(10, 25, pdf.w - 20, 10, 'F') # Moved up to Y=25
+        pdf.set_xy(10, 25)
+        pdf.cell(pdf.w - 20, 10, college_name, 0, 1, 'C')
+        
+        # Details
+        pdf.set_font("Arial", 'B', 12)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(10, 38)
+        pdf.cell(pdf.w - 20, 6, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
+        
+        current_y = 45
+        if time_slot:
+            pdf.set_font("Arial", 'B', 11)
+            pdf.set_xy(10, current_y)
+            pdf.cell(pdf.w - 20, 5, f"Exam Time: {time_slot}", 0, 1, 'C')
+            current_y += 5
+            
+            pdf.set_font("Arial", 'I', 9)
+            pdf.set_xy(10, current_y)
+            pdf.cell(pdf.w - 20, 5, "(Check the subject exam time)", 0, 1, 'C')
+            current_y += 5
+
+        pdf.set_font("Arial", '', 10)
+        pdf.set_xy(10, current_y)
+        prog_str = ", ".join(Programs)
+        # Truncate program string if too long for one line
+        if len(prog_str) > 130: prog_str = prog_str[:130] + "..."
+        pdf.cell(pdf.w - 20, 5, f"Programs: {prog_str}", 0, 1, 'C')
+        
+        # Set cursor for table start
+        pdf.set_y(header_end_y)
+
+    # --- Draw First Page Header/Footer ---
+    render_header()
+    render_footer()
     
-    # Print Table
+    # Print Table Header
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
     for idx in range(len(df)):
@@ -1666,15 +1679,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             max_lines = max(max_lines, len(lines))
         row_h = line_height * max_lines
         
-        if pdf.get_y() + row_h > pdf.h - footer_height:
-            add_footer_with_page_number(pdf, footer_height)
+        # Check Page Break
+        if pdf.get_y() + row_h > pdf.h - footer_height - 5:
             pdf.add_page()
-            add_footer_with_page_number(pdf, footer_height)
-            add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot, actual_time_slots, declaration_date)
+            render_header()
+            render_footer()
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
-
 
 def add_footer_with_page_number(pdf, footer_height):
     """Add footer with signature and page number"""
@@ -1769,9 +1781,8 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
         pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(75)
 
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
-    # --- UPDATE: Set format to A4 (Landscape) for proper printing ---
-    # A4 Landscape is 297mm width x 210mm height
+def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
+    # A4 Landscape: 297mm width x 210mm height
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
@@ -1795,19 +1806,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         try:
             s = str(sem_str).strip().upper()
             sem_int = 1
-            
-            romans = {
-                'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 
-                'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 
-                'XI': 11, 'XII': 12
-            }
+            romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12}
             found = False
             for r_key, r_val in romans.items():
                 if s == r_key or s.endswith(f" {r_key}") or s.endswith(f"_{r_key}"):
                     sem_int = r_val
                     found = True
                     break
-            
             if not found:
                 import re
                 digits = re.findall(r'\d+', s)
@@ -1828,14 +1833,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # --- INTELLIGENT NAME RECOVERY ---
+            # Name Recovery
             main_branch_full = ""
             if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
                  main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # --- FIX FOR "UNNAMED" ISSUE ---
+            # Unnamed Safety
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
@@ -1847,9 +1852,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             if rename_cols:
                 sheet_df = sheet_df.rename(columns=rename_cols)
             
-            # --- DYNAMIC COLLEGE NAME LOGIC ---
+            # College Name Logic
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
-            
             if IS_LAW_SCHOOL and main_branch_full:
                 prog_upper = main_branch_full.upper()
                 if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
@@ -1882,18 +1886,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
             header_exam_time = get_header_time_for_semester(semester_raw)
 
-            # --- PDF GENERATION LOGIC ---
             if not is_elective:
-                # CORE SUBJECTS LOGIC
                 if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols = ["Exam Date"]
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester'] and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
-                # CHUNK LOOP: Fit 6 columns per page
-                for start in range(0, len(sub_branch_cols), sub_branch_cols_per_page):
-                    chunk = sub_branch_cols[start:start + sub_branch_cols_per_page]
+                # --- UPDATE: Force max 4 columns per page for better A4 fit ---
+                cols_per_page = 4 
+                
+                for start in range(0, len(sub_branch_cols), cols_per_page):
+                    chunk = sub_branch_cols[start:start + cols_per_page]
                     cols_to_print = fixed_cols + chunk
                     chunk_df = sheet_df[cols_to_print].copy()
                     
@@ -1907,11 +1911,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                     except: pass
 
-                    # Dynamic Width Calculation for A4 Landscape
-                    page_width = pdf.w - 2 * pdf.l_margin # ~277mm
-                    
-                    # Allocate 40mm for Date, distribute rest
-                    date_col_width = 40
+                    # Dynamic Width Calculation for A4 Landscape (~277mm usable width)
+                    page_width = pdf.w - 2 * pdf.l_margin 
+                    date_col_width = 35 # Slightly narrower date col
                     remaining_width = page_width - date_col_width
                     
                     num_sub = max(len(chunk), 1)
@@ -1920,19 +1922,30 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     col_widths = [date_col_width] + [sub_width] * len(chunk)
                     
                     pdf.add_page()
-                    add_footer_with_page_number(pdf, 25)
-                    add_header_to_page(pdf, (pdf.w-45)/2, 45, header_content, chunk, 
-                                     time_slot=header_exam_time, actual_time_slots=None, 
-                                     declaration_date=declaration_date, 
-                                     custom_college_name=sheet_college_name)
+                    # (Footer added inside print_table_custom now)
+                    
+                    # Need to set college name in global state or pass it? 
+                    # We pass it via print_table_custom which doesn't take it currently in your snippet...
+                    # Wait, the prompt's snippet for print_table_custom didn't have custom_college_name arg.
+                    # I have updated print_table_custom to handle the header internal rendering using session state.
+                    # So we just update the session state temporarily for this sheet render or rely on the global logic?
+                    # The prompt's snippet relies on st.session_state.get('selected_college').
+                    # To support Law School dynamic naming, we need to temporarily override it or update the function.
+                    # I updated print_table_custom above to use session_state primarily. 
+                    # To make it safe, let's update session state for this render:
+                    original_college = st.session_state.get('selected_college')
+                    st.session_state['selected_college'] = sheet_college_name
                     
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=10, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
+                    
+                    # Restore
+                    if original_college: st.session_state['selected_college'] = original_college
+                    
                     sheets_processed += 1
             else:
-                # ELECTIVE PAGE LOGIC
                 target_cols = ['Exam Date', 'OE Type', 'Subjects']
                 available_cols = [c for c in target_cols if c in sheet_df.columns]
                 
@@ -1945,23 +1958,22 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     except: pass
 
                     pdf.add_page()
-                    add_footer_with_page_number(pdf, 25)
                     
-                    # Fixed widths for A4 Landscape
-                    # Date: 40, OE: 30, Subjects: Rest
-                    col_widths = [40, 30]
+                    col_widths = [35, 30] # Date, OE
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
-                    add_header_to_page(pdf, (pdf.w-45)/2, 45, header_content, ["Electives"], 
-                                     time_slot=header_exam_time, actual_time_slots=None, 
-                                     declaration_date=declaration_date,
-                                     custom_college_name=sheet_college_name)
+                    # Temp override for Law School naming
+                    original_college = st.session_state.get('selected_college')
+                    st.session_state['selected_college'] = sheet_college_name
                     
                     print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=10, 
                                      header_content=header_content, Programs=["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
+                    
+                    if original_college: st.session_state['selected_college'] = original_college
+                    
                     sheets_processed += 1
                 
         except Exception as e:
@@ -1975,13 +1987,31 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     # Instructions Page
     try:
         pdf.add_page()
-        add_footer_with_page_number(pdf, 25)
-        instr_header = {'main_branch_full': 'EXAMINATION GUIDELINES', 'semester_roman': 'General'}
-        add_header_to_page(pdf, logo_x=(pdf.w-45)/2, logo_width=45, header_content=instr_header, 
-                         Programs=["All Candidates"], time_slot=None, actual_time_slots=None, 
-                         declaration_date=declaration_date, 
-                         custom_college_name=st.session_state.get('selected_college'))
-        pdf.set_y(95)
+        # Footer
+        pdf.set_xy(10, pdf.h - 20)
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
+        pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
+        pdf.set_font("Arial", size=10)
+        pdf.set_xy(pdf.w - 30, pdf.h - 15)
+        pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
+
+        # Header (Manual for this page)
+        pdf.set_y(0)
+        if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-35)/2, y=5, w=35)
+        pdf.set_fill_color(149, 33, 28)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Arial", 'B', 14)
+        pdf.rect(10, 25, pdf.w - 20, 10, 'F')
+        pdf.set_xy(10, 25)
+        pdf.cell(pdf.w - 20, 10, st.session_state.get('selected_college', "SVKM's NMIMS University"), 0, 1, 'C')
+        
+        pdf.set_font("Arial", 'B', 12)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(10, 40)
+        pdf.cell(0, 10, "EXAMINATION GUIDELINES - Semester General", 0, 1, 'C')
+        
+        pdf.set_y(60)
         pdf.set_font("Arial", 'B', 14)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
@@ -1991,7 +2021,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
-        pdf.set_font("Arial", size=12)
+        pdf.set_font("Arial", size=11)
         for i in instrs:
             pdf.multi_cell(0, 8, i)
             pdf.ln(2)
@@ -3908,4 +3938,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
