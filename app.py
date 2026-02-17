@@ -1552,7 +1552,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
     else:
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Arial", size=5)
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color if row_number % 2 == 1 else (255, 255, 255))
 
@@ -3928,6 +3928,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
