@@ -2696,9 +2696,9 @@ def save_to_excel(semester_wise_timetable):
                             df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
                             
                             if not df_elec_scheduled.empty:
-                                df_elec_scheduled['DisplaySubject'] = df_elec_scheduled.apply(
-                                    lambda x: f"{x['Subject']} ({x['ModuleCode']})", axis=1
-                                )
+                                # FIX: Use 'Subject' directly since it already contains the code.
+                                # Previously: f"{x['Subject']} ({x['ModuleCode']})" caused duplication.
+                                df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject']
                                 
                                 summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
                                     'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
@@ -3928,6 +3928,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
