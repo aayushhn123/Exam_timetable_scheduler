@@ -1587,13 +1587,13 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     setattr(pdf, '_row_counter', 0)
     
     # --- LAYOUT SETTINGS FOR A4 ---
-    footer_height = 20  # Reduced footer height
-    header_end_y = 65   # Table starts higher up now
+    footer_height = 20
+    header_end_y = 65
     
-    # Footer Rendering Function (Internal)
+    # Footer Rendering Function
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Arial", 'B', 10) # Slightly smaller footer font
+        pdf.set_font("Arial", 'B', 10)
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
         pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
         
@@ -1604,7 +1604,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 5)
         pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-    # Header Rendering Function (Internal)
+    # Header Rendering Function
     def render_header():
         pdf.set_y(0)
         if declaration_date:
@@ -1614,19 +1614,19 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             pdf.set_xy(pdf.w - 50, 8)
             pdf.cell(40, 10, decl_str, 0, 0, 'R')
 
-        # Compact Logo
-        logo_width = 35 # Smaller logo for A4
+        # Logo
+        logo_width = 35
         logo_x = (pdf.w - logo_width) / 2
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
-        # College Name Band
+        # College Name
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
         college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
         pdf.set_font("Arial", 'B', 12 if len(college_name) > 60 else 14)
         
-        pdf.rect(10, 25, pdf.w - 20, 10, 'F') # Moved up to Y=25
+        pdf.rect(10, 25, pdf.w - 20, 10, 'F')
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 10, college_name, 0, 1, 'C')
         
@@ -1651,16 +1651,17 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Arial", '', 10)
         pdf.set_xy(10, current_y)
         prog_str = ", ".join(Programs)
-        # Truncate program string if too long for one line
         if len(prog_str) > 130: prog_str = prog_str[:130] + "..."
         pdf.cell(pdf.w - 20, 5, f"Programs: {prog_str}", 0, 1, 'C')
         
-        # Set cursor for table start
-        pdf.set_y(header_end_y)
+        # CRITICAL: Reset cursor to start of table area (Left Margin, Header End Y)
+        pdf.set_xy(pdf.l_margin, header_end_y)
 
     # --- Draw First Page Header/Footer ---
-    render_header()
+    # FIX: Render Footer FIRST, then Header. 
+    # Footer moves cursor to bottom-right. Header resets it to top-left.
     render_footer()
+    render_header()
     
     # Print Table Header
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
@@ -1682,8 +1683,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         # Check Page Break
         if pdf.get_y() + row_h > pdf.h - footer_height - 5:
             pdf.add_page()
-            render_header()
-            render_footer()
+            render_footer() # Footer first
+            render_header() # Header last (resets cursor)
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
@@ -1893,7 +1894,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester'] and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
-                # --- UPDATE: Force max 4 columns per page for better A4 fit ---
                 cols_per_page = 4 
                 
                 for start in range(0, len(sub_branch_cols), cols_per_page):
@@ -1911,9 +1911,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                         chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                     except: pass
 
-                    # Dynamic Width Calculation for A4 Landscape (~277mm usable width)
                     page_width = pdf.w - 2 * pdf.l_margin 
-                    date_col_width = 35 # Slightly narrower date col
+                    date_col_width = 35
                     remaining_width = page_width - date_col_width
                     
                     num_sub = max(len(chunk), 1)
@@ -1922,17 +1921,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     col_widths = [date_col_width] + [sub_width] * len(chunk)
                     
                     pdf.add_page()
-                    # (Footer added inside print_table_custom now)
                     
-                    # Need to set college name in global state or pass it? 
-                    # We pass it via print_table_custom which doesn't take it currently in your snippet...
-                    # Wait, the prompt's snippet for print_table_custom didn't have custom_college_name arg.
-                    # I have updated print_table_custom to handle the header internal rendering using session state.
-                    # So we just update the session state temporarily for this sheet render or rely on the global logic?
-                    # The prompt's snippet relies on st.session_state.get('selected_college').
-                    # To support Law School dynamic naming, we need to temporarily override it or update the function.
-                    # I updated print_table_custom above to use session_state primarily. 
-                    # To make it safe, let's update session state for this render:
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
@@ -1941,7 +1930,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
                     
-                    # Restore
                     if original_college: st.session_state['selected_college'] = original_college
                     
                     sheets_processed += 1
@@ -1959,11 +1947,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
                     pdf.add_page()
                     
-                    col_widths = [35, 30] # Date, OE
+                    col_widths = [35, 30]
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
-                    # Temp override for Law School naming
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
@@ -3938,5 +3925,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
