@@ -1664,7 +1664,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
     # --- TABLE ROW FONT (Regular 8) ---
-    pdf.set_font("Arial", '', 8)
+    pdf.set_font("Arial", '', 5)
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -1688,7 +1688,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             render_header()
             pdf.set_font("Arial", 'B', 9) # Re-set header font
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 8)  # Re-set row font
+            pdf.set_font("Arial", '', 5)  # Re-set row font
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -3928,6 +3928,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
