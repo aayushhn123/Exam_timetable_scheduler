@@ -1103,7 +1103,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
     
-    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> STRICTLY Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual Priority (Within) -> Individual Normal -> OE")
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     
@@ -1243,9 +1243,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             raw_slot = group['ExamSlotNumber'].iloc[0]
             
             # --- CHECK PRIORITY (MBA Tech 'within' logic) ---
+            # If any row in this unit is marked as 'WITHIN', boost its priority
             is_priority = False
             if 'IsCommon' in group.columns:
-                # If ANY row in this unit is marked 'WITHIN', treat whole unit as priority
                 if (group['IsCommon'].astype(str) == 'WITHIN').any():
                     is_priority = True
 
@@ -1254,13 +1254,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum(),
-                'is_priority': is_priority  # Add priority flag
+                'is_priority': is_priority  # Tag for sorting
             }
             individual_units.append(unit)
 
     # OPTIMIZATION: Sort Individual Units
-    # Primary Key: Priority (1 for WITHIN, 0 for others) -> DESCENDING
-    # Secondary Key: Student Count -> DESCENDING
+    # 1. Priority: True (1) > False (0)
+    # 2. Size: Larger student count first
     individual_units.sort(key=lambda x: (1 if x.get('is_priority') else 0, x['student_count']), reverse=True)
 
     # ---------------------------------------------------------
@@ -1320,15 +1320,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1 & 2: Core Dates ONLY
+    # PASS 1: Schedule Common Groups (Cross-Sem)
     unscheduled = []
-    
-    # Schedule Common Groups first (Always priority 1)
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # Schedule Individual Units (Now sorted by Priority -> Size)
+    # PASS 2: Schedule Individual Units (Sorted by Priority 'WITHIN' -> Size)
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
@@ -1391,8 +1389,6 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
 
     return len(violations) == 0, violations
 
-
-    
 def read_timetable(uploaded_file):
     try:
         # Check if file is empty
@@ -1458,9 +1454,9 @@ def read_timetable(uploaded_file):
             df["CMGroup"] = ""
 
         # --- NEW: MBA Tech Sem VIII/X 'within' Logic ---
-        # Read IsCommon column. If 'within', treat as "Common Within Sem" (Priority Schedule, No CM Group)
+        # Forces 'within' subjects to be treated as INDIVIDUAL subjects but with HIGH PRIORITY
         if "IsCommon" in df.columns:
-            # Normalize IsCommon column temporary for checking
+            # Normalize IsCommon column
             is_common_check = df["IsCommon"].astype(str).fillna("NO")
             
             # Condition 1: Program is MBA TECH
@@ -1481,9 +1477,9 @@ def read_timetable(uploaded_file):
             target_mask = mask_mba & mask_sem & mask_within
             
             if target_mask.any():
-                # 1. Clear CMGroup: We do NOT want them grouped with cross-semester subjects
+                # 1. Clear CMGroup: Remove them from Cross-Sem Common logic
                 df.loc[target_mask, "CMGroup"] = ""
-                # 2. Mark IsCommon as 'WITHIN': The scheduler will look for this tag to prioritize them
+                # 2. Mark IsCommon as 'WITHIN': Used by scheduler for prioritization
                 df.loc[target_mask, "IsCommon"] = "WITHIN"
 
         # 5. Clean Numerics
@@ -1525,7 +1521,7 @@ def read_timetable(uploaded_file):
         if "IsCommon" not in df.columns:
             df["IsCommon"] = "NO"
         else:
-            # Preserve "WITHIN" values if set by our logic above, otherwise fill NO
+            # Preserve "WITHIN" if set above
             df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
 
         is_true_oe_mask = (df["OE"] != "")
@@ -1557,7 +1553,7 @@ def read_timetable(uploaded_file):
         import traceback
         st.code(traceback.format_exc())
         return None, None, None
-   
+
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
@@ -3965,6 +3961,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
