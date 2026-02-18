@@ -1099,11 +1099,12 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     return None
 
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
-    # Detect Law School Context
+    # Detect College Context
     current_college = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
-    
-    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual Priority (Within) -> Individual Normal -> OE")
+    IS_LAW_SCHOOL = "Law" in current_college
+    IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
+
+    st.info(f"🚀 SCHEDULING STRATEGY: Common (CM!=0) -> Individual (CM=0) [Sorted & Slot Optimized] -> STRICTLY Reserve Last 2 Days for OE")
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     
@@ -1129,7 +1130,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         core_valid_dates = all_valid_dates
         oe_reserved_dates = []
     else:
-        # Reserve last 2 days for OE
         core_valid_dates = all_valid_dates[:-2]
         oe_reserved_dates = all_valid_dates[-2:]
         
@@ -1150,7 +1150,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         digits = re.findall(r'\d+', s)
         return int(digits[0]) if digits else 1
 
-    # Filter Eligible Subjects
+    # Filter Eligible Subjects (non-OE)
     eligible_subjects = df[
         (~(df['OE'].notna() & (df['OE'].str.strip() != "")))
     ].copy()
@@ -1163,13 +1163,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         sem_upper = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
         is_elec = eligible_subjects['Category'] == 'ELEC'
         
-        # 1. Sem 8 ELEC -> Treat as Common Group (Schedule Same Day)
         sem8_elec_mask = is_elec & (sem_upper.str.endswith('VIII') | sem_upper.str.endswith(' 8') | (sem_upper == '8'))
         if sem8_elec_mask.any():
             eligible_subjects.loc[sem8_elec_mask, 'CMGroup'] = "LAW_SEM8_ELEC_GROUP"
             eligible_subjects.loc[sem8_elec_mask, 'CMGroup_Clean'] = "LAW_SEM8_ELEC_GROUP"
 
-        # 2. Sem 6 ELEC -> Treat as Individual
         sem6_elec_mask = is_elec & (sem_upper.str.endswith('VI') | sem_upper.str.endswith(' 6') | (sem_upper == '6'))
         if sem6_elec_mask.any():
             eligible_subjects.loc[sem6_elec_mask, 'CMGroup'] = ""
@@ -1209,18 +1207,39 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     # ---------------------------------------------------------
     # STEP 2: PREPARE ATOMIC UNITS
     # ---------------------------------------------------------
-    common_units = []
-    individual_units = []
-    
     if 'CMGroup' in eligible_subjects.columns:
         eligible_subjects['CMGroup_Clean'] = eligible_subjects['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
+    # ---------------------------------------------------------
+    # MBA TECH SPECIAL: Identify "common-within" units separately
+    # These are subjects for MBA TECH Sem VIII / X with IsCommon == 'within'
+    # They have been given a synthetic CMGroup in read_timetable, so they
+    # will naturally fall into common_units below. We just need to ensure
+    # they are scheduled FIRST (before other common units) so they anchor
+    # the timetable for those semesters.
+    # ---------------------------------------------------------
+    mba_tech_common_within_ids = set()
+    if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
+        mba_mask = eligible_subjects['Program'].str.upper().str.contains("MBA TECH", na=False)
+        sem_u = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
+        target_sem = (
+            sem_u.str.endswith("VIII") | sem_u.str.endswith(" 8") | (sem_u == "8") |
+            sem_u.str.endswith("X")    | sem_u.str.endswith(" 10") | (sem_u == "10")
+        )
+        is_within = eligible_subjects['IsCommon'].str.strip().str.upper() == "WITHIN"
+        mba_within_rows = eligible_subjects[mba_mask & target_sem & is_within]
+        # Collect synthetic CMGroup IDs so we can prioritise them
+        mba_tech_common_within_ids = set(mba_within_rows['CMGroup_Clean'].unique()) - {""}
+
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
     # Build Common Units
+    common_units_priority = []   # MBA TECH within-sem commons go here → scheduled FIRST
+    common_units_normal   = []   # All other CM groups
+
     if not df_common.empty:
         for cm_id, group in df_common.groupby('CMGroup_Clean'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
@@ -1233,35 +1252,32 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            common_units.append(unit)
+            # Route MBA TECH within-sem commons to the priority list
+            if cm_id in mba_tech_common_within_ids:
+                common_units_priority.append(unit)
+            else:
+                common_units_normal.append(unit)
+
+    # Merge: MBA TECH within-sem first, then all other common units
+    common_units = common_units_priority + common_units_normal
 
     # Build Individual Units
+    individual_units = []
     if not df_individual.empty:
         for mod_code, group in df_individual.groupby('ModuleCode'):
             branch_sem_combinations = [f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()]
             all_indices = group.index.tolist()
             raw_slot = group['ExamSlotNumber'].iloc[0]
             
-            # --- CHECK PRIORITY (MBA Tech 'within' logic) ---
-            # If any row in this unit is marked as 'WITHIN', boost its priority
-            is_priority = False
-            if 'IsCommon' in group.columns:
-                if (group['IsCommon'].astype(str) == 'WITHIN').any():
-                    is_priority = True
-
             unit = {
                 'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': all_indices,
                 'branch_sems': list(set(branch_sem_combinations)), 'fixed_slot': raw_slot,
                 'sem_raw': group['Semester'].iloc[0],
-                'student_count': group['StudentCount'].sum(),
-                'is_priority': is_priority  # Tag for sorting
+                'student_count': group['StudentCount'].sum()
             }
             individual_units.append(unit)
 
-    # OPTIMIZATION: Sort Individual Units
-    # 1. Priority: True (1) > False (0)
-    # 2. Size: Larger student count first
-    individual_units.sort(key=lambda x: (1 if x.get('is_priority') else 0, x['student_count']), reverse=True)
+    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
 
     # ---------------------------------------------------------
     # STEP 3: SCHEDULING ENGINE
@@ -1288,7 +1304,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             
             # --- LAW SCHOOL SPECIFIC CONSTRAINT: Alternate Days ---
             if IS_LAW_SCHOOL:
-                # Check previous day for ANY exam for this branch
                 prev_date = date_obj - timedelta(days=1)
                 prev_date_str = prev_date.strftime("%d-%m-%Y")
                 if prev_date_str in daily_schedule_map:
@@ -1306,7 +1321,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                 
                 if check_campus_capacity(date_str, time_slot_str, unit['indices']):
-                    # SUCCESS
                     for row_idx in unit['indices']:
                         df.loc[row_idx, 'Exam Date'] = date_str
                         df.loc[row_idx, 'Time Slot'] = time_slot_str
@@ -1320,13 +1334,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         
         return False
 
-    # PASS 1: Schedule Common Groups (Cross-Sem)
+    # PASS 1: MBA TECH within-sem common units FIRST (priority), then all other common, then individual
     unscheduled = []
     for unit in common_units:
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # PASS 2: Schedule Individual Units (Sorted by Priority 'WITHIN' -> Size)
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
@@ -1340,7 +1353,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         st.success("✅ All Core subjects scheduled successfully.")
 
     return df
-    
+
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
     Validates that the number of students per session PER CAMPUS does not exceed max_capacity.
@@ -1440,7 +1453,7 @@ def read_timetable(uploaded_file):
                 df[col] = df[col].ffill()
 
         # 3. Clean Strings
-        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester", "Category"]
+        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
@@ -1452,35 +1465,6 @@ def read_timetable(uploaded_file):
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
-
-        # --- NEW: MBA Tech Sem VIII/X 'within' Logic ---
-        # Forces 'within' subjects to be treated as INDIVIDUAL subjects but with HIGH PRIORITY
-        if "IsCommon" in df.columns:
-            # Normalize IsCommon column
-            is_common_check = df["IsCommon"].astype(str).fillna("NO")
-            
-            # Condition 1: Program is MBA TECH
-            mask_mba = df["Program"].astype(str).str.upper().str.contains("MBA TECH", na=False)
-            
-            # Condition 2: Semester is VIII, X, 8, or 10
-            def is_target_sem(s):
-                s_up = str(s).upper().strip()
-                s_clean = s_up.replace("SEMESTER", "").replace("SEM", "").strip()
-                return s_clean in ["VIII", "8", "X", "10"]
-            
-            mask_sem = df["Semester"].apply(is_target_sem)
-            
-            # Condition 3: IsCommon is 'within'
-            mask_within = is_common_check.str.lower().str.strip() == "within"
-            
-            # Apply to matches
-            target_mask = mask_mba & mask_sem & mask_within
-            
-            if target_mask.any():
-                # 1. Clear CMGroup: Remove them from Cross-Sem Common logic
-                df.loc[target_mask, "CMGroup"] = ""
-                # 2. Mark IsCommon as 'WITHIN': Used by scheduler for prioritization
-                df.loc[target_mask, "IsCommon"] = "WITHIN"
 
         # 5. Clean Numerics
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
@@ -1512,17 +1496,40 @@ def read_timetable(uploaded_file):
         else: 
             df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
-        # Reset/Initialize logic columns
+        # 8. Read and clean IsCommon column
+        if "IsCommon" not in df.columns:
+            df["IsCommon"] = "NO"
+        else:
+            df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str).str.strip()
+
+        # Reset/Initialize CommonAcrossSems
         if "CommonAcrossSems" not in df.columns:
             df["CommonAcrossSems"] = False
         else:
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
-            
-        if "IsCommon" not in df.columns:
-            df["IsCommon"] = "NO"
-        else:
-            # Preserve "WITHIN" if set above
-            df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str)
+
+        # ---------------------------------------------------------------
+        # MBA TECH SPECIAL LOGIC:
+        # For MBA TECH rows in Sem VIII or X, wherever IsCommon == 'within',
+        # assign a synthetic CMGroup so they get scheduled together (same day).
+        # This is ONLY applied to MBA TECH Sem VIII and X.
+        # ---------------------------------------------------------------
+        mba_tech_mask = df["Program"].str.upper().str.contains("MBA TECH", na=False)
+        sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
+        target_sem_mask = (
+            sem_upper_series.str.endswith("VIII") | sem_upper_series.str.endswith(" 8") | (sem_upper_series == "8") |
+            sem_upper_series.str.endswith("X")    | sem_upper_series.str.endswith(" 10") | (sem_upper_series == "10")
+        )
+        is_common_within_mask = df["IsCommon"].str.strip().str.upper() == "WITHIN"
+
+        mba_tech_common_within_mask = mba_tech_mask & target_sem_mask & is_common_within_mask
+
+        if mba_tech_common_within_mask.any():
+            # Group by Semester so Sem VIII and Sem X get separate CMGroups
+            for sem_val, sem_group_idx in df[mba_tech_common_within_mask].groupby("Semester").groups.items():
+                synthetic_cm = f"MBATECH_{str(sem_val).strip().upper().replace(' ', '_')}_COMMON"
+                df.loc[sem_group_idx, "CMGroup"] = synthetic_cm
+            st.info(f"ℹ️ MBA TECH Common-Within subjects detected: assigned synthetic CMGroups for Sem VIII / X.")
 
         is_true_oe_mask = (df["OE"] != "")
         
@@ -1553,7 +1560,9 @@ def read_timetable(uploaded_file):
         import traceback
         st.code(traceback.format_exc())
         return None, None, None
+    
 
+   
 def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
@@ -3961,14 +3970,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
