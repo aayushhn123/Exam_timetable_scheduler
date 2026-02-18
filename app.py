@@ -1437,7 +1437,7 @@ def read_timetable(uploaded_file):
                 df[col] = df[col].ffill()
 
         # 3. Clean Strings
-        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
+        string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester", "Category"]
         for col in string_columns:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
@@ -1449,6 +1449,35 @@ def read_timetable(uploaded_file):
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
+
+        # --- NEW: MBA Tech Sem VIII/X 'within' Logic ---
+        # Forces 'within' subjects to be treated as Common Groups so they are scheduled first
+        if "IsCommon" in df.columns:
+            # Normalize IsCommon column
+            df["IsCommon"] = df["IsCommon"].astype(str).fillna("NO")
+            
+            # Condition 1: Program is MBA TECH
+            mask_mba = df["Program"].astype(str).str.upper().str.contains("MBA TECH", na=False)
+            
+            # Condition 2: Semester is VIII, X, 8, or 10
+            def is_target_sem(s):
+                s_up = str(s).upper().strip()
+                s_clean = s_up.replace("SEMESTER", "").replace("SEM", "").strip()
+                return s_clean in ["VIII", "8", "X", "10"]
+            
+            mask_sem = df["Semester"].apply(is_target_sem)
+            
+            # Condition 3: IsCommon is 'within'
+            mask_within = df["IsCommon"].str.lower().str.strip() == "within"
+            
+            # Apply to matches
+            target_mask = mask_mba & mask_sem & mask_within
+            
+            if target_mask.any():
+                # Assign a synthetic CMGroup (CW_ModuleCode) to these subjects
+                # This ensures the scheduler prioritizes them as 'Common Units'
+                df.loc[target_mask, "CMGroup"] = "CW_" + df.loc[target_mask, "ModuleCode"].astype(str)
+                df.loc[target_mask, "IsCommon"] = "YES" # Ensure downstream logic sees them as common
 
         # 5. Clean Numerics
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
@@ -3928,6 +3957,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
