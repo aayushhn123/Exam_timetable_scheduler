@@ -1657,7 +1657,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.cell(40, 10, decl_str, 0, 0, 'R')
 
         # Logo
-        logo_width = 30 # Smaller logo
+        logo_width = 45 # INCREASED LOGO SIZE
         logo_x = (pdf.w - logo_width) / 2
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
@@ -1690,11 +1690,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.cell(pdf.w - 20, 4, "(Check the subject exam time)", 0, 1, 'C')
             current_y += 4
 
-        pdf.set_font("Arial", '', 9) # Smaller program font
-        pdf.set_xy(10, current_y)
-        prog_str = ", ".join(Programs)
-        if len(prog_str) > 150: prog_str = prog_str[:150] + "..."
-        pdf.cell(pdf.w - 20, 5, f"Programs: {prog_str}", 0, 1, 'C')
+        # Programs section completely removed as requested
         
         pdf.set_xy(pdf.l_margin, header_end_y)
 
@@ -1816,16 +1812,9 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 71)
-        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
-        pdf.set_y(85)
-    else:
-        # Fallback for pages without time (like instructions)
-        pdf.set_font("Arial", '', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, f"Programs: {', '.join(Programs)}", 0, 1, 'C')
         pdf.set_y(75)
+    else:
+        pdf.set_y(65)
 
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     # A4 Landscape: 297mm width x 210mm height
@@ -2030,7 +2019,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
         # Header
         pdf.set_y(0)
-        if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-35)/2, y=5, w=35)
+        # INCREASED LOGO SIZE TO 45
+        if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 14)
@@ -3970,3 +3960,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
