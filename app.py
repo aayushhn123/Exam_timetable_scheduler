@@ -1569,7 +1569,7 @@ def wrap_text(pdf, text, col_width):
         return wrap_text_cache[cache_key]
     
     import re
-    # Match time string brackets or regular words to prevent time values from breaking across lines
+    # Keep time brackets together so they don't break across lines
     words = re.findall(r'[\[\(]\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M[\]\)]|\S+', text, re.IGNORECASE)
     
     lines = []
@@ -1605,7 +1605,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 5 # Inherited from master file scale
+        base_size = 8  # RESTORED BACK TO 8
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
         # Always fill white for standard rows
@@ -1623,7 +1623,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     row_h = line_height * max_lines
     x0, y0 = pdf.get_x(), pdf.get_y()
     
-    # Fill the background for all rows to overwrite any prior state
+    # Fill the background for all rows (solid white)
     pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
     import re
@@ -1670,13 +1670,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     setattr(pdf, '_row_counter', 0)
     
     # --- LAYOUT SETTINGS FOR A4 (COMPACT) ---
-    footer_height = 18   # Reduced footer height slightly
-    header_end_y = 62    # Table starts higher
+    footer_height = 18   
+    header_end_y = 62    
     
-    # Footer Rendering Function
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Arial", 'B', 9) # Smaller footer font
+        pdf.set_font("Arial", 'B', 9) 
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
         pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
         
@@ -1687,7 +1686,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         pdf.set_xy(pdf.w - 10 - text_width, pdf.h - footer_height + 5)
         pdf.cell(text_width, 5, page_text, 0, 0, 'R')
 
-    # Header Rendering Function
     def render_header():
         pdf.set_y(0)
         if declaration_date:
@@ -1707,14 +1705,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
         college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
-        pdf.set_font("Arial", 'B', 12) # Reduced from 14
+        pdf.set_font("Arial", 'B', 12) 
         
-        pdf.rect(10, 25, pdf.w - 20, 8, 'F') # Smaller height
+        pdf.rect(10, 25, pdf.w - 20, 8, 'F') 
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, college_name, 0, 1, 'C')
         
         # Details
-        pdf.set_font("Arial", 'B', 11) # Reduced from 12
+        pdf.set_font("Arial", 'B', 11) 
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 35)
         pdf.cell(pdf.w - 20, 6, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
@@ -1726,14 +1724,13 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.cell(pdf.w - 20, 5, f"Exam Time: {time_slot}", 0, 1, 'C')
             current_y += 5
             
-            # Made bigger (size 10) and bolder ('BI')
-            pdf.set_font("Arial", 'BI', 10) 
+            # Made bigger (size 12) and bolder ('BI' for Bold/Italic)
+            pdf.set_font("Arial", 'BI', 12) 
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 5, "(Check the subject exam time)", 0, 1, 'C')
             current_y += 5
 
-        # Programs section completely removed as requested
-        
+        # Programs section removed
         pdf.set_xy(pdf.l_margin, header_end_y)
 
     render_footer()
@@ -1743,8 +1740,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     pdf.set_font("Arial", 'B', 9)
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
-    # --- TABLE ROW FONT (Regular 5) ---
-    pdf.set_font("Arial", '', 5)
+    # --- TABLE ROW FONT (Regular 8) ---
+    pdf.set_font("Arial", '', 8) # RESTORED TO 8
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -1754,8 +1751,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         max_lines = 0
         for i, cell_text in enumerate(row):
             text = str(cell_text) if cell_text is not None else ""
-            avail_w = col_widths[i] - 2 # Tighter padding
-            # Pass current font size implicit in pdf object
+            avail_w = col_widths[i] - 2 
             lines = wrap_text(pdf, text, avail_w)
             wrapped_cells.append(lines)
             max_lines = max(max_lines, len(lines))
@@ -1766,9 +1762,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Arial", 'B', 9) # Re-set header font
+            pdf.set_font("Arial", 'B', 9) 
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 5)  # Re-set row font
+            pdf.set_font("Arial", '', 8)  # RESTORED TO 8
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -1827,7 +1823,6 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
     pdf.set_fill_color(149, 33, 28)
     pdf.set_text_color(255, 255, 255)
     
-    # Use custom name if provided (For Law School logic), else default to session state
     if custom_college_name:
         college_name = custom_college_name
     else:
@@ -1844,7 +1839,6 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
     pdf.set_xy(10, 51)
     pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
     
-    # SIMPLE TIME SLOT DISPLAY
     if time_slot:
         pdf.set_font("Arial", 'B', 13)
         pdf.set_xy(10, 59)
@@ -1855,10 +1849,11 @@ def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_s
         pdf.set_xy(10, 65)
         pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
         
+        # Programs section removed to match core tables
         pdf.set_y(75)
     else:
         pdf.set_y(65)
-
+        
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     # A4 Landscape: 297mm width x 210mm height
     pdf = FPDF(orientation='L', unit='mm', format='A4')
@@ -4003,5 +3998,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
