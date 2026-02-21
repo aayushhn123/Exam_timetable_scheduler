@@ -1564,15 +1564,15 @@ def read_timetable(uploaded_file):
 
    
 def wrap_text(pdf, text, col_width):
-    cache_key = (text, col_width)
+    # Added font style to cache key to ensure precise measuring
+    cache_key = (text, col_width, pdf.font_style)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
         
     import re
-    # Precise regex to isolate time brackets
     time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
     
-    # Tokenize: split standard words but keep time blocks intact as single words
+    # Tokenize: split standard words but keep time blocks intact
     parts = time_pattern.split(text)
     tokens = []
     for i, p in enumerate(parts):
@@ -1583,19 +1583,27 @@ def wrap_text(pdf, text, col_width):
             
     lines = []
     current_line = ""
+    
+    # Save current font state to restore later
+    old_family = pdf.font_family
+    old_style = pdf.font_style
+    old_size = pdf.font_size_pt
+    
     for token in tokens:
         test_line = token if not current_line else current_line + " " + token
         
-        # Calculate width dynamically
+        # Measure EXACT width by dynamically toggling bold for time strings
         test_w = 0
         for pt in time_pattern.split(test_line):
+            if not pt: continue
             if time_pattern.match(pt):
-                # Add a 25% width penalty to account for the bold font expansion
-                test_w += pdf.get_string_width(pt) * 1.25 
+                pdf.set_font(old_family, 'B', old_size)
+                test_w += pdf.get_string_width(pt)
             else:
+                pdf.set_font(old_family, old_style, old_size)
                 test_w += pdf.get_string_width(pt)
                 
-        # Only fit if the simulated bold width fits within the column
+        # Break line if the physically rendered width exceeds column width
         if test_w <= col_width:
             current_line = test_line
         else:
@@ -1606,6 +1614,9 @@ def wrap_text(pdf, text, col_width):
     if current_line:
         lines.append(current_line)
         
+    # Restore original font state
+    pdf.set_font(old_family, old_style, old_size)
+    
     wrap_text_cache[cache_key] = lines
     return lines
 
@@ -1647,7 +1658,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
     import re
-    # Regex to identify time string brackets to make them bold
     time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
 
     for i, lines in enumerate(wrapped_cells):
@@ -1661,25 +1671,38 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
                 pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
                 pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
             else:
-                # Bold the time bracket explicitly
+                # Calculate exact total width of all parts
                 total_w = 0
                 for k, p in enumerate(parts):
+                    if not p: continue
                     if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
                     else: pdf.set_font(base_font, base_style, base_size)
                     total_w += pdf.get_string_width(p)
                 
-                # STRICT BOUNDARY: Prevent text from bleeding outside the left border
+                # Start X position properly centered and safely padded
                 start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
-                pdf.set_xy(start_x, y0 + j * line_height + pad_v)
+                current_x = start_x
                 
                 for k, p in enumerate(parts):
+                    if not p: continue
                     if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
                     else: pdf.set_font(base_font, base_style, base_size)
-                    pdf.cell(pdf.get_string_width(p), line_height, p, border=0, align='L')
+                    
+                    w = pdf.get_string_width(p)
+                    
+                    # MATHEMATICAL FIX: Shift X left by c_margin so text draws exactly at current_x 
+                    # This removes the invisible padding gap that pushes text out of the box
+                    pdf.set_xy(current_x - pdf.c_margin, y0 + j * line_height + pad_v)
+                    
+                    # Cell width must include 2*c_margin to prevent premature auto-wrap
+                    pdf.cell(w + 2 * pdf.c_margin, line_height, p, border=0, align='L')
+                    
+                    current_x += w
                 
-                # Restore base font after the line
+                # Restore base font after the line completes
                 pdf.set_font(base_font, base_style, base_size)
         
+        # Draw the cell boundary
         pdf.rect(cx, y0, col_widths[i], row_h)
         pdf.set_xy(cx + col_widths[i], y0)
 
@@ -4019,6 +4042,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
