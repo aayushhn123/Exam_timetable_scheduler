@@ -1569,14 +1569,22 @@ def wrap_text(pdf, text, col_width):
         return wrap_text_cache[cache_key]
     
     import re
-    # Keep time brackets together so they don't break across lines
-    words = re.findall(r'[\[\(]\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M[\]\)]|\S+', text, re.IGNORECASE)
+    # More robust regex to handle potential spaces inside brackets
+    words = re.findall(r'[\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)]|\S+', text, re.IGNORECASE)
+    time_pattern = re.compile(r'[\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)]', re.IGNORECASE)
     
     lines = []
     current_line = ""
     for word in words:
         test_line = word if not current_line else current_line + " " + word
-        if pdf.get_string_width(test_line) <= col_width:
+        
+        # Estimate width: add 15% to time strings because they will be bolded later
+        actual_width = pdf.get_string_width(test_line)
+        time_matches = time_pattern.findall(test_line)
+        for tm in time_matches:
+            actual_width += (pdf.get_string_width(tm) * 0.15)
+            
+        if actual_width <= col_width:
             current_line = test_line
         else:
             if current_line:
@@ -1591,7 +1599,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 2
     header_bg_color = (149, 33, 28)
     header_text_color = (255, 255, 255)
-    # Changed to white to remove the grey gradient
     alt_row_color = (255, 255, 255) 
 
     row_number = getattr(pdf, '_row_counter', 0)
@@ -1605,10 +1612,9 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 8  # RESTORED BACK TO 8
+        base_size = 8
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
-        # Always fill white for standard rows
         pdf.set_fill_color(*alt_row_color)
 
     wrapped_cells = []
@@ -1623,12 +1629,12 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     row_h = line_height * max_lines
     x0, y0 = pdf.get_x(), pdf.get_y()
     
-    # Fill the background for all rows (solid white)
+    # Fill the background for all rows to overwrite any prior state
     pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
     import re
     # Regex to identify time string brackets to make them bold
-    time_pattern = re.compile(r'([\[\(]\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M[\]\)])', re.IGNORECASE)
+    time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
 
     for i, lines in enumerate(wrapped_cells):
         cx = pdf.get_x()
@@ -1648,7 +1654,8 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
                     else: pdf.set_font(base_font, base_style, base_size)
                     total_w += pdf.get_string_width(p)
                 
-                start_x = cx + (col_widths[i] - total_w) / 2
+                # FIXED: Prevent text from bleeding outside the left border
+                start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
                 pdf.set_xy(start_x, y0 + j * line_height + pad_v)
                 
                 for k, p in enumerate(parts):
@@ -3998,6 +4005,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
