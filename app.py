@@ -1567,31 +1567,45 @@ def wrap_text(pdf, text, col_width):
     cache_key = (text, col_width)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
-    
+        
     import re
-    # More robust regex to handle potential spaces inside brackets
-    words = re.findall(r'[\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)]|\S+', text, re.IGNORECASE)
-    time_pattern = re.compile(r'[\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)]', re.IGNORECASE)
+    # Precise regex to isolate time brackets
+    time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
     
+    # Tokenize: split standard words but keep time blocks intact as single words
+    parts = time_pattern.split(text)
+    tokens = []
+    for i, p in enumerate(parts):
+        if i % 2 == 1:
+            tokens.append(p)
+        else:
+            tokens.extend(p.split())
+            
     lines = []
     current_line = ""
-    for word in words:
-        test_line = word if not current_line else current_line + " " + word
+    for token in tokens:
+        test_line = token if not current_line else current_line + " " + token
         
-        # Estimate width: add 15% to time strings because they will be bolded later
-        actual_width = pdf.get_string_width(test_line)
-        time_matches = time_pattern.findall(test_line)
-        for tm in time_matches:
-            actual_width += (pdf.get_string_width(tm) * 0.15)
-            
-        if actual_width <= col_width:
+        # Calculate width dynamically
+        test_w = 0
+        for pt in time_pattern.split(test_line):
+            if time_pattern.match(pt):
+                # Add a 25% width penalty to account for the bold font expansion
+                test_w += pdf.get_string_width(pt) * 1.25 
+            else:
+                test_w += pdf.get_string_width(pt)
+                
+        # Only fit if the simulated bold width fits within the column
+        if test_w <= col_width:
             current_line = test_line
         else:
             if current_line:
                 lines.append(current_line)
-            current_line = word
+            current_line = token
+            
     if current_line:
         lines.append(current_line)
+        
     wrap_text_cache[cache_key] = lines
     return lines
 
@@ -1654,7 +1668,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
                     else: pdf.set_font(base_font, base_style, base_size)
                     total_w += pdf.get_string_width(p)
                 
-                # FIXED: Prevent text from bleeding outside the left border
+                # STRICT BOUNDARY: Prevent text from bleeding outside the left border
                 start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
                 pdf.set_xy(start_x, y0 + j * line_height + pad_v)
                 
@@ -4005,6 +4019,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
