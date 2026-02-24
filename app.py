@@ -1289,10 +1289,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             show_capacity_popup()
             st.stop() # Halts script and waits for user's dialog choice
         else:
+            st.session_state.applied_capacity_mode = "NATURAL_FIT"
             st.success("✅ All Core subjects scheduled successfully within limits.")
             return temp_df
     else:
         choice = st.session_state.capacity_override_choice
+        st.session_state.applied_capacity_mode = choice  # Save for dashboard display
         del st.session_state['capacity_override_choice'] # Reset for next run
         
         if choice == "YES":
@@ -3069,7 +3071,8 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays):
     # The Main Scheduler's placement is usually safest for OEs.
     
     return sem_dict, 0, []
-    
+
+
 def main():
     # Check if college is selected
     if st.session_state.selected_college is None:
@@ -3546,6 +3549,16 @@ def main():
                             
                             st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple Programs)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
                             
+                            # --- DASHBOARD CAPACITY MODE INDICATOR ---
+                            if 'applied_capacity_mode' in st.session_state:
+                                if st.session_state.applied_capacity_mode == "YES":
+                                    st.warning("⚠️ **Active Scheduling Mode:** Mumbai Capacity Limits IGNORED (Override Active)")
+                                elif st.session_state.applied_capacity_mode == "NO":
+                                    st.info("🔒 **Active Scheduling Mode:** Strict Mumbai Capacity Limits ENFORCED")
+                                elif st.session_state.applied_capacity_mode == "NATURAL_FIT":
+                                    st.success("✅ **Active Scheduling Mode:** All subjects fit naturally within capacity limits")
+                            # -----------------------------------------
+                            
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
                             st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
                             
@@ -3925,25 +3938,25 @@ def main():
                             df_non_elec["SubjectDisplay"] = df_non_elec.apply(format_subject_display, axis=1)
                             df_non_elec["Exam Date"] = pd.to_datetime(df_non_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                             df_non_elec = df_non_elec.sort_values(by="Exam Date", ascending=True)
-                           
+                            
                             display_data = []
                             for date, group in df_non_elec.groupby('Exam Date'):
                                 date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
                                 row_data = {'Exam Date': date_str}
-                               
+                                
                                 for subbranch in df_non_elec['SubBranch'].unique():
                                     subbranch_subjects = group[group['SubBranch'] == subbranch]['SubjectDisplay'].tolist()
                                     row_data[subbranch] = ", ".join(subbranch_subjects) if subbranch_subjects else "---"
-                               
+                                
                                 display_data.append(row_data)
-                           
+                            
                             if display_data:
                                 display_df = pd.DataFrame(display_data)
                                 display_df = display_df.set_index('Exam Date')
                                 st.dataframe(display_df, use_container_width=True)
                             else:
                                 pass
-                               
+                                
                         except Exception as e:
                             st.error(f"Error displaying core subjects: {str(e)}")
                             display_cols = ['Exam Date', 'SubBranch', 'Subject', 'Time Slot']
@@ -3952,12 +3965,12 @@ def main():
 
                     if not df_elec.empty:
                         st.markdown(f"#### {main_branch_full} - Open Electives")
-                       
+                        
                         try:
                             df_elec["SubjectDisplay"] = df_elec.apply(format_elective_display, axis=1)
                             df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", errors='coerce')
                             df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
-                           
+                            
                             elec_display_data = []
                             for (oe_type, date), group in df_elec.groupby(['OE', 'Exam Date']):
                                 date_str = date.strftime("%d-%m-%Y") if pd.notna(date) else "Unknown Date"
@@ -3967,13 +3980,13 @@ def main():
                                     'OE Type': oe_type,
                                     'Subjects': subjects
                                 })
-                           
+                            
                             if elec_display_data:
                                 elec_display_df = pd.DataFrame(elec_display_data)
                                 st.dataframe(elec_display_df, use_container_width=True)
                             else:
                                 pass
-                               
+                                
                         except Exception as e:
                             st.error(f"Error displaying elective subjects: {str(e)}")
                             display_cols = ['Exam Date', 'OE', 'Subject', 'Time Slot']
@@ -3991,15 +4004,4 @@ def main():
     
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
 
