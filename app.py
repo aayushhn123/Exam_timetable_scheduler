@@ -3375,7 +3375,25 @@ def main():
 
     if uploaded_file is not None:
         st.markdown("")
-        if st.button("🔄 Generate Timetable", type="primary", use_container_width=True):
+        
+        # --- AUTO-RESUME LOGIC & DASHBOARD CAPACITY MODE INDICATOR ---
+        resume_processing = 'capacity_override_choice' in st.session_state
+        generate_btn = st.button("🔄 Generate Timetable", type="primary", use_container_width=True)
+        
+        # Determine the display mode instantly (even mid-rerun from the popup)
+        display_mode = st.session_state.get('applied_capacity_mode')
+        if 'capacity_override_choice' in st.session_state:
+            display_mode = st.session_state.capacity_override_choice
+            
+        if display_mode == "YES":
+            st.warning("⚠️ **Active Scheduling Mode:** Mumbai Capacity Limits IGNORED (Override Active)")
+        elif display_mode == "NO":
+            st.info("🔒 **Active Scheduling Mode:** Strict Mumbai Capacity Limits ENFORCED")
+        elif display_mode == "NATURAL_FIT":
+            st.success("✅ **Active Scheduling Mode:** All subjects fit naturally within capacity limits")
+        # -------------------------------------------------------------
+
+        if generate_btn or resume_processing:
             with st.spinner("⏳ Processing your timetable... Please wait..."):
                 try:
                     holidays_set = st.session_state.get('holidays_set', set())
@@ -3548,16 +3566,6 @@ def main():
                                         unsafe_allow_html=True)
                             
                             st.info("✅ **Three-Phase Scheduling Applied:**\n1. 🎯 **Phase 1:** Common across semesters scheduled FIRST from base date\n2. 🔗 **Phase 2:** Common within semester subjects (COMP/ELEC appearing in multiple Programs)\n3. 🔍 **Phase 3:** Truly uncommon subjects with gap-filling optimization within date range\n4. 🎓 **Phase 4:** Electives scheduled LAST (if space available)\n5. ⚡ **Guarantee:** ONE exam per day per subbranch-semester")
-                            
-                            # --- DASHBOARD CAPACITY MODE INDICATOR ---
-                            if 'applied_capacity_mode' in st.session_state:
-                                if st.session_state.applied_capacity_mode == "YES":
-                                    st.warning("⚠️ **Active Scheduling Mode:** Mumbai Capacity Limits IGNORED (Override Active)")
-                                elif st.session_state.applied_capacity_mode == "NO":
-                                    st.info("🔒 **Active Scheduling Mode:** Strict Mumbai Capacity Limits ENFORCED")
-                                elif st.session_state.applied_capacity_mode == "NATURAL_FIT":
-                                    st.success("✅ **Active Scheduling Mode:** All subjects fit naturally within capacity limits")
-                            # -----------------------------------------
                             
                             efficiency = (unique_exam_days / overall_date_range) * 100 if overall_date_range > 0 else 0
                             st.success(f"📊 **Schedule Efficiency: {efficiency:.1f}%** (Higher is better - more days utilized)")
