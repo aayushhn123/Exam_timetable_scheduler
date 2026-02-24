@@ -2690,8 +2690,6 @@ def save_to_excel(semester_wise_timetable):
                 raw_sem_str = str(sem).strip()
                 
                 # --- CORRECTED SLOT CALCULATION LOGIC ---
-                # This ensures the Excel generator knows exactly which slot is "Standard" 
-                # so it only appends [Time] when the subject is in a NON-Standard slot.
                 sem_num = 1
                 try:
                     s_upper = raw_sem_str.upper()
@@ -2702,7 +2700,6 @@ def save_to_excel(semester_wise_timetable):
                     }
                     found_roman = False
                     for r_key, r_val in romans.items():
-                        # Strict matching to avoid "I" matching "IV"
                         if s_upper == r_key or s_upper.endswith(f" {r_key}") or s_upper.endswith(f"_{r_key}"):
                             sem_num = r_val
                             found_roman = True
@@ -2740,8 +2737,6 @@ def save_to_excel(semester_wise_timetable):
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
-                            cm_group = str(row.get('CMGroup', '')).strip()
-                            cm_group_prefix = f"[{cm_group}] " if cm_group else ""
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
                             duration = float(row.get('Exam Duration', 3.0))
                             
@@ -2761,7 +2756,7 @@ def save_to_excel(semester_wise_timetable):
                             else:
                                 time_suffix = ""
                                 
-                            subject_displays.append(cm_group_prefix + base_subject + time_suffix)
+                            subject_displays.append(base_subject + time_suffix)
                        
                         df_processed["SubjectDisplay"] = subject_displays
                         df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
@@ -2798,8 +2793,6 @@ def save_to_excel(semester_wise_timetable):
                             df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
                             
                             if not df_elec_scheduled.empty:
-                                # FIX: Use 'Subject' directly since it already contains the code.
-                                # Previously: f"{x['Subject']} ({x['ModuleCode']})" caused duplication.
                                 df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject']
                                 
                                 summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
@@ -3911,9 +3904,6 @@ def main():
     
             preferred_slot = get_time_slot_from_number(exam_slot_number, time_slots_dict)
 
-            cm_group = str(row.get('CMGroup', '')).strip()
-            cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
-
             time_range = ""
 
             if duration != 3 and time_slot and time_slot.strip():
@@ -3923,16 +3913,13 @@ def main():
             elif is_common and time_slot != preferred_slot and time_slot and time_slot.strip():
                 time_range = f" ({time_slot})"
 
-            return cm_group_prefix + subject + time_range
+            return subject + time_range
         
         def format_elective_display(row):
             subject = row['Subject']
             oe_type = row.get('OE', '')
     
-            cm_group = str(row.get('CMGroup', '')).strip()
-            cm_group_prefix = f"[{cm_group}] " if cm_group and cm_group != "" and cm_group != "nan" else ""
-    
-            base_display = f"{cm_group_prefix}{subject} [{oe_type}]" if oe_type else cm_group_prefix + subject
+            base_display = f"{subject} [{oe_type}]" if oe_type else subject
     
             duration = row.get('Exam Duration', 3)
             time_slot = row['Time Slot']
@@ -4030,6 +4017,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
