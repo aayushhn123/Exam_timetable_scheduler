@@ -1187,9 +1187,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         current_slot_usage = session_capacity.get(date_str, {}).get(time_slot, {})
 
         for campus, required_count in unit_impact.items():
-            current_campus_load = current_slot_usage.get(campus, 0)
-            if (current_campus_load + required_count) > MAX_STUDENTS_PER_SESSION:
-                return False 
+            # ONLY ENFORCE CAPACITY FOR MUMBAI CAMPUS
+            if "MUMBAI" in campus:
+                current_campus_load = current_slot_usage.get(campus, 0)
+                if (current_campus_load + required_count) > MAX_STUDENTS_PER_SESSION:
+                    return False 
         return True
 
     def add_to_campus_capacity(date_str, time_slot, unit_row_indices):
@@ -1231,13 +1233,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            # Directly isolate MBA Tech Priority Units
             if "MBATECH_PRIORITY" in cm_id:
                 common_units_priority.append(unit)
             else:
                 common_units_normal.append(unit)
 
-    # Sort priorities by student count to be deterministic
     common_units_priority.sort(key=lambda x: x['student_count'], reverse=True)
     common_units_normal.sort(key=lambda x: x['student_count'], reverse=True)
 
@@ -1316,7 +1316,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     unscheduled = []
     
-    # PASS 1: PRIORITY COMMON UNITS (Guarantees they claim Day 1, 2, 3...)
+    # PASS 1: PRIORITY COMMON UNITS
     for unit in common_units_priority:
         if not attempt_schedule(unit, "Priority_Common", core_valid_dates):
             unscheduled.append(unit)
@@ -1326,7 +1326,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # PASS 3: INDIVIDUAL UNITS (Naturally scans from Day 1 to weave into the gaps)
+    # PASS 3: INDIVIDUAL UNITS 
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
@@ -1343,7 +1343,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
-    Validates that the number of students per session PER CAMPUS does not exceed max_capacity.
+    Validates that the number of students per session for the MUMBAI campus does not exceed max_capacity.
     """
     if not timetable_data:
         return True, []
@@ -1368,7 +1368,7 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     
     scheduled_df['Campus'] = scheduled_df['Campus'].fillna('Unknown').astype(str).str.strip().str.upper()
     
-    # Group by Date, Slot AND CAMPUS (Key Change)
+    # Group by Date, Slot AND CAMPUS
     session_counts = scheduled_df.groupby(['Exam Date', 'Time Slot', 'Campus']).agg({
         'StudentCount': 'sum',
         'Subject': 'count'
@@ -1377,11 +1377,13 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     violations = []
     
     for _, row in session_counts.iterrows():
-        if row['StudentCount'] > max_capacity:
+        campus_name = str(row['Campus'])
+        # ONLY apply capacity limit to MUMBAI campus
+        if "MUMBAI" in campus_name and row['StudentCount'] > max_capacity:
             violations.append({
                 'date': row['Exam Date'],
                 'time_slot': row['Time Slot'],
-                'campus': row['Campus'],
+                'campus': campus_name,
                 'student_count': int(row['StudentCount']),
                 'subjects_count': int(row['Subject']),
                 'excess': int(row['StudentCount'] - max_capacity)
@@ -2499,10 +2501,13 @@ def save_verification_excel(original_df, semester_wise_timetable):
         for (date, slot_num, time, campus), inner_df in grp:
             total_studs = int(inner_df['Student Count Clean'].sum())
             subj_count = len(inner_df)
-            util_pct = (total_studs / max_capacity) * 100
+            
+            # ONLY flag overload for MUMBAI
+            is_mumbai = "MUMBAI" in str(campus).upper()
+            util_pct = (total_studs / max_capacity) * 100 if is_mumbai else (total_studs / max_capacity) * 100
+            is_overload = is_mumbai and (total_studs > max_capacity)
             
             # Generate a summary string of subjects for the utilization sheet
-            # Format: "Maths (50); Physics (30)"
             subj_summary = []
             for _, r in inner_df.iterrows():
                 s_name = str(r.get('Module Description', r.get('Module Abbreviation', '')))
@@ -2519,15 +2524,15 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 'Time': time,
                 'Campus': campus,
                 'Total Students': total_studs,
-                'Max Capacity': max_capacity,
-                'Utilization %': round(util_pct, 2),
-                'Status': '⚠️ OVERLOAD' if total_studs > max_capacity else '✅ OK',
+                'Max Capacity': max_capacity if is_mumbai else 'N/A',
+                'Utilization %': round(util_pct, 2) if is_mumbai else 'N/A',
+                'Status': '⚠️ OVERLOAD' if is_overload else '✅ OK',
                 'Subject Count': subj_count,
-                'Contributing Subjects': subjects_str  # Added to see subjects in main sheet
+                'Contributing Subjects': subjects_str
             })
             
-            # If Overload, populate the detailed Overload Analysis Sheet
-            if total_studs > max_capacity:
+            # If Overload (and it's Mumbai), populate the detailed Overload Analysis Sheet
+            if is_overload:
                 for _, r in inner_df.iterrows():
                     overload_data.append({
                         'Exam Date': date,
@@ -2900,7 +2905,7 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
 def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
     Attempts to move exams from the end of the schedule to earlier 'gaps' (empty slots),
-    STRICTLY respecting Campus Capacity Constraints and SKIPPING only CM Groups.
+    STRICTLY respecting Campus Capacity Constraints (For Mumbai Only) and SKIPPING only CM Groups.
     """
     st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
     
@@ -2993,14 +2998,14 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                         conflict_found = True
                 
                 if not conflict_found:
-                    # Check CAPACITY Constraints per Campus
+                    # Check CAPACITY Constraints per Campus (ONLY FOR MUMBAI)
                     target_time_slot = subject['Time Slot']
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
                     student_count = int(subject.get('StudentCount', 0))
                     
                     current_load = schedule_load_map.get(check_date_str, {}).get(target_time_slot, {}).get(campus, 0)
                     
-                    if (current_load + student_count) <= MAX_CAPACITY:
+                    if "MUMBAI" not in campus or (current_load + student_count) <= MAX_CAPACITY:
                         # VALID MOVE!
                         # 1. Update DataFrame
                         sem_dict[sem].at[idx, 'Exam Date'] = check_date_str
@@ -4017,6 +4022,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
