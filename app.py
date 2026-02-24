@@ -1212,12 +1212,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # MBA TECH Priority Isolation
-    mba_tech_priority_ids = set()
-    if IS_MPSTME:
-        mba_priority_rows = eligible_subjects[eligible_subjects['CMGroup_Clean'].str.endswith("_PRIORITY")]
-        mba_tech_priority_ids = set(mba_priority_rows['CMGroup_Clean'].unique())
-
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
@@ -1237,7 +1231,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            if cm_id in mba_tech_priority_ids:
+            # Directly isolate MBA Tech Priority Units
+            if "MBATECH_PRIORITY" in cm_id:
                 common_units_priority.append(unit)
             else:
                 common_units_normal.append(unit)
@@ -1321,7 +1316,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     unscheduled = []
     
-    # PASS 1: PRIORITY COMMON UNITS (Ensures they start exactly on Day 1)
+    # PASS 1: PRIORITY COMMON UNITS (Guarantees they claim Day 1, 2, 3...)
     for unit in common_units_priority:
         if not attempt_schedule(unit, "Priority_Common", core_valid_dates):
             unscheduled.append(unit)
@@ -1331,7 +1326,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         if not attempt_schedule(unit, "Common", core_valid_dates):
             unscheduled.append(unit)
             
-    # PASS 3: INDIVIDUAL UNITS (Will naturally scan from Day 1 and fill any gaps)
+    # PASS 3: INDIVIDUAL UNITS (Naturally scans from Day 1 to weave into the gaps)
     for unit in individual_units:
         if not attempt_schedule(unit, "Individual", core_valid_dates):
             unscheduled.append(unit)
@@ -1501,28 +1496,28 @@ def read_timetable(uploaded_file):
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
 
         # ---------------------------------------------------------------
-        # MBA TECH SPECIAL LOGIC:
-        # For MBA TECH rows in Sem VIII or X, wherever IsCommon == 'within',
-        # assign a synthetic CMGroup PER MODULE CODE so they get scheduled individually.
-        # This breaks the clump and allows them to spread out.
+        # MBA TECH SPECIAL LOGIC (ABSOLUTE PRIORITY ENFORCEMENT):
+        # For rows in Sem VIII or X with IsCommon == 'within',
+        # assign a synthetic CMGroup PER MODULE CODE so they get scheduled 
+        # individually, ensuring they start from Day 1.
         # ---------------------------------------------------------------
-        mba_tech_mask = df["Program"].str.upper().str.contains("MBA TECH", na=False)
         sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
         target_sem_mask = (
             sem_upper_series.str.endswith("VIII") | sem_upper_series.str.endswith(" 8") | (sem_upper_series == "8") |
-            sem_upper_series.str.endswith("X")    | sem_upper_series.str.endswith(" 10") | (sem_upper_series == "10")
+            sem_upper_series.str.endswith("X")    | sem_upper_series.str.endswith(" 10") | (sem_upper_series == "10") |
+            (sem_upper_series == "SEM VIII") | (sem_upper_series == "SEM X")
         )
-        is_common_within_mask = df["IsCommon"].str.strip().str.upper() == "WITHIN"
+        is_common_within_mask = df["IsCommon"].astype(str).str.strip().str.upper() == "WITHIN"
 
-        mba_tech_common_within_mask = mba_tech_mask & target_sem_mask & is_common_within_mask
+        priority_mask = target_sem_mask & is_common_within_mask
 
-        if mba_tech_common_within_mask.any():
+        if priority_mask.any():
             # Group by Semester AND ModuleCode to create independent priority units
-            df_mba_target = df[mba_tech_common_within_mask]
-            for (sem_val, mod_code), group_idx in df_mba_target.groupby(["Semester", "ModuleCode"]).groups.items():
-                synthetic_cm = f"MBATECH_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}_PRIORITY"
+            df_priority_target = df[priority_mask]
+            for (sem_val, mod_code), group_idx in df_priority_target.groupby(["Semester", "ModuleCode"]).groups.items():
+                synthetic_cm = f"MBATECH_PRIORITY_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}"
                 df.loc[group_idx, "CMGroup"] = synthetic_cm
-            st.info(f"ℹ️ MBA TECH Common-Within subjects detected: assigned individual priority CMGroups for Sem VIII / X.")
+            st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for Sem VIII / X.")
 
         is_true_oe_mask = (df["OE"] != "")
         
@@ -4035,6 +4030,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
