@@ -1243,17 +1243,27 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
-        def attempt_schedule(unit, allowed_dates):
+        def attempt_schedule(unit, allowed_dates, is_common_pass=False):
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
             
             for date_obj in allowed_dates:
                 date_str = date_obj.strftime("%d-%m-%Y")
-                if IS_LAW_SCHOOL:
-                    prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
-                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): continue 
                 
-                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): continue
+                # --- Alternate Day Constraint ---
+                # Always enforced for Law School OR for Common Subjects (to create the 1-day gaps)
+                if IS_LAW_SCHOOL or is_common_pass:
+                    prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
+                    next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
+                    
+                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): 
+                        continue 
+                    if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]):
+                        continue
+                
+                # Same day conflict check (Always enforced to prevent double booking)
+                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
+                    continue
                 
                 for slot_num in slots_to_try:
                     time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
@@ -1272,12 +1282,16 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             return False
 
         unscheduled_groups = []
+        
+        # We tell the engine `is_common_pass=True` for common subjects to force the 1-day gap
         for unit in common_units_priority:
-            if not attempt_schedule(unit, core_valid_dates): unscheduled_groups.append(unit)
+            if not attempt_schedule(unit, core_valid_dates, is_common_pass=True): unscheduled_groups.append(unit)
         for unit in common_units_normal:
-            if not attempt_schedule(unit, core_valid_dates): unscheduled_groups.append(unit)
+            if not attempt_schedule(unit, core_valid_dates, is_common_pass=True): unscheduled_groups.append(unit)
+            
+        # We tell the engine `is_common_pass=False` for individuals so they can naturally fill the gaps
         for unit in individual_units:
-            if not attempt_schedule(unit, core_valid_dates): unscheduled_groups.append(unit)
+            if not attempt_schedule(unit, core_valid_dates, is_common_pass=False): unscheduled_groups.append(unit)
 
         return work_df, unscheduled_groups
 
@@ -4012,4 +4026,5 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
