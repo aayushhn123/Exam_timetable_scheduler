@@ -1114,12 +1114,12 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     
     # If no slot fits, return None
     return None
-
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college
+    IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
     
-    st.info(f"🚀 SCHEDULING STRATEGY: Priority (Anchor) -> Common -> Individual (Gap Filling) -> STRICTLY Reserve Last 2 Days for OE")
+    st.info(f"🚀 SCHEDULING STRATEGY: Stream-by-Stream -> Common (Alternate Day) -> Individual (Gap Fill)")
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     
@@ -1175,6 +1175,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
+    # MBA TECH SPECIAL PRIORITY LOGIC
+    mba_tech_common_within_ids = set()
+    if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
+        mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains("MBA TECH", na=False)
+        sem_u = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
+        target_sem = (
+            sem_u.str.endswith("VIII") | sem_u.str.endswith(" 8") | (sem_u == "8") |
+            sem_u.str.endswith("X")    | sem_u.str.endswith(" 10") | (sem_u == "10")
+        )
+        is_within = eligible_subjects['IsCommon'].astype(str).str.strip().str.upper() == "WITHIN"
+        mba_within_rows = eligible_subjects[mba_mask & target_sem & is_within]
+        mba_tech_common_within_ids = set(mba_within_rows['CMGroup_Clean'].unique()) - {""}
+
     df_common = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
@@ -1188,11 +1201,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum()
             }
-            if "PRIORITY" in cm_id: common_units_priority.append(unit)
-            else: common_units_normal.append(unit)
-
-    common_units_priority.sort(key=lambda x: x['student_count'], reverse=True)
-    common_units_normal.sort(key=lambda x: x['student_count'], reverse=True)
+            if cm_id in mba_tech_common_within_ids or "PRIORITY" in cm_id: 
+                common_units_priority.append(unit)
+            else: 
+                common_units_normal.append(unit)
 
     individual_units = []
     if not df_individual.empty:
@@ -1205,11 +1217,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'student_count': group['StudentCount'].sum()
             }
             individual_units.append(unit)
-    individual_units.sort(key=lambda x: x['student_count'], reverse=True)
 
-    # ---------------------------------------------------------
-    # CORE SCHEDULING ENGINE (WRAPPED FOR 2-PASS EXECUTION)
-    # ---------------------------------------------------------
     df['Capacity_Exceeded_Flag'] = "No"
 
     def execute_pass(enforce_cap):
@@ -1243,28 +1251,28 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
-        def attempt_schedule(unit, allowed_dates, is_common_pass=False):
+        def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
             
             for date_obj in allowed_dates:
                 date_str = date_obj.strftime("%d-%m-%Y")
                 
-                # --- Alternate Day Constraint ---
-                # Always enforced for Law School OR for Common Subjects (to create the 1-day gaps)
-                if IS_LAW_SCHOOL or is_common_pass:
+                # Check Same Day Conflict (Always enforced)
+                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
+                    continue
+                
+                # Check 1-Day Gap Constraint (Applied to Common subjects, or globally for Law School)
+                if IS_LAW_SCHOOL or require_1_day_gap:
                     prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
                     
-                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): 
+                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]):
                         continue 
                     if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]):
                         continue
                 
-                # Same day conflict check (Always enforced to prevent double booking)
-                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
-                    continue
-                
+                # Check Capacity
                 for slot_num in slots_to_try:
                     time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                     allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
@@ -1282,34 +1290,76 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             return False
 
         unscheduled_groups = []
+        scheduled_ids = set()
         
-        # We tell the engine `is_common_pass=True` for common subjects to force the 1-day gap
-        for unit in common_units_priority:
-            if not attempt_schedule(unit, core_valid_dates, is_common_pass=True): unscheduled_groups.append(unit)
-        for unit in common_units_normal:
-            if not attempt_schedule(unit, core_valid_dates, is_common_pass=True): unscheduled_groups.append(unit)
-            
-        # We tell the engine `is_common_pass=False` for individuals so they can naturally fill the gaps
-        for unit in individual_units:
-            if not attempt_schedule(unit, core_valid_dates, is_common_pass=False): unscheduled_groups.append(unit)
+        # --- NEW LOGIC: Group units stream by stream ---
+        branch_sem_map = {}
+        all_units = common_units_priority + common_units_normal + individual_units
+        
+        for unit in all_units:
+            for bs in unit['branch_sems']:
+                if bs not in branch_sem_map:
+                    # Give MBA Tech Sem 8/10 massive priority so they form the base skeleton
+                    score = 0
+                    if "MBA TECH" in bs.upper() and ("VIII" in bs.upper() or " 8" in bs or "X" in bs.upper() or " 10" in bs):
+                        score = 1000000
+                    branch_sem_map[bs] = {'score': score, 'common': [], 'individual': []}
+                
+                if unit['type'] == 'COMMON':
+                    if unit not in branch_sem_map[bs]['common']:
+                        branch_sem_map[bs]['common'].append(unit)
+                else:
+                    if unit not in branch_sem_map[bs]['individual']:
+                        branch_sem_map[bs]['individual'].append(unit)
+                
+                branch_sem_map[bs]['score'] += unit['student_count']
+                
+        # Sort branch_sems logically (Priority first, then size)
+        sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
+        
+        priority_ids = set(u['id'] for u in common_units_priority)
+        
+        # PASS 1: Schedule ALL Common subjects stream by stream (Enforcing the 1-Day Gap)
+        for bs in sorted_bsems:
+            # Within the stream, sort priority CM groups first, then normal CM groups by size
+            branch_sem_map[bs]['common'].sort(
+                key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), 
+                reverse=True
+            )
+            for unit in branch_sem_map[bs]['common']:
+                if unit['id'] not in scheduled_ids:
+                    # TRUE -> forces 1-day gaps between these subjects
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True):
+                        unscheduled_groups.append(unit)
+                    scheduled_ids.add(unit['id'])
+                    
+        # PASS 2: Schedule ALL Individual subjects stream by stream (Filling the Gaps)
+        for bs in sorted_bsems:
+            # Sort individual subjects by size
+            branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
+            for unit in branch_sem_map[bs]['individual']:
+                if unit['id'] not in scheduled_ids:
+                    # FALSE -> no 1-day gap required, naturally weaving into the empty days
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False):
+                        unscheduled_groups.append(unit)
+                    scheduled_ids.add(unit['id'])
 
         return work_df, unscheduled_groups
 
     # --- POPUP ROUTER LOGIC ---
     if 'capacity_override_choice' not in st.session_state:
-        # Dry run with strict limits
         temp_df, unsched = execute_pass(enforce_cap=True)
         if unsched:
             show_capacity_popup()
-            st.stop() # Halts script and waits for user's dialog choice
+            st.stop() 
         else:
             st.session_state.applied_capacity_mode = "NATURAL_FIT"
             st.success("✅ All Core subjects scheduled successfully within limits.")
             return temp_df
     else:
         choice = st.session_state.capacity_override_choice
-        st.session_state.applied_capacity_mode = choice  # Save for dashboard display
-        del st.session_state['capacity_override_choice'] # Reset for next run
+        st.session_state.applied_capacity_mode = choice  
+        del st.session_state['capacity_override_choice'] 
         
         if choice == "YES":
             final_df, unsched = execute_pass(enforce_cap=False)
@@ -1320,6 +1370,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             final_df, unsched = execute_pass(enforce_cap=True)
             st.error(f"❌ Could not schedule {len(unsched)} subject groups due to strict capacity limits.")
             return final_df
+
     
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
@@ -4026,5 +4077,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
