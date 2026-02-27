@@ -1873,51 +1873,63 @@ def calculate_end_time(start_time, duration_hours):
         #st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
         return f"{start_time} + {duration_hours}h"
         
-def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None, declaration_date=None, custom_college_name=None):
-    pdf.set_y(0)
+def add_header_to_page(pdf, is_law_school, program_name, semester_val, declaration_date=None):
+    pdf.add_page()
+    pdf.set_y(10)
     
-    # Declaration Date
+    # 1. Logo
+    logo_path = 'NMIMS_logo.png' 
+    if os.path.exists(logo_path):
+        pdf.image(logo_path, x=10, y=8, w=45) 
+        
+    # 2. Main Headers
+    pdf.set_y(15)
+    if is_law_school:
+        pdf.set_font('Arial', 'B', 14)
+        pdf.cell(0, 6, "SVKM'S NMIMS", ln=True, align='C')
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 6, "Academic year - 2025-2026", ln=True, align='C')
+        pdf.cell(0, 6, "KIRIT P. MEHTA SCHOOL OF LAW", ln=True, align='C')
+    else:
+        pdf.set_font('Arial', 'B', 14)
+        pdf.cell(0, 6, "SVKM'S NMIMS", ln=True, align='C')
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 6, "Academic year - 2025-2026", ln=True, align='C')
+        pdf.cell(0, 6, "MUKESH PATEL SCHOOL OF TECHNOLOGY MANAGEMENT & ENGINEERING", ln=True, align='C')
+        
+    pdf.ln(2)
+    
+    # 3. Sub-headers
+    # (The "Programs: ..." string has been deliberately removed from all headers.)
+    pdf.set_font('Arial', 'B', 11)
+    pdf.cell(0, 6, f"Examination Time Table (Tentative)", ln=True, align='C')
+    
     if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
-        pdf.set_text_color(0, 0, 0)
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
-        pdf.set_xy(pdf.w - 60, 10)
-        pdf.cell(50, 10, decl_str, 0, 0, 'R')
-
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    
-    if custom_college_name:
-        college_name = custom_college_name
-    else:
-        college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
+        pdf.set_font('Arial', '', 10)
+        date_str = declaration_date.strftime("%d %B %Y")
+        pdf.set_xy(0, 15)  
+        pdf.cell(pdf.w - 15, 6, date_str, ln=0, align='R')
         
-    pdf.set_font("Arial", 'B', 16 if len(college_name) <= 60 else (14 if len(college_name) <= 80 else 12))
+    # Adjusted from 35 to 41 to account for the new "Academic year" line
+    pdf.set_y(41)  
     
-    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
+    # 4. Program details and semester
+    pdf.ln(4)
+    pdf.set_font('Arial', 'B', 10)
     
-    pdf.set_font("Arial", 'B', 15)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(10, 51)
-    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    if time_slot:
-        pdf.set_font("Arial", 'B', 13)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
+    semester_roman = semester_val
+    if isinstance(semester_val, (int, float, str)) and str(semester_val).isdigit():
+        try:
+            val = int(semester_val)
+            romans = {1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X', 11: 'XI', 12: 'XII'}
+            semester_roman = romans.get(val, str(val))
+        except:
+            pass
+    elif isinstance(semester_val, str) and semester_val.upper().startswith('SEM'):
+        semester_roman = semester_val.upper().replace('SEM', '').strip()
         
-        # Made bigger and bolder ('BI', 12)
-        pdf.set_font("Arial", 'BI', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        
-        # Programs section removed to match core tables
-        pdf.set_y(75)
-    else:
-        pdf.set_y(65)
+    pdf.cell(0, 6, f"Part: {semester_roman}", ln=True, align='C')
+    pdf.ln(4)
         
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
     # A4 Landscape: 297mm width x 210mm height
@@ -4077,6 +4089,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
