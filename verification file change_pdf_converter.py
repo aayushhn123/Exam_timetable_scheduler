@@ -157,9 +157,16 @@ def process_verification_file(uploaded_file):
             s = str(val).upper().strip()
             m = re.search(r'(\d+)', s)
             if m: return int(m.group(1))
-            roman_map = {'I':1,'II':2,'III':3,'IV':4,'V':5,'VI':6,'VII':7,'VIII':8,'IX':9,'X':10}
+            
+            # FIXED: Expanded the Roman map up to XII to ensure integrated programs don't default back to 1
+            # Ordered from largest to smallest to avoid partial matching bugs.
+            roman_map = {
+                'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8,
+                'VII': 7, 'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1
+            }
             for r, i in roman_map.items():
-                if r == s or s.endswith(f" {r}") or s.endswith(f"_{r}"): return i
+                if r == s or s.endswith(f" {r}") or s.endswith(f"_{r}"): 
+                    return i
             return 1
 
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
