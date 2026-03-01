@@ -699,10 +699,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
                 if 'Exam Date' not in sheet_df.columns: continue
                 sheet_df      = sheet_df.dropna(how='all').reset_index(drop=True)
                 fixed_cols    = ["Exam Date"]
+                # Exclude metadata cols — also catches pandas-deduplicated variants
+                # like "Program.1", "Semester.1", "Program.2" etc.
+                _meta_pattern = re.compile(
+                    r'^(Program|Semester|MainBranch|Note|Message)(\.\d+)?$',
+                    re.IGNORECASE
+                )
                 sub_branch_cols = [
                     c for c in sheet_df.columns
                     if c not in fixed_cols
-                    and c not in ['Note', 'Message', 'MainBranch', 'Program', 'Semester']
+                    and not _meta_pattern.match(str(c))
                     and pd.notna(c) and str(c).strip() != ''
                 ]
                 if not sub_branch_cols: continue
@@ -767,10 +773,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
                     ).dt.strftime("%A, %d %B, %Y")
                 except: pass
 
-                # OE column widths: date | OE type | subjects (remaining)
+                # OE column widths: date (35) | OE Type (20, narrow) | subjects (rest)
                 page_width     = pdf.w - 2 * pdf.l_margin
                 date_col_width = 35
-                oe_col_width   = 30
+                oe_col_width   = 20   # Keep narrow — "OE" label needs very little space
                 subj_width     = page_width - date_col_width - oe_col_width
                 col_widths     = [date_col_width, oe_col_width, subj_width]
 
