@@ -700,15 +700,21 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if semester_raw.endswith('_Ele'):
                 semester_raw = semester_raw.replace('_Ele', '')
                 is_elective = True
-            
-            display_sem = semester_raw.strip()
-            if display_sem.lower().startswith("semester"):
-                display_sem = display_sem[8:].strip()
-            elif display_sem.lower().startswith("sem"):
-                display_sem = display_sem[3:].strip()
+
+            # ── Read actual semester roman from _sem_ column (immune to dedup suffixes like "Sem X2") ──
+            # Fall back to parsing the sheet name only if _sem_ column is absent (legacy sheets)
+            if "_sem_" in sheet_df.columns and not sheet_df["_sem_"].dropna().empty:
+                display_sem = str(sheet_df["_sem_"].dropna().iloc[0]).strip()
+            else:
+                display_sem = semester_raw.strip()
+                if display_sem.lower().startswith("semester"):
+                    display_sem = display_sem[8:].strip()
+                elif display_sem.lower().startswith("sem"):
+                    display_sem = display_sem[3:].strip()
             
             header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-            header_exam_time = get_header_time_for_semester(semester_raw)
+            # Pass clean roman numeral to time-slot calculator
+            header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
 
             if not is_elective:
                 if 'Exam Date' not in sheet_df.columns: continue
