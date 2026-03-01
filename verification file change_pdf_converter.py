@@ -105,62 +105,41 @@ st.markdown("""
 
 
 # ==========================================
-# 📥 VERIFICATION DATA PARSING
+# 📥 VERIFICATION DATA PARSING (EXAM DATE 2 LOGIC)
 # ==========================================
 def process_verification_file(uploaded_file):
     try:
         xls = pd.ExcelFile(uploaded_file)
         if "Verification" in xls.sheet_names:
-            df_raw = pd.read_excel(uploaded_file, sheet_name="Verification")
+            df = pd.read_excel(uploaded_file, sheet_name="Verification")
         else:
-            df_raw = pd.read_excel(uploaded_file)
+            df = pd.read_excel(uploaded_file)
 
-        missing = [col for col in ["Program", "Current Session", "Exam Date"] if col not in df_raw.columns]
+        # Ensure the latest columns exist
+        missing = [col for col in ["Program", "Current Session", "Exam Date 2", "Exam Time 2"] if col not in df.columns]
         if missing:
             st.error(f"❌ Missing critical columns: {', '.join(missing)}")
+            st.info("Ensure you are using the latest verification format with 'Exam Date 2' and 'Exam Time 2'.")
             return None, None
 
-        if "Scheduling Status" in df_raw.columns:
-            df_raw = df_raw[df_raw["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
+        if "Scheduling Status" in df.columns:
+            df = df[df["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
 
         # =========================================================
-        # NEW LOGIC: Explode Date 1 and Date 2 into separate records
+        # TARGET EXCLUSIVELY EXAM DATE 2 AND EXAM TIME 2
         # =========================================================
-        records = []
-        for _, row in df_raw.iterrows():
-            base_row = row.to_dict()
-            
-            # --- Check Date 1 ---
-            d1 = row.get('Exam Date')
-            if pd.notna(d1):
-                d1_str = str(d1).strip()
-                if d1_str.upper() not in ['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', '']:
-                    r1 = base_row.copy()
-                    r1['Final_Exam_Date'] = d1_str
-                    r1['Final_Exam_Time'] = str(row.get('Exam Time', '')).strip()
-                    records.append(r1)
+        df = df[df['Exam Date 2'].notna()].copy()
+        df['Exam Date 2 str'] = df['Exam Date 2'].astype(str).str.strip().str.upper()
+        df = df[~df['Exam Date 2 str'].isin(['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', ''])].copy()
 
-            # --- Check Date 2 ---
-            d2 = row.get('Exam Date 2')
-            if pd.notna(d2):
-                d2_str = str(d2).strip()
-                if d2_str.upper() not in ['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', '']:
-                    r2 = base_row.copy()
-                    r2['Final_Exam_Date'] = d2_str
-                    r2['Final_Exam_Time'] = str(row.get('Exam Time 2', '')).strip()
-                    records.append(r2)
-
-        if not records:
-            st.error("❌ No valid scheduled dates found in the file.")
-            return None, None
-
-        df = pd.DataFrame(records)
+        # Parse the long text format (e.g. "Monday, 4 May, 2026") into the standard internal DD-MM-YYYY format
+        parsed_dates = pd.to_datetime(df['Exam Date 2'], errors='coerce')
+        df['Exam Date'] = parsed_dates.dt.strftime('%d-%m-%Y')
         
-        # Override original date/time columns with our standardized ones
-        df['Exam Date'] = df['Final_Exam_Date']
-        df['Exam Time'] = df['Final_Exam_Time']
+        # Map Time to the internal standard column
+        df['Exam Time'] = df['Exam Time 2'].astype(str).str.strip()
         # =========================================================
-        
+
         df['MainBranch'] = df.get('Program', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['SubBranch'] = df.get('Stream', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['SubBranch'] = df.apply(lambda x: x['MainBranch'] if x['SubBranch'] in ['nan', ''] else x['SubBranch'], axis=1)
@@ -185,6 +164,9 @@ def process_verification_file(uploaded_file):
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
         
         timetable = {}
+        # Make sure to drop rows where date parsing completely failed to prevent errors later
+        df = df.dropna(subset=['Exam Date']).copy()
+        
         for sem in sorted(df['Semester'].unique()):
             timetable[sem] = df[df['Semester'] == sem].copy()
             
