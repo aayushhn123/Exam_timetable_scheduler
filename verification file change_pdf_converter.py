@@ -102,18 +102,19 @@ def process_verification_file(uploaded_file):
             st.error("❌ Missing critical column: Current Session")
             return None, None
 
-        # Filter to scheduled only
-        if "Scheduling Status" in df.columns:
-            df = df[df["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
-
+        # ── SCHEDULING FILTER ────────────────────────────────────────────────
+        # Rule: include ANY row that has a valid Exam Date 2 + Exam Time 2 value.
+        # The "Scheduling Status" column is intentionally IGNORED — subjects marked
+        # "Not Scheduled" but with actual date/time values must still be included.
         # Determine which date column to use (prefer Date 2 if present)
         if has_date2:
-            # Drop old Exam Date if present to prevent contamination
+            # Drop old Exam Date / Exam Time cols to prevent contamination
             if 'Exam Date' in df.columns:
                 df = df.drop(columns=['Exam Date'])
             if 'Exam Time' in df.columns:
                 df = df.drop(columns=['Exam Time'])
 
+            # Keep only rows where Exam Date 2 is a real parseable date
             df = df[df['Exam Date 2'].notna()].copy()
             df['_date_str'] = df['Exam Date 2'].astype(str).str.strip().str.upper()
             df = df[~df['_date_str'].isin(['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', ''])].drop(columns=['_date_str'])
@@ -121,7 +122,13 @@ def process_verification_file(uploaded_file):
             parsed_dates = pd.to_datetime(df['Exam Date 2'], errors='coerce')
             df = df[parsed_dates.notna()].copy()
             parsed_dates = parsed_dates[parsed_dates.notna()]
-            df['Exam Date'] = parsed_dates.dt.strftime('%d-%m-%Y')
+
+            # Also require Exam Time 2 to be a non-empty valid value
+            if 'Exam Time 2' in df.columns:
+                df['_time_str'] = df['Exam Time 2'].astype(str).str.strip().str.upper()
+                df = df[~df['_time_str'].isin(['NAN', 'NAT', 'NONE', ''])].drop(columns=['_time_str'])
+
+            df['Exam Date'] = parsed_dates[parsed_dates.index.isin(df.index)].dt.strftime('%d-%m-%Y')
             df['Exam Time'] = df['Exam Time 2'].astype(str).str.strip() if 'Exam Time 2' in df.columns else ""
         else:
             df = df[df['Exam Date'].notna()].copy()
