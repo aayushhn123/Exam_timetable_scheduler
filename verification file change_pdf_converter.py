@@ -105,38 +105,51 @@ st.markdown("""
 
 
 # ==========================================
-# 📥 VERIFICATION DATA PARSING (EXAM DATE 2 LOGIC)
+# 📥 VERIFICATION DATA PARSING (STRICT DATE 2 OVERRIDE)
 # ==========================================
 def process_verification_file(uploaded_file):
     try:
         xls = pd.ExcelFile(uploaded_file)
-        if "Verification" in xls.sheet_names:
-            df = pd.read_excel(uploaded_file, sheet_name="Verification")
-        else:
-            df = pd.read_excel(uploaded_file)
+        
+        # Flexibly find Verification sheet (handles trailing spaces like 'Verification ')
+        sheet_name = next((s for s in xls.sheet_names if "verification" in s.lower()), xls.sheet_names[0])
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
 
-        # Ensure the latest columns exist
+        # Strip spaces from column headers
+        df.columns = df.columns.str.strip()
+
+        # Enforce Exam Date 2 & Exam Time 2 presence
         missing = [col for col in ["Program", "Current Session", "Exam Date 2", "Exam Time 2"] if col not in df.columns]
         if missing:
             st.error(f"❌ Missing critical columns: {', '.join(missing)}")
-            st.info("Ensure you are using the latest verification format with 'Exam Date 2' and 'Exam Time 2'.")
             return None, None
 
         if "Scheduling Status" in df.columns:
             df = df[df["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
 
         # =========================================================
-        # TARGET EXCLUSIVELY EXAM DATE 2 AND EXAM TIME 2
+        # FORCE EXCLUSIVITY: Wipe old columns, promote "Date 2"
         # =========================================================
+        # 1. Drop the original columns if they exist to prevent ANY contamination
+        if 'Exam Date' in df.columns:
+            df = df.drop(columns=['Exam Date'])
+        if 'Exam Time' in df.columns:
+            df = df.drop(columns=['Exam Time'])
+
+        # 2. Filter out null/invalid Date 2 rows
         df = df[df['Exam Date 2'].notna()].copy()
         df['Exam Date 2 str'] = df['Exam Date 2'].astype(str).str.strip().str.upper()
         df = df[~df['Exam Date 2 str'].isin(['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', ''])].copy()
 
-        # Parse the long text format (e.g. "Monday, 4 May, 2026") into the standard internal DD-MM-YYYY format
+        # 3. Parse Date 2 intelligently (handles "2026-05-04" or "Monday, 4 May, 2026")
         parsed_dates = pd.to_datetime(df['Exam Date 2'], errors='coerce')
-        df['Exam Date'] = parsed_dates.dt.strftime('%d-%m-%Y')
         
-        # Map Time to the internal standard column
+        # 4. Filter out any rows that failed to parse into a real date
+        df = df[parsed_dates.notna()].copy()
+        parsed_dates = parsed_dates.dropna()
+
+        # 5. Lock in the standard DD-MM-YYYY format required by FPDF
+        df['Exam Date'] = parsed_dates.dt.strftime('%d-%m-%Y')
         df['Exam Time'] = df['Exam Time 2'].astype(str).str.strip()
         # =========================================================
 
@@ -164,9 +177,6 @@ def process_verification_file(uploaded_file):
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
         
         timetable = {}
-        # Make sure to drop rows where date parsing completely failed to prevent errors later
-        df = df.dropna(subset=['Exam Date']).copy()
-        
         for sem in sorted(df['Semester'].unique()):
             timetable[sem] = df[df['Semester'] == sem].copy()
             
@@ -897,3 +907,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
