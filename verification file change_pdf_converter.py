@@ -186,6 +186,44 @@ def int_to_roman(num):
         while num >= v: res += r; num -= v
     return res
 
+def _make_program_abbrev(name):
+    """Short collision-resistant abbreviation. Normalises whitespace first."""
+    norm = re.sub(r'\s+', ' ', name.strip())
+    words = re.split(r'[\s,&/()+]+', norm)
+    abbrev = ''.join(w[0] for w in words if w)
+    return abbrev[:12].upper()
+
+
+def _build_program_key_map(all_program_names):
+    """
+    {original_program_name -> unique_sheet_key}.
+    Treats whitespace-normalised duplicates as the SAME program (same key returned).
+    Appends numeric suffix if two genuinely different programs share initials.
+    """
+    key_map     = {}      # original_name  -> sheet_key
+    norm_to_key = {}      # normalised_name -> sheet_key
+    used_keys   = set()
+
+    for name in all_program_names:
+        norm = re.sub(r'\s+', ' ', name.strip())
+        if norm in norm_to_key:
+            key_map[name] = norm_to_key[norm]
+            continue
+
+        base = _make_program_abbrev(name)
+        key  = base
+        n    = 2
+        while key in used_keys:
+            key = base[:10] + str(n)
+            n  += 1
+
+        used_keys.add(key)
+        norm_to_key[norm] = key
+        key_map[name]     = key
+
+    return key_map
+
+
 def save_to_excel(semester_wise_timetable):
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -193,22 +231,46 @@ def save_to_excel(semester_wise_timetable):
     })
     output = io.BytesIO()
 
+    # ── Build collision-free program key map across ALL semesters ──────────
+    all_programs = []
+    for df_s in semester_wise_timetable.values():
+        if not df_s.empty:
+            all_programs.extend(df_s['MainBranch'].dropna().unique().tolist())
+    # Deduplicate while preserving order
+    seen_p, deduped = set(), []
+    for p in all_programs:
+        if p not in seen_p:
+            deduped.append(p); seen_p.add(p)
+    prog_key_map = _build_program_key_map(deduped)
+
+    # Global sheet-name uniqueness guard (last line of defence)
+    used_sheet_names = set()
+
+    def unique_sheet(name):
+        base, n = name, 2
+        while name in used_sheet_names:
+            name = base[:31 - len(str(n))] + str(n)
+            n   += 1
+        used_sheet_names.add(name)
+        return name
+
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         sheets_created = 0
         for sem, df_sem in semester_wise_timetable.items():
             if df_sem.empty: continue
 
-            slot_id   = 1 if ((sem + 1) // 2) % 2 == 1 else 2
-            p_cfg     = time_slots_dict.get(slot_id, time_slots_dict[1])
+            slot_id     = 1 if ((sem + 1) // 2) % 2 == 1 else 2
+            p_cfg       = time_slots_dict.get(slot_id, time_slots_dict[1])
             header_norm = normalize_time(f"{p_cfg['start']} - {p_cfg['end']}")
 
             for main_branch in df_sem['MainBranch'].unique():
                 df_mb     = df_sem[df_sem['MainBranch'] == main_branch].copy()
                 roman_sem = int_to_roman(sem)
 
-                sheet_base  = f"{main_branch}"[:20]
-                core_sheet  = f"{sheet_base}_|_Sem {roman_sem}"[:31]
-                elec_sheet  = f"{sheet_base}_|_Sem {roman_sem}_Ele"[:31]
+                prog_key   = prog_key_map.get(main_branch, main_branch[:12])
+                # _Ele suffix is kept; total length safely under 31
+                core_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}"[:31])
+                elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
 
                 df_core = df_mb[df_mb['OE'].isna()].copy()
                 df_elec = df_mb[df_mb['OE'].notna()].copy()
@@ -238,8 +300,9 @@ def save_to_excel(semester_wise_timetable):
                         pivot = pivot.pivot_table(index='Exam Date', columns='SubBranch', values='SubjectDisplay', aggfunc='first').fillna("---")
                         pivot = pivot.sort_index(ascending=True).reset_index()
                         pivot['Exam Date'] = pivot['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
-                        pivot['Program']  = main_branch
-                        pivot['Semester'] = roman_sem
+                        # Store full program name so the PDF header recovery works
+                        pivot['_prog_'] = main_branch
+                        pivot['_sem_']  = roman_sem
                         pivot.to_excel(writer, sheet_name=core_sheet, index=False)
                         sheets_created += 1
                     except Exception:
@@ -270,8 +333,8 @@ def save_to_excel(semester_wise_timetable):
 
                         ep = df_elec.groupby(['Exam Date', 'OE']).agg({'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}).reset_index()
                         ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Subjects'}, inplace=True)
-                        ep['Program']  = main_branch
-                        ep['Semester'] = roman_sem
+                        ep['_prog_'] = main_branch
+                        ep['_sem_']  = roman_sem
                         ep.to_excel(writer, sheet_name=elec_sheet, index=False)
                         sheets_created += 1
                     except Exception:
@@ -647,9 +710,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
 
-            # ── Recover main branch name ──────────────────────────────────
+            # ── Recover main branch name ─────────────────────────────────
+            # Primary source: _prog_ column (written by save_to_excel with full name)
             main_branch_full = ""
-            if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
+            if "_prog_" in sheet_df.columns and not sheet_df["_prog_"].dropna().empty:
+                main_branch_full = str(sheet_df["_prog_"].dropna().iloc[0])
+            elif "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
                 main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                 main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
@@ -702,7 +768,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
                 # Exclude metadata cols — also catches pandas-deduplicated variants
                 # like "Program.1", "Semester.1", "Program.2" etc.
                 _meta_pattern = re.compile(
-                    r'^(Program|Semester|MainBranch|Note|Message)(\.\d+)?$',
+                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
                     re.IGNORECASE
                 )
                 sub_branch_cols = [
@@ -759,7 +825,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
 
             # ── Elective (OE) sheets ──────────────────────────────────────
             else:
-                target_cols    = ['Exam Date', 'OE Type', 'Subjects']
+                target_cols    = ['Exam Date', 'OE Type', 'Subjects']  # _prog_ and _sem_ intentionally excluded
                 available_cols = [c for c in target_cols if c in sheet_df.columns]
 
                 if len(available_cols) < 3: continue
