@@ -111,24 +111,55 @@ def process_verification_file(uploaded_file):
     try:
         xls = pd.ExcelFile(uploaded_file)
         if "Verification" in xls.sheet_names:
-            df = pd.read_excel(uploaded_file, sheet_name="Verification")
+            df_raw = pd.read_excel(uploaded_file, sheet_name="Verification")
         else:
-            df = pd.read_excel(uploaded_file)
+            df_raw = pd.read_excel(uploaded_file)
 
-        required_columns = [
-            "Module Abbreviation", "Module Description", "Program", "Stream", 
-            "Current Session", "Exam Date", "Exam Time", "Scheduling Status", "Subject Type"
-        ]
-        
-        missing = [col for col in ["Program", "Current Session", "Exam Date"] if col not in df.columns]
+        missing = [col for col in ["Program", "Current Session", "Exam Date"] if col not in df_raw.columns]
         if missing:
             st.error(f"❌ Missing critical columns: {', '.join(missing)}")
             return None, None
 
-        if "Scheduling Status" in df.columns:
-            df = df[df["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
+        if "Scheduling Status" in df_raw.columns:
+            df_raw = df_raw[df_raw["Scheduling Status"].astype(str).str.strip().str.upper() == "SCHEDULED"].copy()
+
+        # =========================================================
+        # NEW LOGIC: Explode Date 1 and Date 2 into separate records
+        # =========================================================
+        records = []
+        for _, row in df_raw.iterrows():
+            base_row = row.to_dict()
+            
+            # --- Check Date 1 ---
+            d1 = row.get('Exam Date')
+            if pd.notna(d1):
+                d1_str = str(d1).strip()
+                if d1_str.upper() not in ['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', '']:
+                    r1 = base_row.copy()
+                    r1['Final_Exam_Date'] = d1_str
+                    r1['Final_Exam_Time'] = str(row.get('Exam Time', '')).strip()
+                    records.append(r1)
+
+            # --- Check Date 2 ---
+            d2 = row.get('Exam Date 2')
+            if pd.notna(d2):
+                d2_str = str(d2).strip()
+                if d2_str.upper() not in ['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', '']:
+                    r2 = base_row.copy()
+                    r2['Final_Exam_Date'] = d2_str
+                    r2['Final_Exam_Time'] = str(row.get('Exam Time 2', '')).strip()
+                    records.append(r2)
+
+        if not records:
+            st.error("❌ No valid scheduled dates found in the file.")
+            return None, None
+
+        df = pd.DataFrame(records)
         
-        df = df[df['Exam Date'].notna() & (df['Exam Date'].astype(str).str.strip().str.upper() != 'NOT SCHEDULED')].copy()
+        # Override original date/time columns with our standardized ones
+        df['Exam Date'] = df['Final_Exam_Date']
+        df['Exam Time'] = df['Final_Exam_Time']
+        # =========================================================
         
         df['MainBranch'] = df.get('Program', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['SubBranch'] = df.get('Stream', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
@@ -136,7 +167,6 @@ def process_verification_file(uploaded_file):
         
         df['Subject'] = df.get('Module Description', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['ModuleCode'] = df.get('Module Abbreviation', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
-        df['Exam Time'] = df.get('Exam Time', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         
         if 'Subject Type' in df.columns:
             df['OE'] = df['Subject Type'].apply(lambda x: 'OE' if str(x).strip().upper() == 'OE' else None)
@@ -162,6 +192,7 @@ def process_verification_file(uploaded_file):
 
     except Exception as e:
         st.error(f"Error parsing verification file: {e}")
+        st.error(traceback.format_exc())
         return None, None
 
 # ==========================================
@@ -215,7 +246,7 @@ def save_to_excel(semester_wise_timetable):
                         actual_time = row.get('Exam Time', '')
                         
                         time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() != 'tbd':
+                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
                             
                         txt = f"{subj}"
@@ -249,7 +280,7 @@ def save_to_excel(semester_wise_timetable):
                         actual_time = row.get('Exam Time', '')
                         
                         time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() != 'tbd':
+                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
                             
                         txt = f"{subj}"
@@ -285,7 +316,6 @@ def save_to_excel(semester_wise_timetable):
 # 📄 EXACT FPDF ENGINE FROM MAIN GENERATOR APP
 # ==========================================
 def wrap_text(pdf, text, col_width):
-    # Added font style to cache key to ensure precise measuring
     cache_key = (text, col_width, pdf.font_style)
     if cache_key in wrap_text_cache:
         return wrap_text_cache[cache_key]
@@ -293,7 +323,6 @@ def wrap_text(pdf, text, col_width):
     import re
     time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
     
-    # Tokenize: split standard words but keep time blocks intact
     parts = time_pattern.split(text)
     tokens = []
     for i, p in enumerate(parts):
@@ -305,15 +334,12 @@ def wrap_text(pdf, text, col_width):
     lines = []
     current_line = ""
     
-    # Save current font state to restore later
     old_family = pdf.font_family
     old_style = pdf.font_style
     old_size = pdf.font_size_pt
     
     for token in tokens:
         test_line = token if not current_line else current_line + " " + token
-        
-        # Measure EXACT width by dynamically toggling bold for time strings
         test_w = 0
         for pt in time_pattern.split(test_line):
             if not pt: continue
@@ -324,7 +350,6 @@ def wrap_text(pdf, text, col_width):
                 pdf.set_font(old_family, old_style, old_size)
                 test_w += pdf.get_string_width(pt)
                 
-        # Break line if the physically rendered width exceeds column width
         if test_w <= col_width:
             current_line = test_line
         else:
@@ -335,9 +360,7 @@ def wrap_text(pdf, text, col_width):
     if current_line:
         lines.append(current_line)
         
-    # Restore original font state
     pdf.set_font(old_family, old_style, old_size)
-    
     wrap_text_cache[cache_key] = lines
     return lines
 
@@ -375,7 +398,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     row_h = line_height * max_lines
     x0, y0 = pdf.get_x(), pdf.get_y()
     
-    # Fill the background for all rows to overwrite any prior state
     pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
 
     import re
@@ -388,11 +410,9 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
             parts = time_pattern.split(ln)
             
             if len(parts) == 1 or header:
-                # Regular rendering if no time bracket is found
                 pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
                 pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
             else:
-                # Calculate exact total width of all parts
                 total_w = 0
                 for k, p in enumerate(parts):
                     if not p: continue
@@ -400,7 +420,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
                     else: pdf.set_font(base_font, base_style, base_size)
                     total_w += pdf.get_string_width(p)
                 
-                # Start X position properly centered and safely padded
                 start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
                 current_x = start_x
                 
@@ -410,20 +429,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
                     else: pdf.set_font(base_font, base_style, base_size)
                     
                     w = pdf.get_string_width(p)
-                    
-                    # MATHEMATICAL FIX: Shift X left by c_margin so text draws exactly at current_x 
-                    # This removes the invisible padding gap that pushes text out of the box
                     pdf.set_xy(current_x - pdf.c_margin, y0 + j * line_height + pad_v)
-                    
-                    # Cell width must include 2*c_margin to prevent premature auto-wrap
                     pdf.cell(w + 2 * pdf.c_margin, line_height, p, border=0, align='L')
                     
                     current_x += w
                 
-                # Restore base font after the line completes
                 pdf.set_font(base_font, base_style, base_size)
         
-        # Draw the cell boundary
         pdf.rect(cx, y0, col_widths[i], row_h)
         pdf.set_xy(cx + col_widths[i], y0)
 
@@ -434,7 +446,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
-    # --- LAYOUT SETTINGS FOR A4 (COMPACT) ---
     footer_height = 18   
     header_end_y = 62    
     
@@ -460,13 +471,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.set_xy(pdf.w - 50, 8)
             pdf.cell(40, 10, decl_str, 0, 0, 'R')
 
-        # Logo
-        logo_width = 45 # INCREASED LOGO SIZE
+        logo_width = 45 
         logo_x = (pdf.w - logo_width) / 2
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
-        # College Name
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
         college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
@@ -476,7 +485,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, college_name, 0, 1, 'C')
         
-        # Details
         pdf.set_font("Arial", 'B', 11) 
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 35)
@@ -489,24 +497,20 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.cell(pdf.w - 20, 5, f"Exam Time: {time_slot}", 0, 1, 'C')
             current_y += 5
             
-            # Made bigger (size 12) and bolder ('BI' for Bold/Italic)
             pdf.set_font("Arial", 'BI', 12) 
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 5, "(Check the subject exam time)", 0, 1, 'C')
             current_y += 5
 
-        # Programs section removed
         pdf.set_xy(pdf.l_margin, header_end_y)
 
     render_footer()
     render_header()
     
-    # --- TABLE HEADER FONT (Bold 9) ---
     pdf.set_font("Arial", 'B', 9)
     print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
     
-    # --- TABLE ROW FONT (Regular 8) ---
-    pdf.set_font("Arial", '', 8) # RESTORED TO 8
+    pdf.set_font("Arial", '', 8) 
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -522,28 +526,22 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             max_lines = max(max_lines, len(lines))
         row_h = line_height * max_lines
         
-        # Check Page Break
         if pdf.get_y() + row_h > pdf.h - footer_height - 5:
             pdf.add_page()
             render_footer()
             render_header()
             pdf.set_font("Arial", 'B', 9) 
             print_row_custom(pdf, columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 8)  # RESTORED TO 8
+            pdf.set_font("Arial", '', 8)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
 def calculate_end_time(start_time, duration_hours):
-    """Calculate the end time given a start time and duration in hours."""
     try:
-        # Handle different time formats
         start_time = str(start_time).strip()
-        
-        # Try to parse the time
         if "AM" in start_time.upper() or "PM" in start_time.upper():
             start = datetime.strptime(start_time, "%I:%M %p")
         else:
-            # Try 24-hour format
             start = datetime.strptime(start_time, "%H:%M")
         
         duration = timedelta(hours=float(duration_hours))
@@ -552,59 +550,11 @@ def calculate_end_time(start_time, duration_hours):
     except Exception as e:
         return f"{start_time} + {duration_hours}h"
         
-def add_header_to_page(pdf, logo_x, logo_width, header_content, Programs, time_slot=None, actual_time_slots=None, declaration_date=None, custom_college_name=None):
-    pdf.set_y(0)
-    
-    # Declaration Date
-    if declaration_date:
-        pdf.set_font("Arial", 'B', 10)
-        pdf.set_text_color(0, 0, 0)
-        decl_str = f"Declaration Date: {declaration_date.strftime('%d-%m-%Y')}"
-        pdf.set_xy(pdf.w - 60, 10)
-        pdf.cell(50, 10, decl_str, 0, 0, 'R')
-
-    pdf.image(LOGO_PATH, x=logo_x, y=10, w=logo_width)
-    pdf.set_fill_color(149, 33, 28)
-    pdf.set_text_color(255, 255, 255)
-    
-    if custom_college_name:
-        college_name = custom_college_name
-    else:
-        college_name = st.session_state.get('selected_college', 'SVKM\'s NMIMS University')
-        
-    pdf.set_font("Arial", 'B', 16 if len(college_name) <= 60 else (14 if len(college_name) <= 80 else 12))
-    
-    pdf.rect(10, 30, pdf.w - 20, 14, 'F')
-    pdf.set_xy(10, 30)
-    pdf.cell(pdf.w - 20, 14, college_name, 0, 1, 'C')
-    
-    pdf.set_font("Arial", 'B', 15)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(10, 51)
-    pdf.cell(pdf.w - 20, 8, f"{header_content['main_branch_full']} - Semester {header_content['semester_roman']}", 0, 1, 'C')
-    
-    if time_slot:
-        pdf.set_font("Arial", 'B', 13)
-        pdf.set_xy(10, 59)
-        pdf.cell(pdf.w - 20, 6, f"Exam Time: {time_slot}", 0, 1, 'C')
-        
-        # Made bigger and bolder ('BI', 12)
-        pdf.set_font("Arial", 'BI', 12)
-        pdf.set_xy(10, 65)
-        pdf.cell(pdf.w - 20, 6, "(Check the subject exam time)", 0, 1, 'C')
-        
-        # Programs section removed to match core tables
-        pdf.set_y(75)
-    else:
-        pdf.set_y(65)
-        
 def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
-    # A4 Landscape: 297mm width x 210mm height
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
-    # Detect Law School Context
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college_context or "Law" in current_college_context
     
@@ -650,14 +600,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
                 sheet_df = sheet_df.reset_index()
             
-            # Name Recovery
             main_branch_full = ""
             if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
                  main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
             elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
                  main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
             
-            # Unnamed Safety
             if "Unnamed" in main_branch_full or main_branch_full == "":
                 if '_|_' in sheet_name:
                     main_branch_full = sheet_name.split('_|_')[0]
@@ -669,7 +617,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
             if rename_cols:
                 sheet_df = sheet_df.rename(columns=rename_cols)
             
-            # College Name Logic
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
             if IS_LAW_SCHOOL and main_branch_full:
                 prog_upper = main_branch_full.upper()
@@ -727,9 +674,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                         chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
                     except: pass
 
-                    # Dynamic Width Calculation for A4 Landscape
                     page_width = pdf.w - 2 * pdf.l_margin 
-                    date_col_width = 30 # Reduced to 30mm since font is smaller
+                    date_col_width = 30 
                     remaining_width = page_width - date_col_width
                     
                     num_sub = max(len(chunk), 1)
@@ -742,7 +688,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    # Passed line_height=6 for compact rows
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=6, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
@@ -764,7 +709,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
 
                     pdf.add_page()
                     
-                    col_widths = [30, 25] # Reduced widths
+                    col_widths = [30, 25]
                     remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
                     col_widths.append(remaining_width)
                     
@@ -787,10 +732,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         st.error("No valid sheets generated in PDF.")
         return
 
-    # Instructions Page
     try:
         pdf.add_page()
-        # Footer
         pdf.set_xy(10, pdf.h - 20)
         pdf.set_font("Arial", 'B', 9)
         pdf.cell(0, 5, "Controller of Examinations", 0, 1, 'L')
@@ -799,9 +742,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
         pdf.set_xy(pdf.w - 30, pdf.h - 15)
         pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
 
-        # Header
         pdf.set_y(0)
-        # INCREASED LOGO SIZE TO 45
         if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
@@ -921,7 +862,6 @@ def main():
         st.header("⚙️ Configuration")
         college_options = [c["name"] for c in COLLEGES]
         
-        # Ensure selected college is bound tightly to the exact state key expected by `convert_excel_to_pdf`
         selected_display = st.selectbox("Select College", college_options)
         st.session_state.selected_college = selected_display
         
@@ -957,8 +897,6 @@ def main():
             with st.spinner("Rendering strict boundaries and converting to PDF..."):
                 pdf_filename = "Verification_Timetable.pdf"
                 
-                # We call generate_pdf_timetable directly as it handles the excel temp file creation, 
-                # FPDF rendering loop, and PyPDF2 blank-page-strip cleanup!
                 generate_pdf_timetable(st.session_state.processed_tt, pdf_filename, declaration_date=decl_date)
                 
                 if os.path.exists(pdf_filename):
