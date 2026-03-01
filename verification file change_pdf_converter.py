@@ -157,16 +157,12 @@ def process_verification_file(uploaded_file):
             s = str(val).upper().strip()
             m = re.search(r'(\d+)', s)
             if m: return int(m.group(1))
-            
-            # FIXED: Expanded the Roman map up to XII to ensure integrated programs don't default back to 1
-            # Ordered from largest to smallest to avoid partial matching bugs.
             roman_map = {
                 'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8,
                 'VII': 7, 'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1
             }
             for r, i in roman_map.items():
-                if r == s or s.endswith(f" {r}") or s.endswith(f"_{r}"): 
-                    return i
+                if r == s or s.endswith(f" {r}") or s.endswith(f"_{r}"): return i
             return 1
 
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
@@ -704,8 +700,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 if not main_branch_full: main_branch_full = sheet_name
 
             is_elective = False
-            if semester_raw.endswith('_Ele'):
-                semester_raw = semester_raw.replace('_Ele', '')
+            
+            # ── FIXED REGEX: Safely catch numbered _Ele suffixes (e.g. _Ele2) to prevent them routing to Core
+            if re.search(r'_Ele(\d*)$', semester_raw):
+                semester_raw = re.sub(r'_Ele\d*$', '', semester_raw)
                 is_elective = True
 
             # ── Read actual semester roman from _sem_ column (immune to dedup suffixes like "Sem X2") ──
