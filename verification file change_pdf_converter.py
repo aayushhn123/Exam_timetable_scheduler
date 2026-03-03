@@ -548,11 +548,18 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     def render_header():
         pdf.set_y(0)
         if declaration_date:
-            pdf.set_font("Arial", 'B', 9)
+            day = declaration_date.day
+            if 11 <= (day % 100) <= 13:
+                suffix = 'th'
+            else:
+                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+            
+            decl_str = f"Date: {day}{suffix} {declaration_date.strftime('%B, %Y')}"
+            
+            pdf.set_font("Arial", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
-            decl_str = f"Date: {declaration_date.strftime('%d-%m-%Y')}"
-            pdf.set_xy(pdf.w - 50, 8)
-            pdf.cell(40, 10, decl_str, 0, 0, 'R')
+            pdf.set_xy(pdf.w - 80, 8)
+            pdf.cell(70, 10, decl_str, 0, 0, 'R')
 
         # Logo
         logo_width = 45
