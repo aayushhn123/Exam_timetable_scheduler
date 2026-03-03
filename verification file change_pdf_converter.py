@@ -323,15 +323,14 @@ def save_to_excel(semester_wise_timetable):
                     e_displays = []
                     for _, row in df_elec.iterrows():
                         subj        = row['Subject']
-                        code        = row['ModuleCode']
                         actual_time = str(row.get('Exam Time', '')).strip()
 
                         time_suffix = ""
                         if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
+                        # ── REMOVED MODULE CODE FOR OE ──
                         txt = f"{subj}"
-                        if code and str(code).lower() != 'nan': txt += f" - ({code})"
                         txt += time_suffix
                         e_displays.append(txt)
 
@@ -344,7 +343,7 @@ def save_to_excel(semester_wise_timetable):
 
                         # ── OE SUBJECTS REMAIN COMMA-SEPARATED (NOT PARTITIONED) ──
                         ep = df_elec.groupby(['Exam Date', 'OE']).agg({'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}).reset_index()
-                        ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Subjects'}, inplace=True)
+                        ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Open Elective (All Applicable Streams)'}, inplace=True)
                         ep['_prog_'] = main_branch
                         ep['_sem_']  = roman_sem
                         ep.to_excel(writer, sheet_name=elec_sheet, index=False)
@@ -554,7 +553,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             else:
                 suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
             
-            decl_str = f"Declaration Date: {day}{suffix} {declaration_date.strftime('%B, %Y')}"
+            decl_str = f"Date: {day}{suffix} {declaration_date.strftime('%B, %Y')}"
             
             pdf.set_font("Arial", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
@@ -800,7 +799,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     if original_college: st.session_state['selected_college'] = original_college
                     sheets_processed += 1
             else:
-                target_cols = ['Exam Date', 'OE Type', 'Subjects']
+                target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
                 available_cols = [c for c in target_cols if c in sheet_df.columns]
                 
                 if len(available_cols) >= 3:
