@@ -608,9 +608,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, declaration_date=None):
-    # A4 Landscape: 297mm width x 210mm height
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
+def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
+    # Legal Landscape: 356mm width x 216mm height
+    pdf = FPDF(orientation='L', unit='mm', format='Legal')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
     
@@ -733,7 +733,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=4, decla
                 sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not _meta_pattern.match(str(c)) and pd.notna(c) and str(c).strip() != '']
                 if not sub_branch_cols: continue
                 
-                cols_per_page = 4
+                cols_per_page = 6
                 
                 for start in range(0, len(sub_branch_cols), cols_per_page):
                     chunk = sub_branch_cols[start:start + cols_per_page]
