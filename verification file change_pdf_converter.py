@@ -512,7 +512,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
             
             decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
-            pdf.set_font("Arial", 'B', 10) 
+            pdf.set_font("Arial", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
             pdf.set_xy(pdf.w - 80, 8)
             pdf.cell(70, 10, decl_str, 0, 0, 'R')
@@ -526,13 +526,13 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
         # College Name
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
-        pdf.set_font("Arial", 'B', 10) 
+        pdf.set_font("Arial", 'B', 12) 
         
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
         
         # Final Exam Timetable Header
-        pdf.set_font("Arial", 'B', 9.5) 
+        pdf.set_font("Arial", 'B', 10) 
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
         pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
@@ -540,7 +540,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
         current_y = 38
         
         # Program Name
-        pdf.set_font("Arial", 'B', 9.5) 
+        pdf.set_font("Arial", 'B', 10) 
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
         current_y += 4
@@ -561,12 +561,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
         current_y += 4
 
         if time_slot:
-            pdf.set_font("Arial", 'B', 8.5)
+            pdf.set_font("Arial", 'B', 9)
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
             
-            pdf.set_font("Arial", 'BI', 10) 
+            pdf.set_font("Arial", 'BI', 9) 
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
@@ -598,6 +598,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
             max_lines = max(max_lines, len(lines))
         row_h = line_height * max_lines
         
+        # Check Page Break
         if pdf.get_y() + row_h > pdf.h - footer_height - 5:
             pdf.add_page()
             render_footer()
