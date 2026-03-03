@@ -400,8 +400,8 @@ def wrap_text(pdf, text, col_width):
 
 def print_row_custom(pdf, row_data, col_widths, line_height=4.5, header=False):
     cell_padding = 1
-    header_bg_color = (149, 33, 28)
-    header_text_color = (255, 255, 255)
+    header_bg_color = (255, 255, 255)
+    header_text_color = (0, 0, 0)
     alt_row_color = (255, 255, 255)
 
     row_number = getattr(pdf, '_row_counter', 0)
@@ -524,12 +524,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_con
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
         # College Name
-        pdf.set_fill_color(149, 33, 28)
-        pdf.set_text_color(255, 255, 255)
+        pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
         pdf.set_font("Arial", 'B', 10) 
         
-        pdf.rect(10, 25, pdf.w - 20, 6, 'F') 
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
         
@@ -812,10 +810,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
 
         pdf.set_y(0)
         if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
-        pdf.set_fill_color(149, 33, 28)
-        pdf.set_text_color(255, 255, 255)
+        pdf.set_text_color(0, 0, 0)
         pdf.set_font("Arial", 'B', 12)
-        pdf.rect(10, 25, pdf.w - 20, 8, 'F')
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
         
