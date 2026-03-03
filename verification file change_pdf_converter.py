@@ -101,6 +101,7 @@ def process_verification_file(uploaded_file):
             st.error("❌ Missing critical column: Current Session")
             return None, None
 
+        # ── SCHEDULING FILTER ────────────────────────────────────────────────
         if has_date2:
             if 'Exam Date' in df.columns:
                 df = df.drop(columns=['Exam Date'])
@@ -397,8 +398,8 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
-def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
-    cell_padding = 2
+def print_row_custom(pdf, row_data, col_widths, line_height=4.5, header=False):
+    cell_padding = 1
     header_bg_color = (149, 33, 28)
     header_text_color = (255, 255, 255)
     alt_row_color = (255, 255, 255)
@@ -408,13 +409,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     base_font = "Arial"
     if header:
         base_style = 'B'
-        base_size = 10
+        base_size = 9
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 8
+        base_size = 7
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color)
@@ -480,20 +481,20 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
-    footer_height = 18   
-    header_end_y = 62    
+    footer_height = 14   
+    header_end_y = 56    
     
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Arial", 'B', 9) 
+        pdf.set_font("Arial", 'B', 8) 
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
         
-        pdf.set_font("Arial", size=9)
+        pdf.set_font("Arial", size=8)
         pdf.set_text_color(0, 0, 0)
         page_text = f"{pdf.page_no()} of {{nb}}"
         text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
@@ -511,7 +512,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             
             decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
-            pdf.set_font("Arial", 'B', 12) 
+            pdf.set_font("Arial", 'B', 10) 
             pdf.set_text_color(0, 0, 0)
             pdf.set_xy(pdf.w - 80, 8)
             pdf.cell(70, 10, decl_str, 0, 0, 'R')
@@ -526,25 +527,25 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
-        pdf.set_font("Arial", 'B', 12) 
+        pdf.set_font("Arial", 'B', 10) 
         
-        pdf.rect(10, 25, pdf.w - 20, 8, 'F') 
+        pdf.rect(10, 25, pdf.w - 20, 6, 'F') 
         pdf.set_xy(10, 25)
-        pdf.cell(pdf.w - 20, 8, college_name, 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
         
         # Final Exam Timetable Header
-        pdf.set_font("Arial", 'B', 11) 
+        pdf.set_font("Arial", 'B', 9.5) 
         pdf.set_text_color(0, 0, 0)
-        pdf.set_xy(10, 35)
-        pdf.cell(pdf.w - 20, 5, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+        pdf.set_xy(10, 33)
+        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
         
-        current_y = 41
+        current_y = 38
         
         # Program Name
-        pdf.set_font("Arial", 'B', 11) 
+        pdf.set_font("Arial", 'B', 9.5) 
         pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 5, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
-        current_y += 5
+        pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
+        current_y += 4
         
         # Year and Semester Math Calculation
         sem_roman = str(header_content['semester_roman']).upper()
@@ -558,19 +559,19 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         year_roman = int_to_roman(year_int)
 
         pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 5, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
-        current_y += 5
+        pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
+        current_y += 4
 
         if time_slot:
-            pdf.set_font("Arial", 'B', 10)
+            pdf.set_font("Arial", 'B', 8.5)
             pdf.set_xy(10, current_y)
-            pdf.cell(pdf.w - 20, 5, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
-            current_y += 5
+            pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
+            current_y += 4
             
-            pdf.set_font("Arial", 'BI', 12) 
+            pdf.set_font("Arial", 'BI', 10) 
             pdf.set_xy(10, current_y)
-            pdf.cell(pdf.w - 20, 5, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
-            current_y += 5
+            pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
+            current_y += 4
 
         pdf.set_xy(pdf.l_margin, header_end_y)
 
@@ -583,7 +584,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     pdf.set_font("Arial", 'B', 9)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
-    pdf.set_font("Arial", '', 8) 
+    pdf.set_font("Arial", '', 7) 
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -605,7 +606,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             render_header()
             pdf.set_font("Arial", 'B', 9) 
             print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 8)  
+            pdf.set_font("Arial", '', 7)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -755,7 +756,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=6, 
+                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=4.5, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
@@ -783,7 +784,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=6, 
+                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=4.5, 
                                      header_content=header_content, Programs=["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
@@ -802,7 +803,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     try:
         pdf.add_page()
         pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Arial", 'B', 9)
+        pdf.set_font("Arial", 'B', 8)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
         pdf.set_font("Arial", size=9)
@@ -813,18 +814,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
         pdf.set_fill_color(149, 33, 28)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Arial", 'B', 14)
+        pdf.set_font("Arial", 'B', 12)
         pdf.rect(10, 25, pdf.w - 20, 8, 'F')
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
         
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Arial", 'B', 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 40)
         pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
         
         pdf.set_y(60)
-        pdf.set_font("Arial", 'B', 14)
+        pdf.set_font("Arial", 'B', 12)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
         instrs = [
@@ -833,7 +834,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Arial", size=9)
         for i in instrs:
             pdf.multi_cell(0, 7, i)
             pdf.ln(2)
