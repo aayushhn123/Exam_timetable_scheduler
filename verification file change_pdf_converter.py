@@ -306,7 +306,8 @@ def save_to_excel(semester_wise_timetable):
                     df_core = df_core.sort_values(by="Exam Date", ascending=True)
 
                     try:
-                        pivot = df_core.groupby(['Exam Date', 'SubBranch']).agg({'SubjectDisplay': lambda x: ", ".join(str(i) for i in x)}).reset_index()
+                        # ── INJECT <hr> TOKEN TO PARTITION NON-OE SUBJECTS HORIZONTALLY ──
+                        pivot = df_core.groupby(['Exam Date', 'SubBranch']).agg({'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)}).reset_index()
                         pivot = pivot.pivot_table(index='Exam Date', columns='SubBranch', values='SubjectDisplay', aggfunc='first').fillna("---")
                         pivot = pivot.sort_index(ascending=True).reset_index()
                         pivot['Exam Date'] = pivot['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
@@ -341,6 +342,7 @@ def save_to_excel(semester_wise_timetable):
                         df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                         df_elec['Exam Date'] = df_elec['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
 
+                        # ── OE SUBJECTS REMAIN COMMA-SEPARATED (NOT PARTITIONED) ──
                         ep = df_elec.groupby(['Exam Date', 'OE']).agg({'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}).reset_index()
                         ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Subjects'}, inplace=True)
                         ep['_prog_'] = main_branch
@@ -370,12 +372,14 @@ def wrap_text(pdf, text, col_width):
     time_pattern = re.compile(r'([\[\(]\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*[\]\)])', re.IGNORECASE)
     
     # Tokenize: split standard words but keep time blocks intact
-    parts = time_pattern.split(text)
+    parts = time_pattern.split(str(text))
     tokens = []
     for i, p in enumerate(parts):
         if i % 2 == 1:
             tokens.append(p)
         else:
+            # Shield the <hr> partition token so it doesn't merge with words
+            p = p.replace("<hr>", " <hr> ")
             tokens.extend(p.split())
             
     lines = []
@@ -387,6 +391,14 @@ def wrap_text(pdf, text, col_width):
     old_size = pdf.font_size_pt
     
     for token in tokens:
+        # Detect horizontal partition token and force it onto its own dedicated row
+        if token == "<hr>":
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+            lines.append("<hr>")
+            continue
+
         test_line = token if not current_line else current_line + " " + token
         
         # Measure EXACT width by dynamically toggling bold for time strings
@@ -460,6 +472,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         cx = pdf.get_x()
         pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
         for j, ln in enumerate(lines):
+            
+            # ── DRAW HORIZONTAL PARTITION INSTEAD OF TEXT ──
+            if ln == "<hr>":
+                line_y = y0 + j * line_height + pad_v + (line_height / 2)
+                pdf.line(cx, line_y, cx + col_widths[i], line_y)
+                continue
+                
             parts = time_pattern.split(ln)
             
             if len(parts) == 1 or header:
