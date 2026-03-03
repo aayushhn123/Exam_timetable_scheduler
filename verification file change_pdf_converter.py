@@ -398,7 +398,7 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
-def print_row_custom(pdf, row_data, col_widths, line_height=4.5, header=False):
+def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 1
     header_bg_color = (255, 255, 255)
     header_text_color = (0, 0, 0)
@@ -481,12 +481,12 @@ def print_row_custom(pdf, row_data, col_widths, line_height=4.5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=4.5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
     footer_height = 14   
-    header_end_y = 56    
+    header_end_y = 60    
     
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
@@ -755,7 +755,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=4.5, 
+                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
@@ -783,7 +783,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=4.5, 
+                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5, 
                                      header_content=header_content, Programs=["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
