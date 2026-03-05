@@ -2691,26 +2691,33 @@ def save_to_excel(semester_wise_timetable):
                 # Use a copy so we don't alter the core UI/Dashboard state
                 df_sem = df_sem_orig.copy()
                 
-                # --- LAW SCHOOL BA/BBA MERGE LOGIC ---
-                # This explicitly forces B.A. and B.B.A. to merge into one combined sheet/page
+                # --- FOOLPROOF LAW SCHOOL BA/BBA MERGE LOGIC ---
                 if IS_LAW_SCHOOL:
-                    mask_ba = df_sem['MainBranch'].astype(str).str.contains('B.A.', case=False, na=False)
-                    mask_bba = df_sem['MainBranch'].astype(str).str.contains('B.B.A.', case=False, na=False)
-                    ba_bba_mask = mask_ba | mask_bba
-                    
-                    if ba_bba_mask.any():
-                        def merge_sub_branch(row):
-                            old_mb = str(row['MainBranch']).strip()
-                            sub = str(row['SubBranch']).strip()
-                            # Append the program name to the column to keep them visibly separated
-                            if old_mb not in sub:
-                                return f"{old_mb} - {sub}"
-                            return sub
+                    for idx in df_sem.index:
+                        mb = str(df_sem.at[idx, 'MainBranch']).upper().replace(" ", "").replace(".", "")
                         
-                        df_sem.loc[ba_bba_mask, 'SubBranch'] = df_sem[ba_bba_mask].apply(merge_sub_branch, axis=1)
-                        # Set to combined header to force them onto the same PDF page
-                        df_sem.loc[ba_bba_mask, 'MainBranch'] = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
-                # -------------------------------------
+                        # Strictly identify BA and BBA without triggering on LLM
+                        is_ba = ('BALLB' in mb) or ('BA' in mb and 'BBA' not in mb and 'LLM' not in mb)
+                        is_bba = ('BBALLB' in mb) or ('BBA' in mb and 'LLM' not in mb)
+                        
+                        if is_ba or is_bba:
+                            orig_mb = str(df_sem.at[idx, 'MainBranch']).strip()
+                            orig_sb = str(df_sem.at[idx, 'SubBranch']).strip()
+                            
+                            prog_label = "B.B.A., LL.B. (Hons.)" if is_bba else "B.A., LL.B. (Hons.)"
+                            
+                            # Shift the program name directly into the column header (SubBranch)
+                            if orig_sb in ["", "nan", "None"] or orig_sb == orig_mb:
+                                df_sem.at[idx, 'SubBranch'] = prog_label
+                            else:
+                                if prog_label not in orig_sb:
+                                    df_sem.at[idx, 'SubBranch'] = f"{prog_label} - {orig_sb}"
+                                    
+                            # Force both programs into the exact same MainBranch sheet
+                            combined_header = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+                            df_sem.at[idx, 'MainBranch'] = combined_header
+                            df_sem.at[idx, 'Program'] = combined_header
+                # -----------------------------------------------
                 
                 raw_sem_str = str(sem).strip()
                 
@@ -4054,6 +4061,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
