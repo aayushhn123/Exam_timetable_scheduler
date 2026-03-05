@@ -398,7 +398,7 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
-def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
+def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
     cell_padding = 1
     header_bg_color = (255, 255, 255)
     header_text_color = (0, 0, 0)
@@ -409,13 +409,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     base_font = "Arial"
     if header:
         base_style = 'B'
-        base_size = 9
+        base_size = 9.5
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 7
+        base_size = 8.5
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color)
@@ -481,7 +481,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
@@ -579,10 +579,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Uppercase the table columns
     upper_columns = [str(c).upper() for c in columns]
     
-    pdf.set_font("Arial", 'B', 9)
+    pdf.set_font("Arial", 'B', 9.5)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
-    pdf.set_font("Arial", '', 7) 
+    pdf.set_font("Arial", '', 8.5) 
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -603,9 +603,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Arial", 'B', 9) 
+            pdf.set_font("Arial", 'B', 9.5) 
             print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 7)  
+            pdf.set_font("Arial", '', 8.5)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -755,7 +755,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5, 
+                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=6, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
@@ -783,7 +783,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5, 
+                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=6, 
                                      header_content=header_content, Programs=["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
