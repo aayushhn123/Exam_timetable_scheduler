@@ -2694,29 +2694,34 @@ def save_to_excel(semester_wise_timetable):
                 # --- FOOLPROOF LAW SCHOOL BA/BBA MERGE LOGIC ---
                 if IS_LAW_SCHOOL:
                     for idx in df_sem.index:
-                        mb = str(df_sem.at[idx, 'MainBranch']).upper().replace(" ", "").replace(".", "")
+                        mb_upper = str(df_sem.at[idx, 'MainBranch']).upper()
                         
-                        # Strictly identify BA and BBA without triggering on LLM
-                        is_ba = ('BALLB' in mb) or ('BA' in mb and 'BBA' not in mb and 'LLM' not in mb)
-                        is_bba = ('BBALLB' in mb) or ('BBA' in mb and 'LLM' not in mb)
+                        # Exclude LLM from this merge
+                        is_llm = "LL.M" in mb_upper or "LLM" in mb_upper or "MASTER" in mb_upper
                         
-                        if is_ba or is_bba:
-                            orig_mb = str(df_sem.at[idx, 'MainBranch']).strip()
-                            orig_sb = str(df_sem.at[idx, 'SubBranch']).strip()
+                        if not is_llm:
+                            # Highly robust string matching
+                            is_bba = "B.B.A" in mb_upper or "BBA" in mb_upper
+                            is_ba = ("B.A" in mb_upper or "BACHELOR OF ARTS" in mb_upper or "BA " in mb_upper or "BALLB" in mb_upper.replace(" ","").replace(",","")) and not is_bba
                             
-                            prog_label = "B.B.A., LL.B. (Hons.)" if is_bba else "B.A., LL.B. (Hons.)"
-                            
-                            # Shift the program name directly into the column header (SubBranch)
-                            if orig_sb in ["", "nan", "None"] or orig_sb == orig_mb:
-                                df_sem.at[idx, 'SubBranch'] = prog_label
-                            else:
-                                if prog_label not in orig_sb:
-                                    df_sem.at[idx, 'SubBranch'] = f"{prog_label} - {orig_sb}"
-                                    
-                            # Force both programs into the exact same MainBranch sheet
-                            combined_header = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
-                            df_sem.at[idx, 'MainBranch'] = combined_header
-                            df_sem.at[idx, 'Program'] = combined_header
+                            if is_ba or is_bba:
+                                prog_label = "B.B.A., LL.B. (Hons.)" if is_bba else "B.A., LL.B. (Hons.)"
+                                orig_sb = str(df_sem.at[idx, 'SubBranch']).strip()
+                                orig_mb = str(df_sem.at[idx, 'MainBranch']).strip()
+                                
+                                new_sb = prog_label
+                                if orig_sb not in ["", "nan", "None"] and orig_sb != orig_mb:
+                                    if prog_label not in orig_sb:
+                                        new_sb = f"{prog_label} - {orig_sb}"
+                                    else:
+                                        new_sb = orig_sb
+                                        
+                                combined_header = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+                                
+                                # Force into exact same data stream
+                                df_sem.at[idx, 'SubBranch'] = new_sb
+                                df_sem.at[idx, 'MainBranch'] = combined_header
+                                df_sem.at[idx, 'Program'] = combined_header
                 # -----------------------------------------------
                 
                 raw_sem_str = str(sem).strip()
@@ -2753,8 +2758,15 @@ def save_to_excel(semester_wise_timetable):
                     df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
                     if df_mb.empty: continue
                    
-                    df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                    df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                    # --- LAW SCHOOL OE INTEGRATION LOGIC ---
+                    if IS_LAW_SCHOOL:
+                        # Process everything together (skip separate OE tables)
+                        df_non_elec = df_mb.copy()
+                        df_elec = pd.DataFrame(columns=df_mb.columns) 
+                    else:
+                        df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
+                        df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
+                    # ---------------------------------------
                     
                     suffix = f"_|_{raw_sem_str}"
                     sheet_name = get_safe_sheet_name(main_branch, suffix)
@@ -4061,6 +4073,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
