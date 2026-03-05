@@ -1653,13 +1653,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
     base_font = "Arial"
     if header:
         base_style = 'B'
-        base_size = 10  # Increased from 9
+        base_size = 9.5  # Decreased from 10
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 9  # Increased from 7
+        base_size = 8.5  # Decreased from 9
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color)
@@ -1833,10 +1833,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     
     upper_columns = [str(c).upper() for c in columns]
     
-    pdf.set_font("Arial", 'B', 10)  # Increased header from 9 to 10
+    pdf.set_font("Arial", 'B', 9.5)  # Decreased header from 10 to 9.5
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
-    pdf.set_font("Arial", '', 9)   # Increased text from 7 to 9
+    pdf.set_font("Arial", '', 8.5)   # Decreased text from 9 to 8.5
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -1856,9 +1856,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Arial", 'B', 10) # Increased header from 9 to 10
+            pdf.set_font("Arial", 'B', 9.5) # Decreased header from 10 to 9.5
             print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 9)   # Increased text from 7 to 9
+            pdf.set_font("Arial", '', 8.5)   # Decreased text from 9 to 8.5
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -4030,6 +4030,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
