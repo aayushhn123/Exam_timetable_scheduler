@@ -2636,6 +2636,9 @@ def save_to_excel(semester_wise_timetable):
         st.warning("No timetable data to save")
         return None
         
+    current_college = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
+        
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -2682,8 +2685,32 @@ def save_to_excel(semester_wise_timetable):
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             sheets_created = 0
            
-            for sem, df_sem in semester_wise_timetable.items():
-                if df_sem.empty: continue
+            for sem, df_sem_orig in semester_wise_timetable.items():
+                if df_sem_orig.empty: continue
+                
+                # Use a copy so we don't alter the core UI/Dashboard state
+                df_sem = df_sem_orig.copy()
+                
+                # --- LAW SCHOOL BA/BBA MERGE LOGIC ---
+                # This explicitly forces B.A. and B.B.A. to merge into one combined sheet/page
+                if IS_LAW_SCHOOL:
+                    mask_ba = df_sem['MainBranch'].astype(str).str.contains('B.A.', case=False, na=False)
+                    mask_bba = df_sem['MainBranch'].astype(str).str.contains('B.B.A.', case=False, na=False)
+                    ba_bba_mask = mask_ba | mask_bba
+                    
+                    if ba_bba_mask.any():
+                        def merge_sub_branch(row):
+                            old_mb = str(row['MainBranch']).strip()
+                            sub = str(row['SubBranch']).strip()
+                            # Append the program name to the column to keep them visibly separated
+                            if old_mb not in sub:
+                                return f"{old_mb} - {sub}"
+                            return sub
+                        
+                        df_sem.loc[ba_bba_mask, 'SubBranch'] = df_sem[ba_bba_mask].apply(merge_sub_branch, axis=1)
+                        # Set to combined header to force them onto the same PDF page
+                        df_sem.loc[ba_bba_mask, 'MainBranch'] = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+                # -------------------------------------
                 
                 raw_sem_str = str(sem).strip()
                 
@@ -2755,7 +2782,6 @@ def save_to_excel(semester_wise_timetable):
                         df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
                         
-                        # Added <hr> logic to partition multiple subjects natively
                         grouped = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
                             'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)
                         }).reset_index()
@@ -2791,7 +2817,6 @@ def save_to_excel(semester_wise_timetable):
                                     'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
                                 }).reset_index()
                                 
-                                # Updated OE header logic from extraction
                                 summary_df.rename(columns={'DisplaySubject': 'Open Elective (All Applicable Streams)', 'OE': 'OE Type'}, inplace=True)
                                 
                                 summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
@@ -2817,7 +2842,6 @@ def save_to_excel(semester_wise_timetable):
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
         return None
-
 # ============================================================================
 # INTD/OE SUBJECT SCHEDULING LOGIC
 # ============================================================================
@@ -4030,6 +4054,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
