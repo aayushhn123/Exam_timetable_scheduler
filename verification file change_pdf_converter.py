@@ -398,7 +398,7 @@ def wrap_text(pdf, text, col_width):
     wrap_text_cache[cache_key] = lines
     return lines
 
-def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
+def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     cell_padding = 1
     header_bg_color = (255, 255, 255)
     header_text_color = (0, 0, 0)
@@ -429,7 +429,12 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
         wrapped_cells.append(lines)
         max_lines = max(max_lines, len(lines))
 
+    # Keep outer row height standard
     row_h = line_height * max_lines
+    
+    # Introduce tighter line spacing internally for text
+    text_line_height = line_height * 0.75 
+    
     x0, y0 = pdf.get_x(), pdf.get_y()
     
     pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
@@ -438,19 +443,24 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
 
     for i, lines in enumerate(wrapped_cells):
         cx = pdf.get_x()
-        pad_v = (row_h - len(lines) * line_height) / 2 if len(lines) < max_lines else 0
+        
+        # Vertically center by calculating leftover space after drawing tight text lines
+        total_text_h = len(lines) * text_line_height
+        pad_v = (row_h - total_text_h) / 2
+        
         for j, ln in enumerate(lines):
             
             if ln == "<hr>":
-                line_y = y0 + j * line_height + pad_v + (line_height / 2)
+                line_y = y0 + pad_v + j * text_line_height + (text_line_height / 2)
                 pdf.line(cx, line_y, cx + col_widths[i], line_y)
                 continue
                 
             parts = time_pattern.split(ln)
             
+            # Text will now be drawn horizontally and vertically centered perfectly inside the cell
             if len(parts) == 1 or header:
-                pdf.set_xy(cx + cell_padding, y0 + j * line_height + pad_v)
-                pdf.cell(col_widths[i] - 2 * cell_padding, line_height, ln, border=0, align='C')
+                pdf.set_xy(cx + cell_padding, y0 + pad_v + j * text_line_height)
+                pdf.cell(col_widths[i] - 2 * cell_padding, text_line_height, ln, border=0, align='C')
             else:
                 total_w = 0
                 for k, p in enumerate(parts):
@@ -468,8 +478,8 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
                     else: pdf.set_font(base_font, base_style, base_size)
                     
                     w = pdf.get_string_width(p)
-                    pdf.set_xy(current_x - pdf.c_margin, y0 + j * line_height + pad_v)
-                    pdf.cell(w + 2 * pdf.c_margin, line_height, p, border=0, align='L')
+                    pdf.set_xy(current_x - pdf.c_margin, y0 + pad_v + j * text_line_height)
+                    pdf.cell(w + 2 * pdf.c_margin, text_line_height, p, border=0, align='L')
                     
                     current_x += w
                 
@@ -481,7 +491,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
     setattr(pdf, '_row_counter', row_number + 1)
     pdf.set_xy(x0, y0 + row_h)
 
-def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
+def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_content=None, Programs=None, time_slot=None, actual_time_slots=None, declaration_date=None):
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
     
@@ -755,7 +765,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=6, 
+                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5, 
                                      header_content=header_content, Programs=chunk, 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
@@ -783,7 +793,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
                     
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=6, 
+                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5, 
                                      header_content=header_content, Programs=["Electives"], 
                                      time_slot=header_exam_time, actual_time_slots=None, 
                                      declaration_date=declaration_date)
