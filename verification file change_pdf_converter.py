@@ -406,7 +406,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=6, header=False):
 
     row_number = getattr(pdf, '_row_counter', 0)
     
-    base_font = "Arial"
+    base_font = "Times"
     if header:
         base_style = 'B'
         base_size = 9.5
@@ -490,11 +490,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Arial", 'B', 8) 
+        pdf.set_font("Times", 'B', 8) 
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
         
-        pdf.set_font("Arial", size=8)
+        pdf.set_font("Times", size=8)
         pdf.set_text_color(0, 0, 0)
         page_text = f"{pdf.page_no()} of {{nb}}"
         text_width = pdf.get_string_width(page_text.replace("{nb}", "99"))
@@ -512,7 +512,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             
             decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
-            pdf.set_font("Arial", 'B', 12) 
+            pdf.set_font("Times", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
             pdf.set_xy(pdf.w - 80, 8)
             pdf.cell(70, 10, decl_str, 0, 0, 'R')
@@ -526,13 +526,13 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         # College Name
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
-        pdf.set_font("Arial", 'B', 12) 
+        pdf.set_font("Times", 'B', 12) 
         
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
         
         # Final Exam Timetable Header
-        pdf.set_font("Arial", 'B', 10) 
+        pdf.set_font("Times", 'B', 10) 
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
         pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
@@ -540,7 +540,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         current_y = 38
         
         # Program Name
-        pdf.set_font("Arial", 'B', 10) 
+        pdf.set_font("Times", 'B', 10) 
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
         current_y += 4
@@ -561,12 +561,12 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
         current_y += 4
 
         if time_slot:
-            pdf.set_font("Arial", 'B', 9)
+            pdf.set_font("Times", 'B', 9)
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
             
-            pdf.set_font("Arial", 'BI', 9) 
+            pdf.set_font("Times", 'BI', 9) 
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
@@ -579,10 +579,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
     # Uppercase the table columns
     upper_columns = [str(c).upper() for c in columns]
     
-    pdf.set_font("Arial", 'B', 9.5)
+    pdf.set_font("Times", 'B', 9.5)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
-    pdf.set_font("Arial", '', 8.5) 
+    pdf.set_font("Times", '', 8.5) 
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -603,9 +603,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=6, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Arial", 'B', 9.5) 
+            pdf.set_font("Times", 'B', 9.5) 
             print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Arial", '', 8.5)  
+            pdf.set_font("Times", '', 8.5)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -802,27 +802,27 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     try:
         pdf.add_page()
         pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Arial", 'B', 8)
+        pdf.set_font("Times", 'B', 8)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Arial", size=9)
+        pdf.set_font("Times", size=9)
         pdf.set_xy(pdf.w - 30, pdf.h - 15)
         pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
 
         pdf.set_y(0)
         if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
         pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Times", 'B', 12)
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
         
-        pdf.set_font("Arial", 'B', 10)
+        pdf.set_font("Times", 'B', 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 40)
         pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
         
         pdf.set_y(60)
-        pdf.set_font("Arial", 'B', 12)
+        pdf.set_font("Times", 'B', 12)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(5)
         instrs = [
@@ -831,7 +831,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
-        pdf.set_font("Arial", size=9)
+        pdf.set_font("Times", size=9)
         for i in instrs:
             pdf.multi_cell(0, 7, i)
             pdf.ln(2)
