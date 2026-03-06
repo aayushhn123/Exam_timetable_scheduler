@@ -429,10 +429,10 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         wrapped_cells.append(lines)
         max_lines = max(max_lines, len(lines))
 
-    # Keep outer row height standard
+    # Keep outer row height standard based on max total lines
     row_h = line_height * max_lines
     
-    # Introduce tighter line spacing internally for text
+    # Tighter line spacing internally for text
     text_line_height = line_height * 0.75 
     
     x0, y0 = pdf.get_x(), pdf.get_y()
@@ -444,46 +444,59 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     for i, lines in enumerate(wrapped_cells):
         cx = pdf.get_x()
         
-        # Vertically center by calculating leftover space after drawing tight text lines
-        total_text_h = len(lines) * text_line_height
-        pad_v = (row_h - total_text_h) / 2
-        
-        for j, ln in enumerate(lines):
-            
+        # Split lines by <hr> into distinct subjects to partition the cell
+        subjects_lines = []
+        current_subject = []
+        for ln in lines:
             if ln == "<hr>":
-                line_y = y0 + pad_v + j * text_line_height + (text_line_height / 2)
-                pdf.line(cx, line_y, cx + col_widths[i], line_y)
-                continue
-                
-            parts = time_pattern.split(ln)
-            
-            # Text will now be drawn horizontally and vertically centered perfectly inside the cell
-            if len(parts) == 1 or header:
-                pdf.set_xy(cx + cell_padding, y0 + pad_v + j * text_line_height)
-                pdf.cell(col_widths[i] - 2 * cell_padding, text_line_height, ln, border=0, align='C')
+                subjects_lines.append(current_subject)
+                current_subject = []
             else:
-                total_w = 0
-                for k, p in enumerate(parts):
-                    if not p: continue
-                    if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
-                    else: pdf.set_font(base_font, base_style, base_size)
-                    total_w += pdf.get_string_width(p)
+                current_subject.append(ln)
+        subjects_lines.append(current_subject)
+        
+        num_subjects = len(subjects_lines)
+        part_h = row_h / num_subjects if num_subjects > 0 else row_h
+        
+        for sub_idx, subj_lines in enumerate(subjects_lines):
+            # Vertically center each subject cleanly inside its designated horizontal partition
+            total_text_h = len(subj_lines) * text_line_height
+            pad_v = (part_h - total_text_h) / 2
+            
+            for j, ln in enumerate(subj_lines):
+                parts = time_pattern.split(ln)
                 
-                start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
-                current_x = start_x
-                
-                for k, p in enumerate(parts):
-                    if not p: continue
-                    if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
-                    else: pdf.set_font(base_font, base_style, base_size)
+                if len(parts) == 1 or header:
+                    pdf.set_xy(cx + cell_padding, y0 + (sub_idx * part_h) + pad_v + j * text_line_height)
+                    pdf.cell(col_widths[i] - 2 * cell_padding, text_line_height, ln, border=0, align='C')
+                else:
+                    total_w = 0
+                    for k, p in enumerate(parts):
+                        if not p: continue
+                        if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
+                        else: pdf.set_font(base_font, base_style, base_size)
+                        total_w += pdf.get_string_width(p)
                     
-                    w = pdf.get_string_width(p)
-                    pdf.set_xy(current_x - pdf.c_margin, y0 + pad_v + j * text_line_height)
-                    pdf.cell(w + 2 * pdf.c_margin, text_line_height, p, border=0, align='L')
+                    start_x = cx + max(cell_padding, (col_widths[i] - total_w) / 2)
+                    current_x = start_x
                     
-                    current_x += w
-                
-                pdf.set_font(base_font, base_style, base_size)
+                    for k, p in enumerate(parts):
+                        if not p: continue
+                        if k % 2 == 1: pdf.set_font(base_font, 'B', base_size)
+                        else: pdf.set_font(base_font, base_style, base_size)
+                        
+                        w = pdf.get_string_width(p)
+                        pdf.set_xy(current_x - pdf.c_margin, y0 + (sub_idx * part_h) + pad_v + j * text_line_height)
+                        pdf.cell(w + 2 * pdf.c_margin, text_line_height, p, border=0, align='L')
+                        
+                        current_x += w
+                    
+                    pdf.set_font(base_font, base_style, base_size)
+            
+            # Draw the horizontal partition border exactly on the boundary between subjects
+            if sub_idx < num_subjects - 1:
+                line_y = y0 + ((sub_idx + 1) * part_h)
+                pdf.line(cx, line_y, cx + col_widths[i], line_y)
         
         pdf.rect(cx, y0, col_widths[i], row_h)
         pdf.set_xy(cx + col_widths[i], y0)
