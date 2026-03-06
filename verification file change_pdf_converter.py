@@ -533,7 +533,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             else:
                 suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
             
-            decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
+            decl_str = f"{day}{suffix} {declaration_date.strftime('%B, %Y')}"
             
             pdf.set_font("Times", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
