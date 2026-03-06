@@ -409,13 +409,13 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     base_font = "Times"
     if header:
         base_style = 'B'
-        base_size = 9
+        base_size = 9.5
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
     else:
         base_style = ''
-        base_size = 9
+        base_size = 9.5
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(0, 0, 0)
         pdf.set_fill_color(*alt_row_color)
@@ -533,7 +533,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             else:
                 suffix = {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
             
-            decl_str = f"{day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
+            decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
             pdf.set_font("Times", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
@@ -602,10 +602,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     # Uppercase the table columns
     upper_columns = [str(c).upper() for c in columns]
     
-    pdf.set_font("Times", 'B', 9)
+    pdf.set_font("Times", 'B', 9.5)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
-    pdf.set_font("Times", '', 9) 
+    pdf.set_font("Times", '', 9.5) 
     
     for idx in range(len(df)):
         row = [str(df.iloc[idx][c]) if pd.notna(df.iloc[idx][c]) else "" for c in columns]
@@ -626,9 +626,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Times", 'B', 9) 
+            pdf.set_font("Times", 'B', 9.5) 
             print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
-            pdf.set_font("Times", '', 9)  
+            pdf.set_font("Times", '', 9.5)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
@@ -825,10 +825,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     try:
         pdf.add_page()
         pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Times", 'B', 8)
+        pdf.set_font("Times", 'B', 12)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Times", size=9)
+        pdf.set_font("Times", size=12)
         pdf.set_xy(pdf.w - 30, pdf.h - 15)
         pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
 
@@ -839,7 +839,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
         
-        pdf.set_font("Times", 'B', 10)
+        pdf.set_font("Times", 'B', 12)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 40)
         pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
@@ -854,7 +854,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
-        pdf.set_font("Times", size=9)
+        pdf.set_font("Times", size=12)
         for i in instrs:
             pdf.multi_cell(0, 7, i)
             pdf.ln(2)
