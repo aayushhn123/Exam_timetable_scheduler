@@ -48,7 +48,7 @@ COLLEGES = [
     {"name": "School of Aviation", "icon": "✈️"}
 ]
 
-LOGO_PATH = "logo.png"
+LOGO_PA = "logo.png"
 wrap_text_cache = {}
 
 # ==========================================
@@ -529,9 +529,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         if declaration_date:
             day = declaration_date.day
             if 11 <= (day % 100) <= 13:
-                suffix = 'TH'
+                suffix = 'th'
             else:
-                suffix = {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
+                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
             
             decl_str = f"{day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
