@@ -769,12 +769,37 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
     # ── INSTRUCTIONS PAGE (FIRST) ─────────────────────────────────────────────
     try:
         pdf.add_page()
+        footer_height = 14
 
-        # Logo
+        # ── Footer ──
+        pdf.set_xy(10, pdf.h - footer_height)
+        pdf.set_font("Times", 'B', 8)
+        pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
+        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+        pdf.set_font("Times", size=8)
+        pdf.set_text_color(0, 0, 0)
+        _pt  = f"{pdf.page_no()} of {{nb}}"
+        _ptw = pdf.get_string_width(_pt.replace("{nb}", "99"))
+        pdf.set_xy(pdf.w - 10 - _ptw, pdf.h - footer_height + 5)
+        pdf.cell(_ptw, 5, _pt, 0, 0, 'R')
+
+        # ── Header ──
+        pdf.set_y(0)
+        if declaration_date:
+            day = declaration_date.day
+            if 11 <= (day % 100) <= 13:
+                _sfx = 'TH'
+            else:
+                _sfx = {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
+            _decl_str = f"DATE: {day}{_sfx} {declaration_date.strftime('%B, %Y')}".upper()
+            pdf.set_font("Times", 'B', 12)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_xy(pdf.w - 80, 8)
+            pdf.cell(70, 10, _decl_str, 0, 0, 'R')
+
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
 
-        # College name
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Times", 'B', 12)
         pdf.set_xy(10, 25)
@@ -782,12 +807,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                  st.session_state.get('selected_college', "SVKM's NMIMS University").upper(),
                  0, 1, 'C')
 
-        # Underlined bold title — IMPORTANT INSTRUCTIONS TO CANDIDATES
-        pdf.ln(4)
-        pdf.set_font("Times", 'BU', 13)
+        pdf.set_font("Times", 'B', 10)
+        pdf.set_xy(10, 33)
+        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+
+        pdf.set_font("Times", 'BU', 10)
         pdf.set_text_color(255, 0, 0)
-        pdf.cell(pdf.w - 20, 7, "IMPORTANT INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
-        pdf.ln(4)
+        pdf.set_xy(10, 39)
+        pdf.cell(pdf.w - 20, 4, "IMPORTANT INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
+
+        # ── Content starts at header_end_y = 60 ──
+        pdf.set_xy(pdf.l_margin, 60)
+        pdf.set_text_color(0, 0, 0)
 
         margin_l = pdf.l_margin
         text_w   = pdf.w - margin_l - pdf.r_margin
