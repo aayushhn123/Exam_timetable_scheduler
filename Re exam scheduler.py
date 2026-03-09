@@ -721,7 +721,20 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
 
-def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
+def _ordinal_suffix(day):
+    if 11 <= (day % 100) <= 13: return 'th'
+    return {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+
+def _format_portal_date(d, t=""):
+    """Format a date object as e.g. '28th October, 2025 (4:00 pm)'"""
+    day = d.day
+    suffix = _ordinal_suffix(day)
+    base = f"{day}{suffix} {d.strftime('%B, %Y')}"
+    if t and str(t).strip():
+        base += f"\n(Closing time {t.strip()})"
+    return base
+
+def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dates=None):
     pdf = FPDF(orientation='L', unit='mm', format='Legal')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
@@ -752,6 +765,153 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
             return f"{slot_cfg['start']} - {slot_cfg['end']}"
         except:
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
+
+    # ── INSTRUCTIONS PAGE (FIRST) ─────────────────────────────────────────────
+    try:
+        pdf.add_page()
+
+        # Logo
+        if os.path.exists(LOGO_PATH):
+            pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
+
+        # College name
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Times", 'B', 12)
+        pdf.set_xy(10, 25)
+        pdf.cell(pdf.w - 20, 6,
+                 st.session_state.get('selected_college', "SVKM's NMIMS University").upper(),
+                 0, 1, 'C')
+
+        # Underlined bold title — IMPORTANT INSTRUCTIONS TO CANDIDATES
+        pdf.ln(4)
+        pdf.set_font("Times", 'BU', 13)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(pdf.w - 20, 7, "IMPORTANT INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
+        pdf.ln(4)
+
+        margin_l = pdf.l_margin
+        text_w   = pdf.w - margin_l - pdf.r_margin
+
+        pdf.set_font("Times", '', 11)
+        pdf.set_text_color(0, 0, 0)
+
+        # Instruction 1 — main text
+        pdf.set_x(margin_l)
+        line1 = ("1.  All the eligible students are hereby informed to apply for the respective "
+                 "re-examination/s only through SAP Student portal by using the available "
+                 "online payment facility.")
+        pdf.multi_cell(text_w, 6, line1)
+        pdf.ln(1)
+
+        # Portal link (indented)
+        pdf.set_x(margin_l + 8)
+        pdf.set_font("Times", 'U', 11)
+        pdf.cell(0, 6, "SAP portal link: https://sdcsppscs.svkm.ac.in:44300/irj/portal", ln=1)
+        pdf.set_font("Times", '', 11)
+        pdf.set_x(margin_l + 8)
+        pdf.cell(0, 6, "User ID: Student Registration Number", ln=1)
+        pdf.set_x(margin_l + 8)
+        pdf.cell(0, 6, "Password: init@123 (initial password)", ln=1)
+        pdf.ln(2)
+
+        # Instruction 2 — portal dates table
+        pdf.set_x(margin_l)
+        pdf.multi_cell(text_w, 6,
+            "2.  Re-examination application link on the portal will be active during the "
+            "below mentioned period:")
+        pdf.ln(2)
+
+        # Portal dates table
+        p_start_d = portal_dates.get('start_date') if portal_dates else None
+        p_start_t = portal_dates.get('start_time', '') if portal_dates else ''
+        p_end_d   = portal_dates.get('end_date')   if portal_dates else None
+        p_end_t   = portal_dates.get('end_time',   '') if portal_dates else ''
+
+        if p_start_d and p_end_d:
+            from datetime import date as _dt
+            col_w   = (text_w - 10) / 2
+            tbl_x   = margin_l + 5
+
+            # Header row
+            pdf.set_x(tbl_x)
+            pdf.set_font("Times", 'B', 11)
+            pdf.cell(col_w, 8, "Start Date", border=1, align='C')
+            pdf.cell(col_w, 8, "End Date",   border=1, align='C', ln=1)
+
+            # Data row — compute heights first
+            s_day = p_start_d.day
+            e_day = p_end_d.day
+            start_str = f"{s_day}{_ordinal_suffix(s_day)} {p_start_d.strftime('%B, %Y')}"
+            end_str   = f"{e_day}{_ordinal_suffix(e_day)} {p_end_d.strftime('%B, %Y')}"
+            end_str2  = f"(Closing time {p_end_t.strip()})" if p_end_t and str(p_end_t).strip() else ""
+
+            row_h = 8 if not end_str2 else 14
+            x_after = tbl_x + col_w * 2
+
+            # Start date cell
+            pdf.set_x(tbl_x)
+            pdf.set_font("Times", 'B', 11)
+            pdf.set_fill_color(255, 255, 255)
+            cy = pdf.get_y()
+            pdf.rect(tbl_x, cy, col_w, row_h)
+            pdf.set_xy(tbl_x, cy + (row_h - 6) / 2)
+            pdf.cell(col_w, 6, start_str, border=0, align='C')
+
+            # End date cell (may have 2 lines)
+            pdf.set_xy(tbl_x + col_w, cy)
+            pdf.rect(tbl_x + col_w, cy, col_w, row_h)
+            if end_str2:
+                pdf.set_xy(tbl_x + col_w, cy + 1)
+                pdf.cell(col_w, 6, end_str,  border=0, align='C')
+                pdf.set_xy(tbl_x + col_w, cy + 7)
+                pdf.cell(col_w, 6, end_str2, border=0, align='C')
+            else:
+                pdf.set_xy(tbl_x + col_w, cy + (row_h - 6) / 2)
+                pdf.cell(col_w, 6, end_str, border=0, align='C')
+
+            pdf.set_xy(margin_l, cy + row_h + 3)
+
+        pdf.ln(2)
+        pdf.set_font("Times", '', 11)
+
+        instrs_bold = [
+            ("3.  Only those students, who have applied for the re-examination by paying the "
+             "prescribed fees within the given time limit, will be allowed to appear at the "
+             "respective re-examination/s. The acknowledgment receipt generated after applying "
+             "online should be produced during the examination on all the days.", True),
+        ]
+        if p_end_d and p_end_t:
+            e_day = p_end_d.day
+            no_app_str = (f"4.  No applications will be accepted after "
+                          f"{e_day}{_ordinal_suffix(e_day)} "
+                          f"{p_end_d.strftime('%B %Y')} after {p_end_t.strip()}.")
+        else:
+            no_app_str = "4.  No applications will be accepted after the closing date and time."
+
+        instrs_rest = [
+            (no_app_str, True),
+            ("5.  Candidates are required to be present at the examination centre THIRTY MINUTES "
+             "before the stipulated time.", False),
+            ("6.  Candidates must produce their University Identity Card at the time of the "
+             "examination.", False),
+            ("7.  Candidates are not permitted to enter the examination hall after stipulated "
+             "time.", False),
+            ("8.  Candidates will not be permitted to leave the examination hall during the "
+             "examination time.", False),
+            ("9.  Candidates are forbidden from taking any unauthorized material inside the "
+             "examination hall. Carrying the same will be treated as usage of unfair means.",
+             False),
+        ]
+
+        for text, bold in instrs_bold + instrs_rest:
+            pdf.set_x(margin_l)
+            pdf.set_font("Times", 'B' if bold else '', 11)
+            pdf.multi_cell(text_w, 6, text)
+            pdf.ln(3)
+
+    except Exception:
+        pass
+    # ── END INSTRUCTIONS PAGE ─────────────────────────────────────────────────
 
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
@@ -927,52 +1087,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
         st.error("No valid sheets generated in PDF.")
         return
 
-    # Instructions / last page
-    try:
-        pdf.add_page()
-        pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Times", 'B', 8)
-        pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-        pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Times", size=9)
-        pdf.set_xy(pdf.w - 30, pdf.h - 15)
-        pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
-
-        pdf.set_y(0)
-        if os.path.exists(LOGO_PATH):
-            pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_xy(10, 25)
-        pdf.cell(
-            pdf.w - 20, 8,
-            st.session_state.get('selected_college', "SVKM's NMIMS University").upper(),
-            0, 1, 'C'
-        )
-
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_xy(10, 40)
-        pdf.cell(0, 10, "RE-EXAMINATION GUIDELINES", 0, 1, 'C')
-
-        pdf.set_y(60)
-        pdf.set_font("Times", 'B', 12)
-        pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
-        pdf.ln(5)
-        instrs = [
-            "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
-            "2. Candidates must produce their University Identity Card at the time of the examination.",
-            "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
-            "5. Please verify the individual subject exam time as indicated in the timetable. Different subjects may have different time slots.",
-        ]
-        pdf.set_font("Times", size=12)
-        for instr in instrs:
-            pdf.multi_cell(0, 7, instr)
-            pdf.ln(2)
-    except Exception:
-        pass
-
     try:
         pdf.output(pdf_path)
     except Exception as e:
@@ -982,7 +1096,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
 # ==========================================
 # 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
 # ==========================================
-def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
+def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None, portal_dates=None):
     temp_dir   = os.path.dirname(output_pdf) if os.path.dirname(output_pdf) else "."
     temp_excel = os.path.join(temp_dir, "temp_reexam_timetable.xlsx")
 
@@ -1000,7 +1114,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
         return
 
     try:
-        convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date)
+        convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date, portal_dates=portal_dates)
     except Exception as e:
         st.error(f"❌ Error during Excel to PDF conversion: {e}")
         st.error(traceback.format_exc())
@@ -1064,20 +1178,20 @@ def main():
         st.markdown("---")
         decl_date = st.date_input("📆 Declaration Date (Optional)", value=None)
         st.markdown("---")
-        st.subheader("⏰ Exam Time Slots")
-        st.caption("Odd semesters (I, III, V…) → Slot 1 | Even semesters (II, IV, VI…) → Slot 2")
-        slot1_start = st.text_input("Slot 1 Start", value="10:00 AM", key="s1s")
-        slot1_end   = st.text_input("Slot 1 End",   value="1:00 PM",  key="s1e")
-        slot2_start = st.text_input("Slot 2 Start", value="2:00 PM",  key="s2s")
-        slot2_end   = st.text_input("Slot 2 End",   value="5:00 PM",  key="s2e")
-        st.session_state['time_slots'] = {
-            1: {"start": slot1_start, "end": slot1_end},
-            2: {"start": slot2_start, "end": slot2_end},
-        }
+        st.subheader("🌐 Portal Application Window")
+        st.caption("Dates shown on the Instructions page")
+        from datetime import date as _date
+        portal_start_date = st.date_input("Portal Start Date", value=_date.today(), key="psd")
+        portal_start_time = st.text_input("Portal Start Time", value="10:00 am", key="pst")
+        portal_end_date   = st.date_input("Portal End Date",   value=_date.today(), key="ped")
+        portal_end_time   = st.text_input("Portal End Time (e.g. 4:00 pm)", value="4:00 pm", key="pet")
+        st.session_state['portal_start_date'] = portal_start_date
+        st.session_state['portal_start_time'] = portal_start_time
+        st.session_state['portal_end_date']   = portal_end_date
+        st.session_state['portal_end_time']   = portal_end_time
         st.markdown("---")
         st.info(
             "**Re-Exam Columns Expected:**\n\n"
-            "- Module Abbreviation\n"
             "- Module Description\n"
             "- Program\n"
             "- Stream\n"
@@ -1145,10 +1259,17 @@ def main():
         if st.button("🚀 Generate Re-Exam PDF Timetable", type="primary", use_container_width=True):
             with st.spinner("Rendering PDF…"):
                 pdf_filename = "ReExam_Timetable.pdf"
+                _portal_dates = {
+                    'start_date': st.session_state.get('portal_start_date'),
+                    'start_time': st.session_state.get('portal_start_time', ''),
+                    'end_date':   st.session_state.get('portal_end_date'),
+                    'end_time':   st.session_state.get('portal_end_time', '4:00 pm'),
+                }
                 generate_pdf_timetable(
                     st.session_state.processed_tt,
                     pdf_filename,
-                    declaration_date=decl_date
+                    declaration_date=decl_date,
+                    portal_dates=_portal_dates
                 )
 
                 if os.path.exists(pdf_filename):
