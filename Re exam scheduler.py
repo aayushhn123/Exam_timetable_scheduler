@@ -131,8 +131,8 @@ def process_reexam_file(uploaded_file):
             axis=1
         )
 
-        df['Subject']    = df.get('Module Description',  pd.Series(dtype=str)).fillna('').astype(str).str.strip()
-        df['ModuleCode'] = df.get('Module Abbreviation', pd.Series(dtype=str)).fillna('').astype(str).str.strip()
+        df['Subject']    = df.get('Module Description', pd.Series(dtype=str)).fillna('').astype(str).str.strip()
+        df['ModuleCode'] = ''   # Not used for re-exam
 
         # Subject Type: OE1, OE2 → treat as OE; NaN → core
         if 'Subject Type' in df.columns:
@@ -268,38 +268,63 @@ def save_to_excel(semester_wise_timetable):
 
                 # ── CORE SUBJECTS ──────────────────────────────────────────
                 if not df_core.empty:
-                    displays   = []
-                    sort_times = []
 
-                    for _, row in df_core.iterrows():
-                        subj        = row['Subject']
-                        code        = row['ModuleCode']
-                        actual_time = str(row.get('Exam Time', '')).strip()
+                    def shorten_year(y):
+                        # " 2022-2023" -> "22-23", "2024-2025" -> "24-25"
+                        y = str(y).strip()
+                        m = re.findall(r'\d{4}', y)
+                        if len(m) >= 2:
+                            return f"{m[0][2:]}-{m[1][2:]}"
+                        elif len(m) == 1:
+                            return m[0][2:]
+                        return y
 
-                        # Always show the time slot in brackets for re-exam (every subject
-                        # may have its own distinct time, so always include it)
+                    # Deduplicate: same Subject + SubBranch + Exam Date + Exam Time
+                    # across different Academic Years → merge years into one display row
+                    dedup_rows = []
+                    group_keys = ['Subject', 'SubBranch', 'Exam Date', 'Exam Time']
+                    ay_col = 'Academic Year' if 'Academic Year' in df_core.columns else None
+
+                    for gkey, grp in df_core.groupby(group_keys, sort=False):
+                        subj        = gkey[0]
+                        actual_time = str(gkey[3]).strip()
+
+                        # Collect and deduplicate academic years
+                        if ay_col:
+                            raw_years = grp[ay_col].dropna().astype(str).str.strip().unique().tolist()
+                            raw_years = [y for y in raw_years if y.lower() not in ['nan', 'none', '']]
+                            short_years = sorted(set(shorten_year(y) for y in raw_years))
+                        else:
+                            short_years = []
+
                         time_suffix = ""
                         if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
-                        txt = f"{subj}"
-                        if code and str(code).lower() not in ['nan', '']:
-                            txt += f" - ({code})"
+                        txt = subj
+                        if short_years:
+                            txt += f" ({', '.join(short_years)})"
                         txt += time_suffix
-                        displays.append(txt)
 
-                        # Parse sort time for chronological ordering within a cell
-                        m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', str(actual_time).upper())
+                        # Parse sort time for chronological ordering
+                        m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', actual_time.upper())
                         if m:
                             h, mins = int(m.group(1)), int(m.group(2))
                             if 'PM' in m.group(3) and h < 12: h += 12
                             if 'AM' in m.group(3) and h == 12: h = 0
-                            sort_times.append(h * 60 + mins)
+                            sort_time = h * 60 + mins
                         else:
-                            sort_times.append(9999)
+                            sort_time = 9999
 
-                    df_core['SubjectDisplay'] = displays
-                    df_core['_SortTime']      = sort_times
+                        dedup_rows.append({
+                            'SubBranch':      gkey[1],
+                            'Exam Date':      gkey[2],
+                            'Exam Time':      actual_time,
+                            'SubjectDisplay': txt,
+                            '_SortTime':      sort_time,
+                        })
+
+                    df_core = pd.DataFrame(dedup_rows)
                     df_core['Exam Date']      = pd.to_datetime(
                         df_core['Exam Date'], format='%d-%m-%Y', dayfirst=True, errors='coerce'
                     )
@@ -339,6 +364,9 @@ def save_to_excel(semester_wise_timetable):
                         if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
+                        # Academic year dedup for OE — same subject same day → merge years
+                        ay_col_oe = 'Academic Year' if 'Academic Year' in row.index else None
+                        # (OE dedup handled at groupby level below; individual display is plain)
                         txt = f"{subj}{time_suffix}"
                         e_displays.append(txt)
 
@@ -1098,3 +1126,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
