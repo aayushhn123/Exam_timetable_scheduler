@@ -2626,7 +2626,6 @@ def convert_semester_to_number(semester_value):
     
     return semester_map.get(semester_str, 0)
 
-q
 
 
 def save_to_excel(semester_wise_timetable):
@@ -4149,6 +4148,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
