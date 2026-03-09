@@ -785,7 +785,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         # Underlined bold title — IMPORTANT INSTRUCTIONS TO CANDIDATES
         pdf.ln(4)
         pdf.set_font("Times", 'BU', 13)
-        pdf.set_text_color(0, 0, 0)
+        pdf.set_text_color(255, 0, 0)
         pdf.cell(pdf.w - 20, 7, "IMPORTANT INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
         pdf.ln(4)
 
@@ -854,6 +854,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
             pdf.set_fill_color(255, 255, 255)
             cy = pdf.get_y()
             pdf.rect(tbl_x, cy, col_w, row_h)
+            pdf.set_text_color(255, 0, 0)
             pdf.set_xy(tbl_x, cy + (row_h - 6) / 2)
             pdf.cell(col_w, 6, start_str, border=0, align='C')
 
@@ -869,6 +870,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                 pdf.set_xy(tbl_x + col_w, cy + (row_h - 6) / 2)
                 pdf.cell(col_w, 6, end_str, border=0, align='C')
 
+            pdf.set_text_color(0, 0, 0)
             pdf.set_xy(margin_l, cy + row_h + 3)
 
         pdf.ln(2)
