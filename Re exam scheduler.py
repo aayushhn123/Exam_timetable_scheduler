@@ -227,6 +227,10 @@ def save_to_excel(semester_wise_timetable):
     Multi-subject same-date cells are joined with ' <hr> ' (chronologically sorted).
     OE subjects are joined with ', ' (comma-separated, no partitioning).
     """
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM",  "end": "5:00 PM"}
+    })
     output = io.BytesIO()
 
     all_programs = []
@@ -254,7 +258,10 @@ def save_to_excel(semester_wise_timetable):
         for sem, df_sem in semester_wise_timetable.items():
             if df_sem.empty: continue
 
-            roman_sem = int_to_roman(sem)
+            roman_sem   = int_to_roman(sem)
+            slot_id     = 1 if ((sem + 1) // 2) % 2 == 1 else 2
+            p_cfg       = time_slots_dict.get(slot_id, time_slots_dict[1])
+            header_norm = normalize_time(f"{p_cfg['start']} - {p_cfg['end']}")
 
             for main_branch in df_sem['MainBranch'].unique():
                 df_mb = df_sem[df_sem['MainBranch'] == main_branch].copy()
@@ -298,7 +305,7 @@ def save_to_excel(semester_wise_timetable):
                             short_years = []
 
                         time_suffix = ""
-                        if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
+                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
                         txt = subj
@@ -359,9 +366,9 @@ def save_to_excel(semester_wise_timetable):
                         subj        = row['Subject']
                         actual_time = str(row.get('Exam Time', '')).strip()
 
-                        # OE: NO module code; always include time slot
+                        # OE: NO module code; show time only if different from header norm
                         time_suffix = ""
-                        if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
+                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
                         # Academic year dedup for OE — same subject same day → merge years
@@ -719,6 +726,33 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
 
+    time_slots_dict = st.session_state.get('time_slots', {
+        1: {"start": "10:00 AM", "end": "1:00 PM"},
+        2: {"start": "2:00 PM",  "end": "5:00 PM"}
+    })
+
+    def get_header_time_for_semester(sem_str):
+        try:
+            s = str(sem_str).strip().upper()
+            sem_int = 1
+            romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6,
+                      'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12}
+            found = False
+            for r_key, r_val in romans.items():
+                if s == r_key or s.endswith(f" {r_key}") or s.endswith(f"_{r_key}"):
+                    sem_int = r_val
+                    found   = True
+                    break
+            if not found:
+                digits = re.findall(r'\d+', s)
+                if digits: sem_int = int(digits[0])
+            slot_indicator = ((sem_int + 1) // 2) % 2
+            slot_num  = 1 if slot_indicator == 1 else 2
+            slot_cfg  = time_slots_dict.get(slot_num, time_slots_dict.get(1))
+            return f"{slot_cfg['start']} - {slot_cfg['end']}"
+        except:
+            return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
+
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
     except Exception as e:
@@ -786,9 +820,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
                 'semester_roman':   display_sem
             }
 
-            # For re-exam: time slot in header is informational only; each subject shows its own time
-            # We show a generic "REFER INDIVIDUAL SUBJECT TIME" as the header time
-            header_exam_time = "AS PER INDIVIDUAL SUBJECT"
+            header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
 
             if not is_elective:
                 if 'Exam Date' not in sheet_df.columns: continue
@@ -796,7 +828,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None):
 
                 fixed_cols = ["Exam Date"]
                 _meta_pattern = re.compile(
-                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.d+)?$',
+                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
                     re.IGNORECASE
                 )
                 sub_branch_cols = [
@@ -1032,6 +1064,17 @@ def main():
         st.markdown("---")
         decl_date = st.date_input("📆 Declaration Date (Optional)", value=None)
         st.markdown("---")
+        st.subheader("⏰ Exam Time Slots")
+        st.caption("Odd semesters (I, III, V…) → Slot 1 | Even semesters (II, IV, VI…) → Slot 2")
+        slot1_start = st.text_input("Slot 1 Start", value="10:00 AM", key="s1s")
+        slot1_end   = st.text_input("Slot 1 End",   value="1:00 PM",  key="s1e")
+        slot2_start = st.text_input("Slot 2 Start", value="2:00 PM",  key="s2s")
+        slot2_end   = st.text_input("Slot 2 End",   value="5:00 PM",  key="s2e")
+        st.session_state['time_slots'] = {
+            1: {"start": slot1_start, "end": slot1_end},
+            2: {"start": slot2_start, "end": slot2_end},
+        }
+        st.markdown("---")
         st.info(
             "**Re-Exam Columns Expected:**\n\n"
             "- Module Abbreviation\n"
@@ -1126,4 +1169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
