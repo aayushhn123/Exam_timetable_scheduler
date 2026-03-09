@@ -2626,19 +2626,22 @@ def convert_semester_to_number(semester_value):
     
     return semester_map.get(semester_str, 0)
 
+q
+
+
 def save_to_excel(semester_wise_timetable):
-    """
-    Safely generates Excel with STRICT 31-char limit for sheet names.
-    Aggregates Electives into a clean summary table without Time Slot (as it's in header).
-    Uses Robust Roman Numeral Parsing to correctly determine Standard Slots.
-    """
+
     if not semester_wise_timetable:
         st.warning("No timetable data to save")
         return None
-        
-    current_college = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
-        
+
+    # ── SOL detection (used throughout this function) ──────────────────────
+    current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "law" in current_college_context.lower()
+
+    # Combined header that replaces both individual program names in the PDF
+    SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -2650,9 +2653,9 @@ def save_to_excel(semester_wise_timetable):
         for i in range(1, 10):
             t_str = t_str.replace(f"0{i}:", f"{i}:")
         return t_str.upper()
-    
+
     existing_sheet_names = set()
-    
+
     def get_safe_sheet_name(base_branch, suffix):
         invalid_chars = [':', '/', '\\', '?', '*', '[', ']']
         clean_branch = str(base_branch)
@@ -2660,14 +2663,14 @@ def save_to_excel(semester_wise_timetable):
         for char in invalid_chars:
             clean_branch = clean_branch.replace(char, '')
             clean_suffix = clean_suffix.replace(char, '')
-            
+
         max_len = 31 - len(clean_suffix)
-        if max_len < 1: 
+        if max_len < 1:
             clean_suffix = clean_suffix[:10]
             max_len = 21
 
         candidate = f"{clean_branch[:max_len]}{clean_suffix}"
-        
+
         counter = 1
         while candidate.lower() in existing_sheet_names:
             counter_str = f"_{counter}"
@@ -2675,63 +2678,86 @@ def save_to_excel(semester_wise_timetable):
             if space_for_branch < 1: space_for_branch = 5
             candidate = f"{clean_branch[:space_for_branch]}{counter_str}{clean_suffix}"
             counter += 1
-            
+
         existing_sheet_names.add(candidate.lower())
         return candidate
 
+    # ── SOL merge helper ────────────────────────────────────────────────────
+    def _apply_sol_merge(df_input):
+
+        if df_input.empty:
+            return df_input
+
+        df_out = df_input.copy()
+
+        # Strict pattern: must have LL.B (not LL.M), must start with B.A. or B.B.A.
+        # re.IGNORECASE so casing variations in the data are handled safely.
+        sol_ba_bba_pattern = re.compile(
+            r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B',
+            re.IGNORECASE
+        )
+        llm_exclusion_pattern = re.compile(
+            r'(LL\.M|master\s+of\s+law|llm)',
+            re.IGNORECASE
+        )
+
+        def _is_ba_bba_llb(branch_val):
+            s = str(branch_val).strip()
+            if llm_exclusion_pattern.search(s):
+                return False
+            return bool(sol_ba_bba_pattern.match(s))
+
+        target_mask = df_out['MainBranch'].apply(_is_ba_bba_llb)
+
+        if not target_mask.any():
+            # Nothing to merge for this semester — return as-is
+            return df_out
+
+        # Step 1: For each matched row, embed the original program name into
+        #         SubBranch so the pivot produces distinct columns per program.
+        def _build_sub_branch(row):
+            orig_prog = str(row['MainBranch']).strip()
+            orig_sub  = str(row['SubBranch']).strip()
+
+            # If SubBranch is empty, equal to the program, or "nan", replace it
+            # with just the program name so a clean column header appears.
+            if orig_sub in ('', 'nan', orig_prog):
+                return orig_prog
+
+            # If the SubBranch already starts with the program name, leave it.
+            if orig_sub.startswith(orig_prog):
+                return orig_sub
+
+            # Otherwise prepend: "B.A., LL.B. (Hons.) – Criminal Law" etc.
+            return f"{orig_prog} – {orig_sub}"
+
+        df_out.loc[target_mask, 'SubBranch'] = df_out[target_mask].apply(
+            _build_sub_branch, axis=1
+        )
+
+        # Step 2: Overwrite MainBranch for all matched rows to the merged label.
+        df_out.loc[target_mask, 'MainBranch'] = SOL_MERGED_BRANCH
+
+        return df_out
+
+    # ── Main Excel generation loop ──────────────────────────────────────────
     output = io.BytesIO()
-   
+
     try:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             sheets_created = 0
-           
-            for sem, df_sem_orig in semester_wise_timetable.items():
-                if df_sem_orig.empty: continue
-                
-                # Use a copy so we don't alter the core UI/Dashboard state
-                df_sem = df_sem_orig.copy()
-                
-                # --- FOOLPROOF LAW SCHOOL BA/BBA MERGE LOGIC ---
-                if IS_LAW_SCHOOL:
-                    for idx in df_sem.index:
-                        mb_upper = str(df_sem.at[idx, 'MainBranch']).upper()
-                        
-                        # Exclude LLM from this merge
-                        is_llm = "LL.M" in mb_upper or "LLM" in mb_upper or "MASTER" in mb_upper
-                        
-                        if not is_llm:
-                            # Highly robust string matching
-                            is_bba = "B.B.A" in mb_upper or "BBA" in mb_upper
-                            is_ba = ("B.A" in mb_upper or "BACHELOR OF ARTS" in mb_upper or "BA " in mb_upper or "BALLB" in mb_upper.replace(" ","").replace(",","")) and not is_bba
-                            
-                            if is_ba or is_bba:
-                                prog_label = "B.B.A., LL.B. (Hons.)" if is_bba else "B.A., LL.B. (Hons.)"
-                                orig_sb = str(df_sem.at[idx, 'SubBranch']).strip()
-                                orig_mb = str(df_sem.at[idx, 'MainBranch']).strip()
-                                
-                                new_sb = prog_label
-                                if orig_sb not in ["", "nan", "None"] and orig_sb != orig_mb:
-                                    if prog_label not in orig_sb:
-                                        new_sb = f"{prog_label} - {orig_sb}"
-                                    else:
-                                        new_sb = orig_sb
-                                        
-                                combined_header = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
-                                
-                                # Force into exact same data stream
-                                df_sem.at[idx, 'SubBranch'] = new_sb
-                                df_sem.at[idx, 'MainBranch'] = combined_header
-                                df_sem.at[idx, 'Program'] = combined_header
-                # -----------------------------------------------
-                
+
+            for sem, df_sem in semester_wise_timetable.items():
+                if df_sem.empty: continue
+
                 raw_sem_str = str(sem).strip()
-                
+
                 sem_num = 1
                 try:
                     s_upper = raw_sem_str.upper()
                     romans = {
-                        'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 
-                        'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 
+                        'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+                        'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
                         'XI': 11, 'XII': 12
                     }
                     found_roman = False
@@ -2740,7 +2766,7 @@ def save_to_excel(semester_wise_timetable):
                             sem_num = r_val
                             found_roman = True
                             break
-                    
+
                     if not found_roman:
                         import re
                         digits = re.findall(r'\d+', raw_sem_str)
@@ -2753,111 +2779,161 @@ def save_to_excel(semester_wise_timetable):
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
-                   
-                for main_branch in df_sem["MainBranch"].unique():
-                    df_mb = df_sem[df_sem["MainBranch"] == main_branch].copy()
+
+                # ── SOL PRE-PROCESSING: merge B.A./B.B.A. rows before grouping ──
+                df_sem_working = _apply_sol_merge(df_sem) if IS_LAW_SCHOOL else df_sem
+
+                for main_branch in df_sem_working["MainBranch"].unique():
+                    df_mb = df_sem_working[df_sem_working["MainBranch"] == main_branch].copy()
                     if df_mb.empty: continue
-                   
-                    # --- LAW SCHOOL OE INTEGRATION LOGIC ---
+
+                    # ── SOL inline OE: fold OE rows into the core table ──────────
+                    # For School of Law, do NOT separate Open Electives into a
+                    # different sheet. Treat them as regular subjects so they
+                    # appear in the same pivoted page as the core subjects.
                     if IS_LAW_SCHOOL:
-                        # Process everything together (skip separate OE tables)
+                        # Treat ALL rows (OE and non-OE) as core for this branch.
+                        # Tag OE rows' SubjectDisplay with their OE group prefix
+                        # so the examiner can still identify them.
                         df_non_elec = df_mb.copy()
-                        df_elec = pd.DataFrame(columns=df_mb.columns) 
+                        df_elec     = pd.DataFrame()   # suppress separate sheet
+
+                        # Annotate OE rows so their nature is visible in the cell
+                        has_oe = (
+                            df_non_elec['OE'].notna() &
+                            (df_non_elec['OE'].astype(str).str.strip() != "")
+                        )
+                        if has_oe.any():
+                            df_non_elec.loc[has_oe, 'Subject'] = (
+                                "[OE: " +
+                                df_non_elec.loc[has_oe, 'OE'].astype(str).str.strip() +
+                                "] " +
+                                df_non_elec.loc[has_oe, 'Subject'].astype(str)
+                            )
                     else:
-                        df_non_elec = df_mb[df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")].copy()
-                        df_elec = df_mb[df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")].copy()
-                    # ---------------------------------------
-                    
-                    suffix = f"_|_{raw_sem_str}"
+                        df_non_elec = df_mb[
+                            df_mb['OE'].isna() | (df_mb['OE'].str.strip() == "")
+                        ].copy()
+                        df_elec = df_mb[
+                            df_mb['OE'].notna() & (df_mb['OE'].str.strip() != "")
+                        ].copy()
+
+                    suffix     = f"_|_{raw_sem_str}"
                     sheet_name = get_safe_sheet_name(main_branch, suffix)
-                   
+
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
                         subject_displays = []
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
-                            base_subject = str(row.get('Subject', ''))
-                            assigned_slot_str = str(row.get('Time Slot', '')).strip()
-                            duration = float(row.get('Exam Duration', 3.0))
-                            
+                            base_subject       = str(row.get('Subject', ''))
+                            assigned_slot_str  = str(row.get('Time Slot', '')).strip()
+                            duration           = float(row.get('Exam Duration', 3.0))
+
                             calculated_time_str = assigned_slot_str
                             try:
                                 if assigned_slot_str and " - " in assigned_slot_str:
-                                    start_time_part = assigned_slot_str.split(" - ")[0].strip()
-                                    end_time_calc = calculate_end_time(start_time_part, duration)
+                                    start_time_part     = assigned_slot_str.split(" - ")[0].strip()
+                                    end_time_calc       = calculate_end_time(start_time_part, duration)
                                     calculated_time_str = f"{start_time_part} - {end_time_calc}"
                             except: pass
 
                             subj_time_norm = normalize_time(calculated_time_str)
-                            
+
                             if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                time_suffix = f" [{calculated_time_str}]" 
+                                time_suffix = f" [{calculated_time_str}]"
                             else:
                                 time_suffix = ""
-                                
+
                             subject_displays.append(base_subject + time_suffix)
-                       
+
                         df_processed["SubjectDisplay"] = subject_displays
-                        df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
+                        df_processed["Exam Date"] = pd.to_datetime(
+                            df_processed["Exam Date"], format="%d-%m-%Y",
+                            dayfirst=True, errors='coerce'
+                        )
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
-                        
+
+                        # Added <hr> logic to partition multiple subjects natively
                         grouped = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
                             'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)
                         }).reset_index()
-                        
+
                         try:
-                            pivot_df = grouped.pivot_table(index="Exam Date", columns="SubBranch", values="SubjectDisplay", aggfunc='first').fillna("---")
+                            pivot_df = grouped.pivot_table(
+                                index="Exam Date", columns="SubBranch",
+                                values="SubjectDisplay", aggfunc='first'
+                            ).fillna("---")
                             pivot_df = pivot_df.sort_index(ascending=True).reset_index()
-                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
-                            
-                            pivot_df['Program'] = main_branch
+                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
+                                lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else ""
+                            )
+
+                            pivot_df['Program']  = main_branch
                             pivot_df['Semester'] = raw_sem_str
-                            
+
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
                         except: pass
                     else:
                         try:
-                            pd.DataFrame({'Exam Date': ['No exams'], 'Note': ['No core subjects']}).to_excel(writer, sheet_name=sheet_name, index=False)
+                            pd.DataFrame({
+                                'Exam Date': ['No exams'],
+                                'Note': ['No core subjects']
+                            }).to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
                         except: pass
 
+                    # ── Elective sheet (suppressed for SOL — already inline above) ──
                     if not df_elec.empty:
-                        suffix_elec = f"_|_{raw_sem_str}_Ele"
-                        sheet_name_elec = get_safe_sheet_name(main_branch, suffix_elec)
-                        
+                        suffix_elec      = f"_|_{raw_sem_str}_Ele"
+                        sheet_name_elec  = get_safe_sheet_name(main_branch, suffix_elec)
+
                         try:
-                            df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
-                            
+                            df_elec_scheduled = df_elec[
+                                df_elec['Exam Date'].notna() &
+                                (df_elec['Exam Date'] != "") &
+                                (df_elec['Exam Date'] != "Not Scheduled")
+                            ].copy()
+
                             if not df_elec_scheduled.empty:
                                 df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject']
-                                
-                                summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
+
+                                summary_df = df_elec_scheduled.groupby(
+                                    ['Exam Date', 'Time Slot', 'OE']
+                                ).agg({
                                     'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
                                 }).reset_index()
-                                
-                                summary_df.rename(columns={'DisplaySubject': 'Open Elective (All Applicable Streams)', 'OE': 'OE Type'}, inplace=True)
-                                
-                                summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
+
+                                summary_df.rename(columns={
+                                    'DisplaySubject': 'Open Elective (All Applicable Streams)',
+                                    'OE': 'OE Type'
+                                }, inplace=True)
+
+                                summary_df['DateObj'] = pd.to_datetime(
+                                    summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce'
+                                )
                                 summary_df = summary_df.sort_values('DateObj').drop('DateObj', axis=1)
-                                
+
                                 if 'Time Slot' in summary_df.columns:
                                     summary_df = summary_df.drop('Time Slot', axis=1)
-                                
-                                summary_df['Program'] = main_branch
+
+                                summary_df['Program']  = main_branch
                                 summary_df['Semester'] = raw_sem_str
-                                
+
                                 summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                                 sheets_created += 1
                         except Exception as e:
                             pass
 
             if sheets_created == 0:
-                pd.DataFrame({'Message': ['No data available']}).to_excel(writer, sheet_name="No_Data", index=False)
-               
+                pd.DataFrame({'Message': ['No data available']}).to_excel(
+                    writer, sheet_name="No_Data", index=False
+                )
+
         output.seek(0)
         return output
-       
+
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
         return None
@@ -4073,6 +4149,7 @@ def main():
     
 if __name__ == "__main__":
     main()
+
 
 
 
