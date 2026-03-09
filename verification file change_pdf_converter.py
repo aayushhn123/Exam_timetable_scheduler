@@ -268,6 +268,7 @@ def save_to_excel(semester_wise_timetable):
 
                 if not df_core.empty:
                     displays = []
+                    sort_times = []
                     for _, row in df_core.iterrows():
                         subj        = row['Subject']
                         code        = row['ModuleCode']
@@ -282,9 +283,22 @@ def save_to_excel(semester_wise_timetable):
                         txt += time_suffix
                         displays.append(txt)
 
+                        # Parse time for chronological sorting within partitioned cells
+                        parse_time_str = actual_time if (actual_time and actual_time.lower() not in ['tbd', 'nan', '']) else header_norm
+                        m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', str(parse_time_str).upper())
+                        if m:
+                            h, mins = int(m.group(1)), int(m.group(2))
+                            if 'PM' in m.group(3) and h < 12: h += 12
+                            if 'AM' in m.group(3) and h == 12: h = 0
+                            sort_times.append(h * 60 + mins)
+                        else:
+                            sort_times.append(9999)
+
                     df_core['SubjectDisplay'] = displays
+                    df_core['_SortTime'] = sort_times
                     df_core["Exam Date"] = pd.to_datetime(df_core["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
-                    df_core = df_core.sort_values(by="Exam Date", ascending=True)
+                    # Sort chronologically (Exam Date, then internal Subject Time)
+                    df_core = df_core.sort_values(by=["Exam Date", "_SortTime"], ascending=[True, True])
 
                     try:
                         pivot = df_core.groupby(['Exam Date', 'SubBranch']).agg({'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)}).reset_index()
@@ -529,11 +543,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         if declaration_date:
             day = declaration_date.day
             if 11 <= (day % 100) <= 13:
-                suffix = 'th'
+                suffix = 'TH'
             else:
-                suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                suffix = {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
             
-            decl_str = f"{day}{suffix} {declaration_date.strftime('%B, %Y')}"
+            decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
             
             pdf.set_font("Times", 'B', 12) 
             pdf.set_text_color(0, 0, 0)
