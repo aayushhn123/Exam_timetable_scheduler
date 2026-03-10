@@ -140,8 +140,14 @@ def process_verification_file(uploaded_file):
         df['Subject']    = df.get('Module Description',  pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['ModuleCode'] = df.get('Module Abbreviation', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
 
+        # Rule 2 Tagging Setup: Capture the actual OE string dynamically if it contains "OE"
         if 'Subject Type' in df.columns:
-            df['OE'] = df['Subject Type'].apply(lambda x: 'OE' if str(x).strip().upper() == 'OE' else None)
+            def extract_oe(x):
+                if pd.isna(x): return None
+                val = str(x).strip()
+                if 'OE' in val.upper(): return val
+                return None
+            df['OE'] = df['Subject Type'].apply(extract_oe)
         else:
             df['OE'] = None
 
@@ -226,6 +232,26 @@ def save_to_excel(semester_wise_timetable):
     })
     output = io.BytesIO()
 
+    current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+
+    # Rule 1: B.A. / B.B.A. Side-by-Side Merging Pre-Processing
+    if IS_LAW_SCHOOL:
+        for sem in semester_wise_timetable:
+            df_sem = semester_wise_timetable[sem]
+            if df_sem.empty: continue
+            
+            def is_ba_bba_llb(p):
+                p_str = str(p).strip().upper()
+                if re.search(r'(LL\.M|MASTER\s+OF\s+LAW|LLM)', p_str): 
+                    return False
+                return bool(re.search(r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B', p_str))
+            
+            mask = df_sem['MainBranch'].apply(is_ba_bba_llb)
+            if mask.any():
+                df_sem.loc[mask, 'SubBranch'] = df_sem.loc[mask, 'MainBranch'] + " - " + df_sem.loc[mask, 'SubBranch']
+                df_sem.loc[mask, 'MainBranch'] = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+
     all_programs = []
     for df_s in semester_wise_timetable.values():
         if not df_s.empty:
@@ -263,8 +289,13 @@ def save_to_excel(semester_wise_timetable):
                 core_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}"[:31])
                 elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
 
-                df_core = df_mb[df_mb['OE'].isna()].copy()
-                df_elec = df_mb[df_mb['OE'].notna()].copy()
+                # Rule 2: Inline Open Electives execution - Do not split OE for SOL BA/BBA
+                if IS_LAW_SCHOOL and main_branch == "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)":
+                    df_core = df_mb.copy()
+                    df_elec = pd.DataFrame()
+                else:
+                    df_core = df_mb[df_mb['OE'].isna()].copy()
+                    df_elec = df_mb[df_mb['OE'].notna()].copy()
 
                 if not df_core.empty:
                     displays = []
@@ -273,12 +304,19 @@ def save_to_excel(semester_wise_timetable):
                         subj        = row['Subject']
                         code        = row['ModuleCode']
                         actual_time = str(row.get('Exam Time', '')).strip()
+                        oe_type     = row.get('OE', None)
 
                         time_suffix = ""
                         if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
 
-                        txt = f"{subj}"
+                        # Rule 2: Tagging OE subjects visually inside the core dataframe cell
+                        prefix = ""
+                        if IS_LAW_SCHOOL and main_branch == "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)" and pd.notna(oe_type) and str(oe_type).strip() != '':
+                            prefix = f"[OE: {oe_type}] "
+
+                        # Rule 4: Subject String Formatting (No hyphen before module code)
+                        txt = f"{prefix}{subj}"
                         if code and str(code).lower() != 'nan': txt += f" ({code})"
                         txt += time_suffix
                         displays.append(txt)
@@ -560,7 +598,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
-        # College Name
+        # College Name (Rule 3 handled inside convert_excel_to_pdf which passes it to st.session_state)
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
         pdf.set_font("Times", 'B', 12) 
@@ -652,7 +690,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     pdf.alias_nb_pages()
     
     current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college_context
+    IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
 
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -714,9 +752,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 sheet_df = sheet_df.rename(columns=rename_cols)
             
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
+            # Rule 3: Dynamic PDF College Header setup for SOL
             if IS_LAW_SCHOOL and main_branch_full:
                 prog_upper = main_branch_full.upper()
-                if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
+                if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper or "LLM" in prog_upper:
                     sheet_college_name = "Kirti P. Mehta School of Law"
                 elif "B.A." in prog_upper or "B.B.A." in prog_upper or "LL.B" in prog_upper:
                     sheet_college_name = "Kirti P. Mehta School of Law / School of Law"
