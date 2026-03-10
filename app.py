@@ -1566,7 +1566,7 @@ def read_timetable(uploaded_file):
                 return f"{prog} - {stream}"
         
         df["Branch"] = df.apply(create_branch_identifier, axis=1)
-        df["Subject"] = df["SubjectName"] + " - (" + df["ModuleCode"] + ")"
+        df["Subject"] = df["SubjectName"] + " (" + df["ModuleCode"] + ")"
         
         # Defaults
         if "ExamSlotNumber" not in df.columns: df["ExamSlotNumber"] = 0
@@ -4202,3 +4202,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
