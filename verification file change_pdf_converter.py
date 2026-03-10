@@ -279,7 +279,7 @@ def save_to_excel(semester_wise_timetable):
                             time_suffix = f" [{actual_time}]"
 
                         txt = f"{subj}"
-                        if code and str(code).lower() != 'nan': txt += f" - ({code})"
+                        if code and str(code).lower() != 'nan': txt += f" ({code})"
                         txt += time_suffix
                         displays.append(txt)
 
