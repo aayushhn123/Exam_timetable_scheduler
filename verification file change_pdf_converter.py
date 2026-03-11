@@ -230,10 +230,18 @@ def save_to_excel(semester_wise_timetable):
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
     })
-    output = io.BytesIO()
 
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+
+    # SOL Fix 2: Override default time slots for School of Law
+    if IS_LAW_SCHOOL:
+        time_slots_dict = {
+            1: {"start": "11:00 AM", "end": "1:00 PM"},
+            2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
+
+    output = io.BytesIO()
 
     # Rule 1: B.A. / B.B.A. Side-by-Side Merging Pre-Processing
     if IS_LAW_SCHOOL:
@@ -250,7 +258,7 @@ def save_to_excel(semester_wise_timetable):
             mask = df_sem['MainBranch'].apply(is_ba_bba_llb)
             if mask.any():
                 df_sem.loc[mask, 'SubBranch'] = df_sem.loc[mask, 'MainBranch'] + " - " + df_sem.loc[mask, 'SubBranch']
-                df_sem.loc[mask, 'MainBranch'] = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
+                df_sem.loc[mask, 'MainBranch'] = "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)"
 
     all_programs = []
     for df_s in semester_wise_timetable.values():
@@ -290,7 +298,7 @@ def save_to_excel(semester_wise_timetable):
                 elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
 
                 # Rule 2: Inline Open Electives execution - Do not split OE for SOL BA/BBA
-                if IS_LAW_SCHOOL and main_branch == "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)":
+                if IS_LAW_SCHOOL and main_branch == "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)":
                     df_core = df_mb.copy()
                     df_elec = pd.DataFrame()
                 else:
@@ -312,7 +320,7 @@ def save_to_excel(semester_wise_timetable):
 
                         # Rule 2: Tagging OE subjects visually inside the core dataframe cell
                         prefix = ""
-                        if IS_LAW_SCHOOL and main_branch == "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)" and pd.notna(oe_type) and str(oe_type).strip() != '':
+                        if IS_LAW_SCHOOL and main_branch == "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)" and pd.notna(oe_type) and str(oe_type).strip() != '':
                             prefix = f"[OE: {oe_type}] "
 
                         # Rule 4: Subject String Formatting (No hyphen before module code)
@@ -455,6 +463,10 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     header_bg_color = (255, 255, 255)
     header_text_color = (0, 0, 0)
     alt_row_color = (255, 255, 255)
+
+    # SOL Fix 3: Use light grey fill for SOL header rows when flagged
+    if header and hasattr(pdf, '_sol_header_fill'):
+        header_bg_color = pdf._sol_header_fill
 
     row_number = getattr(pdf, '_row_counter', 0)
     
@@ -651,11 +663,45 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     render_footer()
     render_header()
     
-    # Uppercase the table columns
-    upper_columns = [str(c).upper() for c in columns]
-    
-    pdf.set_font("Times", 'B', 9.5)
-    print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
+    # SOL Fix 3 & 4: For School of Law, strip program prefix from sub-branch column headers
+    # (show stream name only, highlighted in light grey). Also apply Proper Case for Sem X & LL.M Sem II.
+    current_college_context_for_header = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL_HEADER = "LAW" in current_college_context_for_header.upper()
+
+    def sol_clean_header_label(col_label, sem_roman_str):
+        """For SOL: strip the program prefix leaving only the stream name.
+        For Sem X and LL.M Sem II: return in Proper Case (title case)."""
+        raw = str(col_label)
+        # Strip program prefix: everything before and including ' - '
+        if " - " in raw:
+            parts = raw.split(" - ", 1)
+            raw = parts[-1].strip()
+        # Convert to Proper Case (title case) for Sem X and LL.M Sem II
+        sem_upper = str(sem_roman_str).strip().upper()
+        if sem_upper in ("X", "10") or "LL.M" in sem_upper or "LLM" in sem_upper:
+            return raw.title()
+        return raw.upper()
+
+    if IS_LAW_SCHOOL_HEADER:
+        sem_roman_for_header = str(header_content.get('semester_roman', '')).strip().upper()
+        display_columns = []
+        for c in columns:
+            if c == "Exam Date":
+                display_columns.append("EXAM DATE")
+            else:
+                display_columns.append(sol_clean_header_label(c, sem_roman_for_header))
+        # Use light grey fill for SOL header row
+        sol_header_fill = (220, 220, 220)
+        pdf.set_font("Times", 'B', 9.5)
+        # Temporarily patch header_bg_color via a custom attribute on the pdf object
+        setattr(pdf, '_sol_header_fill', sol_header_fill)
+        print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
+        delattr(pdf, '_sol_header_fill')
+    else:
+        # Uppercase the table columns (standard non-SOL path — unchanged)
+        upper_columns = [str(c).upper() for c in columns]
+        pdf.set_font("Times", 'B', 9.5)
+        print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
     
     pdf.set_font("Times", '', 9.5) 
     
@@ -678,8 +724,15 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Times", 'B', 9.5) 
-            print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
+            if IS_LAW_SCHOOL_HEADER:
+                pdf.set_font("Times", 'B', 9.5)
+                setattr(pdf, '_sol_header_fill', sol_header_fill)
+                print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
+                delattr(pdf, '_sol_header_fill')
+            else:
+                upper_columns = [str(c).upper() for c in columns]
+                pdf.set_font("Times", 'B', 9.5) 
+                print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
             pdf.set_font("Times", '', 9.5)  
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
@@ -696,6 +749,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
+
+    # SOL Fix 2: Override default time slots for School of Law
+    if IS_LAW_SCHOOL:
+        time_slots_dict = {
+            1: {"start": "11:00 AM", "end": "1:00 PM"},
+            2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
     
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
@@ -907,6 +967,14 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
             "4. Candidates will not be permitted to leave the examination hall during the examination time."
         ]
+
+        # SOL Fix 6: Add missing Point 5 for School of Law
+        current_college_for_instrs = st.session_state.get('selected_college', '')
+        if "LAW" in current_college_for_instrs.upper():
+            instrs.append(
+                "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. "
+                "Carrying the same will be treated as usage of unfair means."
+            )
         pdf.set_font("Times", size=12)
         for i in instrs:
             pdf.multi_cell(0, 7, i)
