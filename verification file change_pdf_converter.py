@@ -245,19 +245,36 @@ def save_to_excel(semester_wise_timetable):
 
     # Rule 1: B.A. / B.B.A. Side-by-Side Merging Pre-Processing
     if IS_LAW_SCHOOL:
+
+        # SOL Fix 1: Canonical program name normaliser — enforces exact spacing & capitalisation
+        # Converts any variant (e.g. "B.A., LL.B. (Hons.)", "BA LLB Hons", "b.a. llb (hons)")
+        # to the exact canonical forms: "B.A., LL.B.(Hons.)" or "B.B.A., LL.B.(Hons.)"
+        def _sol_normalise_program_name(raw):
+            s = str(raw).strip()
+            su = s.upper().replace(" ", "")
+            # Detect B.B.A. variant first (must come before B.A. check)
+            if re.search(r'B\.?B\.?A\.?', su):
+                return "B.B.A., LL.B.(Hons.)"
+            # Detect plain B.A. variant (not B.B.A.)
+            if re.search(r'^B\.?A\.?', su):
+                return "B.A., LL.B.(Hons.)"
+            return s  # not a BA/BBA LLB — return unchanged
+
         for sem in semester_wise_timetable:
             df_sem = semester_wise_timetable[sem]
             if df_sem.empty: continue
-            
+
             def is_ba_bba_llb(p):
                 p_str = str(p).strip().upper()
-                if re.search(r'(LL\.M|MASTER\s+OF\s+LAW|LLM)', p_str): 
+                if re.search(r'(LL\.M|MASTER\s+OF\s+LAW|LLM)', p_str):
                     return False
                 return bool(re.search(r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B', p_str))
-            
+
             mask = df_sem['MainBranch'].apply(is_ba_bba_llb)
             if mask.any():
-                df_sem.loc[mask, 'SubBranch'] = df_sem.loc[mask, 'MainBranch'] + " - " + df_sem.loc[mask, 'SubBranch']
+                # Normalise the raw MainBranch to canonical name BEFORE using it in SubBranch prefix
+                normalised_prefix = df_sem.loc[mask, 'MainBranch'].apply(_sol_normalise_program_name)
+                df_sem.loc[mask, 'SubBranch'] = normalised_prefix + " - " + df_sem.loc[mask, 'SubBranch']
                 df_sem.loc[mask, 'MainBranch'] = "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)"
 
     all_programs = []
@@ -627,9 +644,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         current_y = 38
         
         # Program Name
-        pdf.set_font("Times", 'B', 10) 
+        pdf.set_font("Times", 'B', 10)
         pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
+        # SOL Fix: preserve exact capitalisation of program name (e.g. B.A., LL.B.(Hons.))
+        # All other colleges continue to use uppercase
+        _prog_name = header_content['main_branch_full']
+        _is_law = "LAW" in st.session_state.get('selected_college', '').upper()
+        _prog_display = _prog_name if _is_law else _prog_name.upper()
+        pdf.cell(pdf.w - 20, 4, _prog_display, 0, 1, 'C')
         current_y += 4
         
         # Year and Semester Math Calculation
@@ -670,17 +692,20 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
     def sol_clean_header_label(col_label, sem_roman_str):
         """For SOL: strip the program prefix leaving only the stream name.
-        For Sem X and LL.M Sem II: return in Proper Case (title case)."""
+        For Sem X and LL.M Sem II: return in Proper Case (title case).
+        Also normalises any residual program name to canonical capitalisation/spacing."""
         raw = str(col_label)
-        # Strip program prefix: everything before and including ' - '
+        # Strip program prefix: everything before and including the LAST ' - '
+        # SubBranch was built as "CANONICAL_PROG - STREAM", so split once from right
         if " - " in raw:
-            parts = raw.split(" - ", 1)
-            raw = parts[-1].strip()
-        # Convert to Proper Case (title case) for Sem X and LL.M Sem II
+            raw = raw.rsplit(" - ", 1)[-1].strip()
+        # SOL Fix: preserve exact casing of stream/program names — never force uppercase
+        # For Sem X and LL.M Sem II: use Proper Case (title case) for stream names
         sem_upper = str(sem_roman_str).strip().upper()
         if sem_upper in ("X", "10") or "LL.M" in sem_upper or "LLM" in sem_upper:
             return raw.title()
-        return raw.upper()
+        # All other SOL semesters: return as-is (canonical casing already applied by normaliser)
+        return raw
 
     if IS_LAW_SCHOOL_HEADER:
         sem_roman_for_header = str(header_content.get('semester_roman', '')).strip().upper()
