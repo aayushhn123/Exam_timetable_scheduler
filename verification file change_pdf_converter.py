@@ -481,7 +481,7 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     header_text_color = (0, 0, 0)
     alt_row_color = (255, 255, 255)
 
-    # SOL Fix 3: Use light grey fill for SOL header rows when flagged
+    # SOL Fix 3: Use light grey fill and increased font size for SOL header rows when flagged
     if header and hasattr(pdf, '_sol_header_fill'):
         header_bg_color = pdf._sol_header_fill
 
@@ -490,7 +490,8 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     base_font = "Times"
     if header:
         base_style = 'B'
-        base_size = 9.5
+        # SOL Fix: use increased font size for SOL header if flagged, else standard 9.5
+        base_size = getattr(pdf, '_sol_header_font_size', 9.5)
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
@@ -720,8 +721,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Times", 'B', 9.5)
         # Temporarily patch header_bg_color via a custom attribute on the pdf object
         setattr(pdf, '_sol_header_fill', sol_header_fill)
+        setattr(pdf, '_sol_header_font_size', 10.5)  # SOL Fix: header font +1 (9.5 -> 10.5)
         print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
         delattr(pdf, '_sol_header_fill')
+        delattr(pdf, '_sol_header_font_size')
     else:
         # Uppercase the table columns (standard non-SOL path — unchanged)
         upper_columns = [str(c).upper() for c in columns]
@@ -752,8 +755,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             if IS_LAW_SCHOOL_HEADER:
                 pdf.set_font("Times", 'B', 9.5)
                 setattr(pdf, '_sol_header_fill', sol_header_fill)
+                setattr(pdf, '_sol_header_font_size', 10.5)  # SOL Fix: header font +1 (9.5 -> 10.5)
                 print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
                 delattr(pdf, '_sol_header_fill')
+                delattr(pdf, '_sol_header_font_size')
             else:
                 upper_columns = [str(c).upper() for c in columns]
                 pdf.set_font("Times", 'B', 9.5) 
