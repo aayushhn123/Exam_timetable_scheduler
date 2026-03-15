@@ -677,7 +677,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
         
         # Final Exam Timetable Header
-        pdf.set_font("Times", 'B', 10) 
+        # SOL Fix: increase header section font sizes by 1.5
+        _hdr_is_law = "LAW" in st.session_state.get('selected_college', '').upper()
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
         pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
@@ -685,7 +687,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         current_y = 38
         
         # Program Name
-        pdf.set_font("Times", 'B', 10)
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_xy(10, current_y)
         # SOL Fix: preserve exact capitalisation of program name (e.g. B.A., LL.B.(Hons.))
         # All other colleges continue to use uppercase
@@ -706,17 +708,18 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         year_int = (sem_int + 1) // 2
         year_roman = int_to_roman(year_int)
 
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)  # SOL Fix: year/sem line
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
         current_y += 4
 
         if time_slot:
-            pdf.set_font("Times", 'B', 9)
+            pdf.set_font("Times", 'B', 10.5 if _hdr_is_law else 9)  # SOL Fix
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
             
-            pdf.set_font("Times", 'BI', 9) 
+            pdf.set_font("Times", 'BI', 10.5 if _hdr_is_law else 9)  # SOL Fix
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
