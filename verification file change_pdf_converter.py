@@ -650,8 +650,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         # SOL Fix: preserve exact capitalisation of program name (e.g. B.A., LL.B.(Hons.))
         # All other colleges continue to use uppercase
         _prog_name = header_content['main_branch_full']
-        _is_law = "LAW" in st.session_state.get('selected_college', '').upper()
-        _prog_display = _prog_name if _is_law else _prog_name.upper()
+        # SOL Fix: program name in timetable page header is always uppercase (table headers unaffected)
+        _prog_display = _prog_name.upper()
         pdf.cell(pdf.w - 20, 4, _prog_display, 0, 1, 'C')
         current_y += 4
         
