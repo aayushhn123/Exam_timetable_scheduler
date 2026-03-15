@@ -332,8 +332,14 @@ def save_to_excel(semester_wise_timetable):
                         oe_type     = row.get('OE', None)
 
                         time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
-                            time_suffix = f" [{actual_time}]"
+                        if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
+                            if IS_LAW_SCHOOL:
+                                # SOL Fix: always embed the subject time so PDF stage can
+                                # compare every subject against the page majority time
+                                time_suffix = f" [{actual_time}]"
+                            elif normalize_time(actual_time) != header_norm:
+                                # Non-SOL: original logic — only embed if differs from header
+                                time_suffix = f" [{actual_time}]"
 
                         # Rule 2: Tagging OE subjects visually inside the core dataframe cell
                         prefix = ""
@@ -938,10 +944,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         if _time_counts:
                             page_time_slot = max(_time_counts, key=_time_counts.get)
 
-                        # SOL Fix: re-tag subject strings — strip existing [time] suffix,
-                        # then re-add only if that subject's time differs from page_time_slot.
-                        # This ensures the header shows the majority time and only mismatches
-                        # are shown alongside their subject. Done on chunk_df copy — safe.
+                        # SOL Fix: re-tag subjects — strip embedded [time], re-add only if
+                        # that subject's time differs from the page majority time.
+                        # Since save_to_excel now always embeds time for SOL, every subject
+                        # has a time to compare against — mismatches are shown, matches hidden.
                         _strip_pat = re.compile(
                             r'\s*\[\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*\]',
                             re.IGNORECASE
@@ -953,8 +959,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         _page_norm = re.sub(r'\s+', ' ', page_time_slot.strip().upper())
 
                         def _retag_cell(cell_text):
-                            """Process a cell that may contain multiple subjects separated by <hr>.
-                            For each subject: strip its [time], re-add only if differs from page majority."""
+                            """For each subject in the cell (separated by <hr>):
+                            strip its [time], re-add only if it differs from page majority."""
                             parts = str(cell_text).split(' <hr> ')
                             result = []
                             for part in parts:
