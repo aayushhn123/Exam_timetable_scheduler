@@ -334,11 +334,9 @@ def save_to_excel(semester_wise_timetable):
                         time_suffix = ""
                         if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
                             if IS_LAW_SCHOOL:
-                                # SOL Fix: always embed the subject time so PDF stage can
-                                # compare every subject against the page majority time
+                                # SOL Fix: always embed time so PDF stage can compare against majority
                                 time_suffix = f" [{actual_time}]"
                             elif normalize_time(actual_time) != header_norm:
-                                # Non-SOL: original logic — only embed if differs from header
                                 time_suffix = f" [{actual_time}]"
 
                         # Rule 2: Tagging OE subjects visually inside the core dataframe cell
@@ -374,7 +372,43 @@ def save_to_excel(semester_wise_timetable):
                         pivot = pivot.pivot_table(index='Exam Date', columns='SubBranch', values='SubjectDisplay', aggfunc='first').fillna("---")
                         pivot = pivot.sort_index(ascending=True).reset_index()
                         pivot['Exam Date'] = pivot['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
-                        
+
+                        # SOL Fix: For B.A./B.B.A. LL.B. Year 3+ (Sem 5+), subjects/streams
+                        # are common across both programs — collapse duplicate column pairs
+                        # into a single column showing just the stream name.
+                        # Also handles Sem X where stream columns appear twice (once per program).
+                        if IS_LAW_SCHOOL and main_branch == "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)" and sem >= 5:
+                            _fixed = ['Exam Date']
+                            _data_cols = [c for c in pivot.columns if c not in _fixed + ['_prog_', '_sem_']]
+                            # Build a map: stream_name -> first column that owns it
+                            # Strip the "PROG - " prefix to get the bare stream name
+                            _stream_map = {}   # stream_name -> canonical col name to keep
+                            _drop_cols  = []   # duplicate cols to drop
+                            for _col in _data_cols:
+                                _col_str = str(_col)
+                                _stream = _col_str.rsplit(' - ', 1)[-1].strip() if ' - ' in _col_str else _col_str
+                                if _stream not in _stream_map:
+                                    _stream_map[_stream] = _col
+                                else:
+                                    # Merge: combine non-'---' content from this col into the kept col
+                                    _kept = _stream_map[_stream]
+                                    for _idx in pivot.index:
+                                        _kept_val = str(pivot.at[_idx, _kept]).strip()
+                                        _this_val = str(pivot.at[_idx, _col]).strip()
+                                        if (_kept_val == '---' or _kept_val == '') and _this_val not in ('---', ''):
+                                            pivot.at[_idx, _kept] = _this_val
+                                    _drop_cols.append(_col)
+                            # Drop duplicate columns
+                            if _drop_cols:
+                                pivot = pivot.drop(columns=_drop_cols)
+                            # Rename kept columns to bare stream name (strip program prefix)
+                            _rename = {}
+                            for _stream, _col in _stream_map.items():
+                                if _col in pivot.columns and str(_col) != _stream:
+                                    _rename[_col] = _stream
+                            if _rename:
+                                pivot = pivot.rename(columns=_rename)
+
                         pivot['_prog_'] = main_branch
                         pivot['_sem_']  = roman_sem
                         pivot.to_excel(writer, sheet_name=core_sheet, index=False)
@@ -723,7 +757,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             else:
                 display_columns.append(sol_clean_header_label(c, sem_roman_for_header))
         # Use light grey fill for SOL header row
-        sol_header_fill = (255, 255, 255)  # SOL Fix: plain white header (grey removed)
+        sol_header_fill = (255, 255, 255)  # SOL Fix: plain white header
         pdf.set_font("Times", 'B', 9.5)
         # Temporarily patch header_bg_color via a custom attribute on the pdf object
         setattr(pdf, '_sol_header_fill', sol_header_fill)
@@ -928,7 +962,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     st.session_state['selected_college'] = sheet_college_name
 
                     # SOL Fix: derive header time from majority time across all subjects on this page
-                    page_time_slot = header_exam_time  # fallback to semester default
+                    page_time_slot = header_exam_time
                     if IS_LAW_SCHOOL:
                         _time_pat = re.compile(
                             r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
@@ -944,10 +978,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         if _time_counts:
                             page_time_slot = max(_time_counts, key=_time_counts.get)
 
-                        # SOL Fix: re-tag subjects — strip embedded [time], re-add only if
-                        # that subject's time differs from the page majority time.
-                        # Since save_to_excel now always embeds time for SOL, every subject
-                        # has a time to compare against — mismatches are shown, matches hidden.
                         _strip_pat = re.compile(
                             r'\s*\[\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*\]',
                             re.IGNORECASE
@@ -959,8 +989,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         _page_norm = re.sub(r'\s+', ' ', page_time_slot.strip().upper())
 
                         def _retag_cell(cell_text):
-                            """For each subject in the cell (separated by <hr>):
-                            strip its [time], re-add only if it differs from page majority."""
                             parts = str(cell_text).split(' <hr> ')
                             result = []
                             for part in parts:
