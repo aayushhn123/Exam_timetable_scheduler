@@ -650,8 +650,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         # SOL Fix: preserve exact capitalisation of program name (e.g. B.A., LL.B.(Hons.))
         # All other colleges continue to use uppercase
         _prog_name = header_content['main_branch_full']
-        # SOL Fix: program name in timetable page header is always uppercase (table headers unaffected)
-        _prog_display = _prog_name.upper()
+        _is_law = "LAW" in st.session_state.get('selected_college', '').upper()
+        _prog_display = _prog_name if _is_law else _prog_name.upper()
         pdf.cell(pdf.w - 20, 4, _prog_display, 0, 1, 'C')
         current_y += 4
         
@@ -717,7 +717,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             else:
                 display_columns.append(sol_clean_header_label(c, sem_roman_for_header))
         # Use light grey fill for SOL header row
-        sol_header_fill = (220, 220, 220)
+        sol_header_fill = (255, 255, 255)  # SOL Fix: plain white header (grey removed)
         pdf.set_font("Times", 'B', 9.5)
         # Temporarily patch header_bg_color via a custom attribute on the pdf object
         setattr(pdf, '_sol_header_fill', sol_header_fill)
@@ -920,10 +920,27 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
-                    
+
+                    # SOL Fix: derive header time from majority time across all subjects on this page
+                    page_time_slot = header_exam_time  # fallback to semester default
+                    if IS_LAW_SCHOOL:
+                        _time_pat = re.compile(
+                            r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
+                            re.IGNORECASE
+                        )
+                        _time_counts = {}
+                        for _col in chunk:
+                            if _col not in chunk_df.columns: continue
+                            for _cell in chunk_df[_col].astype(str):
+                                for _t in _time_pat.findall(_cell):
+                                    _t_norm = re.sub(r'\s+', ' ', _t.strip().upper())
+                                    _time_counts[_t_norm] = _time_counts.get(_t_norm, 0) + 1
+                        if _time_counts:
+                            page_time_slot = max(_time_counts, key=_time_counts.get)
+
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5, 
                                      header_content=header_content, Programs=chunk, 
-                                     time_slot=header_exam_time, actual_time_slots=None, 
+                                     time_slot=page_time_slot, actual_time_slots=None, 
                                      declaration_date=declaration_date)
                     
                     if original_college: st.session_state['selected_college'] = original_college
