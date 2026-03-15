@@ -917,7 +917,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     col_widths = [date_col_width] + [sub_width] * len(chunk)
                     
                     pdf.add_page()
-                    
+
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
 
@@ -937,6 +937,40 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                                     _time_counts[_t_norm] = _time_counts.get(_t_norm, 0) + 1
                         if _time_counts:
                             page_time_slot = max(_time_counts, key=_time_counts.get)
+
+                        # SOL Fix: re-tag subject strings — strip existing [time] suffix,
+                        # then re-add only if that subject's time differs from page_time_slot.
+                        # This ensures the header shows the majority time and only mismatches
+                        # are shown alongside their subject. Done on chunk_df copy — safe.
+                        _strip_pat = re.compile(
+                            r'\s*\[\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*\]',
+                            re.IGNORECASE
+                        )
+                        _extract_pat = re.compile(
+                            r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
+                            re.IGNORECASE
+                        )
+                        _page_norm = re.sub(r'\s+', ' ', page_time_slot.strip().upper())
+
+                        def _retag_cell(cell_text):
+                            """Process a cell that may contain multiple subjects separated by <hr>.
+                            For each subject: strip its [time], re-add only if differs from page majority."""
+                            parts = str(cell_text).split(' <hr> ')
+                            result = []
+                            for part in parts:
+                                m = _extract_pat.search(part)
+                                subj_time = re.sub(r'\s+', ' ', m.group(1).strip().upper()) if m else None
+                                clean = _strip_pat.sub('', part).rstrip()
+                                if subj_time and subj_time != _page_norm:
+                                    clean = clean + f' [{m.group(1).strip()}]'
+                                result.append(clean)
+                            return ' <hr> '.join(result)
+
+                        for _col in chunk:
+                            if _col in chunk_df.columns:
+                                chunk_df[_col] = chunk_df[_col].astype(str).apply(
+                                    lambda v: _retag_cell(v) if v not in ('---', 'nan', '') else v
+                                )
 
                     print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5, 
                                      header_content=header_content, Programs=chunk, 
