@@ -132,7 +132,12 @@ def process_reexam_file(uploaded_file):
         )
 
         df['Subject']    = df.get('Module Description', pd.Series(dtype=str)).fillna('').astype(str).str.strip()
-        df['ModuleCode'] = ''   # Not used for re-exam
+        # SOL: read Module Abbreviation for display in PDF; other colleges leave it blank
+        _selected_college = st.session_state.get('selected_college', '')
+        if 'LAW' in _selected_college.upper() and 'Module Abbreviation' in df.columns:
+            df['ModuleCode'] = df['Module Abbreviation'].fillna('').astype(str).str.strip()
+        else:
+            df['ModuleCode'] = ''   # Not used for non-SOL re-exam
 
         # Subject Type: OE1, OE2 → treat as OE; NaN → core
         if 'Subject Type' in df.columns:
@@ -354,7 +359,17 @@ def save_to_excel(semester_wise_timetable):
                             elif normalize_time(actual_time) != header_norm:
                                 time_suffix = f" [{actual_time}]"
 
+                        # SOL: include module code between subject name and year
+                        code = ''
+                        if IS_LAW_SCHOOL and 'ModuleCode' in grp.columns:
+                            _codes = grp['ModuleCode'].dropna().astype(str).str.strip()
+                            _codes = [c for c in _codes if c and c.lower() not in ['nan', '']]
+                            if _codes:
+                                code = _codes[0]
+
                         txt = subj
+                        if IS_LAW_SCHOOL and code:
+                            txt += f" ({code})"
                         if short_years:
                             txt += f" ({', '.join(short_years)})"
                         txt += time_suffix
