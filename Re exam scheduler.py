@@ -231,6 +231,17 @@ def save_to_excel(semester_wise_timetable):
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
     })
+
+    current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+
+    # SOL: Override default time slots for School of Law
+    if IS_LAW_SCHOOL:
+        time_slots_dict = {
+            1: {"start": "11:00 AM", "end": "1:00 PM"},
+            2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
+
     output = io.BytesIO()
 
     all_programs = []
@@ -305,8 +316,12 @@ def save_to_excel(semester_wise_timetable):
                             short_years = []
 
                         time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
-                            time_suffix = f" [{actual_time}]"
+                        if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
+                            if IS_LAW_SCHOOL:
+                                # SOL: always embed time so PDF stage can compare against majority
+                                time_suffix = f" [{actual_time}]"
+                            elif normalize_time(actual_time) != header_norm:
+                                time_suffix = f" [{actual_time}]"
 
                         txt = subj
                         if short_years:
@@ -482,12 +497,17 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     header_text_color = (0, 0, 0)
     alt_row_color   = (255, 255, 255)
 
+    # SOL: use fill colour and font size overrides when flagged via pdf object attributes
+    if header and hasattr(pdf, '_sol_header_fill'):
+        header_bg_color = pdf._sol_header_fill
+
     row_number = getattr(pdf, '_row_counter', 0)
 
     base_font = "Times"
     if header:
         base_style = 'B'
-        base_size  = 9.5
+        # SOL: use increased font size if flagged, else standard 9.5
+        base_size = getattr(pdf, '_sol_header_font_size', 9.5)
         pdf.set_font(base_font, base_style, base_size)
         pdf.set_text_color(*header_text_color)
         pdf.set_fill_color(*header_bg_color)
@@ -638,18 +658,23 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
 
-        # Main Title — size 10, bold
-        pdf.set_font("Times", 'B', 10)
+        # SOL: increase header font sizes by 1.5 when Law School selected
+        _hdr_is_law = "LAW" in st.session_state.get('selected_college', '').upper()
+
+        # Main Title
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
         pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
 
         current_y = 38
 
-        # Program Name — size 10, bold
-        pdf.set_font("Times", 'B', 10)
+        # Program Name — SOL: exact casing; others: uppercase
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
+        _prog_name = header_content['main_branch_full']
+        _prog_display = _prog_name if _hdr_is_law else _prog_name.upper()
+        pdf.cell(pdf.w - 20, 4, _prog_display, 0, 1, 'C')
         current_y += 4
 
         # Year and Semester
@@ -666,17 +691,18 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
         year_int   = (sem_int + 1) // 2
         year_roman = int_to_roman(year_int)
 
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)  # SOL: year/sem line
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
         current_y += 4
 
         if time_slot:
-            pdf.set_font("Times", 'B', 9)
+            pdf.set_font("Times", 'B', 10.5 if _hdr_is_law else 9)  # SOL
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
 
-            pdf.set_font("Times", 'BI', 9)
+            pdf.set_font("Times", 'BI', 10.5 if _hdr_is_law else 9)  # SOL
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
@@ -687,11 +713,37 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
     render_footer()
     render_header()
 
-    # Uppercase headers
-    upper_columns = [str(c).upper() for c in columns]
+    # SOL: strip program prefix from column headers; font size 10.5; non-SOL: uppercase 9.5
+    IS_LAW_SCHOOL_HEADER = "LAW" in st.session_state.get('selected_college', '').upper()
 
-    pdf.set_font("Times", 'B', 9.5)
-    print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
+    def sol_clean_header_label(col_label, sem_roman_str):
+        raw = str(col_label)
+        if " - " in raw:
+            raw = raw.rsplit(" - ", 1)[-1].strip()
+        sem_upper = str(sem_roman_str).strip().upper()
+        if sem_upper in ("X", "10") or "LL.M" in sem_upper or "LLM" in sem_upper:
+            return raw.title()
+        return raw
+
+    if IS_LAW_SCHOOL_HEADER:
+        sem_roman_for_header = str(header_content.get('semester_roman', '')).strip().upper()
+        display_columns = []
+        for c in columns:
+            if c == "Exam Date":
+                display_columns.append("EXAM DATE")
+            else:
+                display_columns.append(sol_clean_header_label(c, sem_roman_for_header))
+        sol_header_fill = (255, 255, 255)
+        pdf.set_font("Times", 'B', 9.5)
+        setattr(pdf, '_sol_header_fill', sol_header_fill)
+        setattr(pdf, '_sol_header_font_size', 10.5)
+        print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
+        delattr(pdf, '_sol_header_fill')
+        delattr(pdf, '_sol_header_font_size')
+    else:
+        upper_columns = [str(c).upper() for c in columns]
+        pdf.set_font("Times", 'B', 9.5)
+        print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
 
     pdf.set_font("Times", '', 9.5)
 
@@ -714,8 +766,17 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
             pdf.add_page()
             render_footer()
             render_header()
-            pdf.set_font("Times", 'B', 9.5)
-            print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
+            if IS_LAW_SCHOOL_HEADER:
+                pdf.set_font("Times", 'B', 9.5)
+                setattr(pdf, '_sol_header_fill', sol_header_fill)
+                setattr(pdf, '_sol_header_font_size', 10.5)
+                print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
+                delattr(pdf, '_sol_header_fill')
+                delattr(pdf, '_sol_header_font_size')
+            else:
+                upper_columns = [str(c).upper() for c in columns]
+                pdf.set_font("Times", 'B', 9.5)
+                print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
             pdf.set_font("Times", '', 9.5)
 
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
@@ -743,6 +804,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
     })
+
+    current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+
+    # SOL: Override time slots
+    if IS_LAW_SCHOOL:
+        time_slots_dict = {
+            1: {"start": "11:00 AM", "end": "1:00 PM"},
+            2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
 
     def get_header_time_for_semester(sem_str):
         try:
@@ -1000,6 +1071,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                 sheet_df = sheet_df.rename(columns=rename_cols)
 
             sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
+            # SOL: dynamic college name based on program type
+            if IS_LAW_SCHOOL and main_branch_full:
+                prog_upper = main_branch_full.upper()
+                if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper or "LLM" in prog_upper:
+                    sheet_college_name = "Kirti P. Mehta School of Law"
+                else:
+                    sheet_college_name = "Kirti P. Mehta School of Law / School of Law"
 
             # Parse semester from sheet name
             semester_raw = "General"
@@ -1084,10 +1162,55 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
 
+                    # SOL: derive header time from majority time across all subjects on this page
+                    page_time_slot = header_exam_time
+                    if IS_LAW_SCHOOL:
+                        _time_pat = re.compile(
+                            r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
+                            re.IGNORECASE
+                        )
+                        _time_counts = {}
+                        for _col in chunk:
+                            if _col not in chunk_df.columns: continue
+                            for _cell in chunk_df[_col].astype(str):
+                                for _t in _time_pat.findall(_cell):
+                                    _t_norm = re.sub(r'\s+', ' ', _t.strip().upper())
+                                    _time_counts[_t_norm] = _time_counts.get(_t_norm, 0) + 1
+                        if _time_counts:
+                            page_time_slot = max(_time_counts, key=_time_counts.get)
+
+                        _strip_pat = re.compile(
+                            r'\s*\[\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*\]',
+                            re.IGNORECASE
+                        )
+                        _extract_pat = re.compile(
+                            r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
+                            re.IGNORECASE
+                        )
+                        _page_norm = re.sub(r'\s+', ' ', page_time_slot.strip().upper())
+
+                        def _retag_cell(cell_text):
+                            parts = str(cell_text).split(' <hr> ')
+                            result = []
+                            for part in parts:
+                                m = _extract_pat.search(part)
+                                subj_time = re.sub(r'\s+', ' ', m.group(1).strip().upper()) if m else None
+                                clean = _strip_pat.sub('', part).rstrip()
+                                if subj_time and subj_time != _page_norm:
+                                    clean = clean + f' [{m.group(1).strip()}]'
+                                result.append(clean)
+                            return ' <hr> '.join(result)
+
+                        for _col in chunk:
+                            if _col in chunk_df.columns:
+                                chunk_df[_col] = chunk_df[_col].astype(str).apply(
+                                    lambda v: _retag_cell(v) if v not in ('---', 'nan', '') else v
+                                )
+
                     print_table_custom(
                         pdf, chunk_df, cols_to_print, col_widths, line_height=5,
                         header_content=header_content, Programs=chunk,
-                        time_slot=header_exam_time, actual_time_slots=None,
+                        time_slot=page_time_slot, actual_time_slots=None,
                         declaration_date=declaration_date
                     )
 
