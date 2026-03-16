@@ -598,9 +598,9 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
 
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Times", 'B', 8)
+        pdf.set_font("Times", 'B', 11)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+        pdf.line(10, pdf.h - footer_height + 5, 80, pdf.h - footer_height + 5)
 
         pdf.set_font("Times", size=8)
         pdf.set_text_color(0, 0, 0)
@@ -777,9 +777,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         # Footer — Controller of Examinations (bottom left) + page number (bottom right)
         footer_height = 14
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Times", 'B', 8)
+        pdf.set_font("Times", 'B', 11)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-        pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
+        pdf.line(10, pdf.h - footer_height + 5, 80, pdf.h - footer_height + 5)
         pdf.set_font("Times", size=8)
         pdf.set_text_color(0, 0, 0)
         page_text  = f"{pdf.page_no()} of {{nb}}"
