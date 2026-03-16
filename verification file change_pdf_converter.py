@@ -635,7 +635,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
-        pdf.set_font("Times", 'B', 8) 
+        pdf.set_font("Times", 'B', 10) 
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - footer_height + 5, 60, pdf.h - footer_height + 5)
         
@@ -1056,7 +1056,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     try:
         pdf.add_page()
         pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Times", 'B', 8)
+        pdf.set_font("Times", 'B', 10)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
         pdf.set_font("Times", size=9)
