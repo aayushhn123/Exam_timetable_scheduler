@@ -770,6 +770,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
     try:
         pdf.add_page()
 
+        # Declaration date — top right (same as timetable pages)
+        if declaration_date:
+            day = declaration_date.day
+            if 11 <= (day % 100) <= 13:
+                suffix = 'TH'
+            else:
+                suffix = {1: 'ST', 2: 'ND', 3: 'RD'}.get(day % 10, 'TH')
+            decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
+            pdf.set_font("Times", 'B', 12)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_xy(pdf.w - 80, 8)
+            pdf.cell(70, 10, decl_str, 0, 0, 'R')
+
         # Logo
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
