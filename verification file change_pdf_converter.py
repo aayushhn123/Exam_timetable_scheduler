@@ -1083,28 +1083,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
             "2. Candidates must produce their University Identity Card at the time of the examination.",
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time."
+            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
+            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
         ]
-
-        # SOL Fix 6: Add missing Point 5 for School of Law
-        current_college_for_instrs = st.session_state.get('selected_college', '')
-        if "LAW" in current_college_for_instrs.upper():
-            instrs.append(
-                "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. "
-                "Carrying the same will be treated as usage of unfair means."
-            )
         pdf.set_font("Times", size=12)
         for i in instrs:
             pdf.multi_cell(0, 7, i)
             pdf.ln(2)
     except Exception as e:
         pass
-
     try:
         pdf.output(pdf_path)
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
-
 
 # ==========================================
 # 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
