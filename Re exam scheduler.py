@@ -734,7 +734,7 @@ def _format_portal_date(d, t=""):
         base += f"\n(Closing time {t.strip()})"
     return base
 
-def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dates=None):
+def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dates=None, all_semesters=None):
     pdf = FPDF(orientation='L', unit='mm', format='Legal')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
@@ -800,6 +800,18 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
         pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+
+        # Semester line — e.g. SEMESTER - II/IV/VI/VIII
+        if all_semesters:
+            _roman_map = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII',
+                          8:'VIII',9:'IX',10:'X',11:'XI',12:'XII'}
+            _sem_romans = '/'.join(
+                _roman_map.get(s, str(s)) for s in sorted(all_semesters)
+            )
+            pdf.ln(2)
+            pdf.set_font("Times", 'B', 10)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(pdf.w - 20, 4, f"SEMESTER - {_sem_romans}", 0, 1, 'C')
 
         # Underlined bold title — IMPORTANT INSTRUCTIONS TO CANDIDATES
         pdf.ln(2)
@@ -1137,7 +1149,9 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
         return
 
     try:
-        convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date, portal_dates=portal_dates)
+        # Collect all semester integers from the timetable for the instructions page
+        _all_sems = sorted(semester_wise_timetable.keys()) if semester_wise_timetable else []
+        convert_excel_to_pdf(temp_excel, output_pdf, declaration_date=declaration_date, portal_dates=portal_dates, all_semesters=_all_sems)
     except Exception as e:
         st.error(f"❌ Error during Excel to PDF conversion: {e}")
         st.error(traceback.format_exc())
