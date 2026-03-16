@@ -244,6 +244,37 @@ def save_to_excel(semester_wise_timetable):
 
     output = io.BytesIO()
 
+    # SOL: Merge B.A., LL.B.(Hons.) and B.B.A., LL.B.(Hons.) of the same semester
+    # into one combined MainBranch so they appear as side-by-side columns on one page.
+    if IS_LAW_SCHOOL:
+
+        def _sol_normalise_program_name(raw):
+            """Canonical form: B.A., LL.B.(Hons.) or B.B.A., LL.B.(Hons.)"""
+            s  = str(raw).strip()
+            su = s.upper().replace(' ', '')
+            if re.search(r'B\.?B\.?A\.?', su):
+                return 'B.B.A., LL.B.(Hons.)'
+            if re.search(r'^B\.?A\.?', su):
+                return 'B.A., LL.B.(Hons.)'
+            return s
+
+        def _is_ba_bba_llb(p):
+            p_str = str(p).strip().upper()
+            if re.search(r'(LL\.M|MASTER\s+OF\s+LAW|LLM)', p_str):
+                return False
+            return bool(re.search(r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B', p_str))
+
+        for sem in semester_wise_timetable:
+            df_sem = semester_wise_timetable[sem]
+            if df_sem.empty: continue
+            mask = df_sem['MainBranch'].apply(_is_ba_bba_llb)
+            if mask.any():
+                # Prefix SubBranch with the canonical program name so columns are
+                # labelled e.g. 'B.A., LL.B.(Hons.) - Business Law'
+                norm_prefix = df_sem.loc[mask, 'MainBranch'].apply(_sol_normalise_program_name)
+                df_sem.loc[mask, 'SubBranch'] = norm_prefix + ' - ' + df_sem.loc[mask, 'SubBranch']
+                df_sem.loc[mask, 'MainBranch'] = 'B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)'
+
     all_programs = []
     for df_s in semester_wise_timetable.values():
         if not df_s.empty:
