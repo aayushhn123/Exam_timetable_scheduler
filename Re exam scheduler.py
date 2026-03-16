@@ -826,12 +826,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_font("Times", '', 11)
         pdf.set_text_color(0, 0, 0)
 
-        # Instruction 1 — main text
+        # Instruction 1 — main text ("only through SAP Student portal" in bold)
         pdf.set_x(margin_l)
-        line1 = ("1.  All the eligible students are hereby informed to apply for the respective "
-                 "re-examination/s only through SAP Student portal by using the available "
-                 "online payment facility.")
-        pdf.multi_cell(text_w, 6, line1)
+        pdf.set_font("Times", '', 11)
+        pdf.write(6, "1.  All the eligible students are hereby informed to apply for the respective "
+                      "re-examination/s ")
+        pdf.set_font("Times", 'B', 11)
+        pdf.write(6, "only through SAP Student portal")
+        pdf.set_font("Times", '', 11)
+        pdf.write(6, " by using the available online payment facility.")
+        pdf.ln(6)
         pdf.ln(1)
 
         # Portal link (indented)
