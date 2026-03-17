@@ -1051,11 +1051,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         ]
         if p_end_d and p_end_t:
             e_day = p_end_d.day
-            no_app_str = (f"4.  No applications will be accepted after "
-                          f"{e_day}{_ordinal_suffix(e_day)} "
-                          f"{p_end_d.strftime('%B %Y')} after {p_end_t.strip()}.")
+            no_app_str = (f"4.  Applications will not be accepted after {p_end_t.strip()} "
+                          f"on {e_day}{_ordinal_suffix(e_day)} {p_end_d.strftime('%B %Y')}.")
         else:
-            no_app_str = "4.  No applications will be accepted after the closing date and time."
+            no_app_str = "4.  Applications will not be accepted after the closing date and time."
 
         instrs_rest = [
             (no_app_str, True),
