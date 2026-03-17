@@ -978,7 +978,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_x(margin_l + 8)
         pdf.cell(0, 6, "User ID: Student Registration Number", ln=1)
         pdf.set_x(margin_l + 8)
-        pdf.cell(0, 6, "Password: init@123 (initial password)", ln=1)
+        pdf.cell(0, 6, "Password: Init@123 (“I” is a Capital letter) (Initial password). (In case already changed, please ignore)", ln=1)
         pdf.ln(2)
 
         # Instruction 2 — portal dates table
