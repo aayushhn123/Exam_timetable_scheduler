@@ -2048,9 +2048,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             if IS_LAW_SCHOOL and main_branch_full:
                 prog_upper = main_branch_full.upper()
                 if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
-                    sheet_college_name = "Kirti P. Mehta School of Law"
+                    sheet_college_name = "Kirit P. Mehta School of Law"
                 else:
-                    sheet_college_name = "Kirti P. Mehta School of Law / School of Law"
+                    sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
             
             semester_raw = "General"
             if '_|_' in sheet_name:
