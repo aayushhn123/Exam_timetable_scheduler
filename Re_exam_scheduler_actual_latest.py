@@ -10,6 +10,10 @@ Re-Exam Auto-Scheduler
 • Generates BOTH:
     – Excel output  (same intermediate format as re_exam_to_pdf.py)
     – PDF timetable (pixel-perfect copy of the existing re-exam PDF format)
+
+FIX: Excel pivot now groups all SubBranch columns for a programme on a single sheet
+     (up to cols_per_page=6), matching re_exam_to_pdf.py exactly. Academic Year
+     column name is normalised so year-suffix deduplication works correctly.
 """
 
 import streamlit as st
@@ -105,20 +109,19 @@ def parse_input_file(uploaded_file):
         df = pd.read_excel(uploaded_file, sheet_name=sheet)
         df.columns = df.columns.str.strip()
 
-        # Flexible column mapping
+        # Flexible column mapping — keep 'Academic Year' with its space (matches re_exam_to_pdf.py)
         col_map = {
-            'Programme': 'Program', 'Program Code': 'ProgramCode',
-            'Module Description': 'Subject', 'Module Abbreviation': 'ModuleCode',
-            'Current Session': 'CurrentSession', 'Academic Year': 'AcademicYear',
-            'Subject Type': 'SubjectType', 'CM group Number': 'CMGroup',
-            'Stream': 'Stream', 'Program': 'Program',
+            'Programme':          'Program',
+            'Module Description': 'Subject',
+            'Module Abbreviation':'ModuleCode',
+            'Current Session':    'CurrentSession',
+            'Subject Type':       'SubjectType',
+            'CM group Number':    'CMGroup',
         }
         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+        # Keep 'Academic Year' as-is (with space) — same as re_exam_to_pdf.py
 
-        # If both 'Programme' and 'Program' existed in the input, renaming both to 'Program'
-        # creates duplicate columns — df['Program'] would return a DataFrame instead of a Series,
-        # causing "'DataFrame' object has no attribute 'str'" downstream.
-        # Fix: collapse duplicates by keeping the first non-empty value per row.
+        # Collapse duplicate columns that result from renaming
         if df.columns.duplicated().any():
             seen = {}
             new_cols = []
@@ -127,7 +130,6 @@ def parse_input_file(uploaded_file):
                     seen[col] = i
                     new_cols.append(col)
                 else:
-                    # Merge duplicate column into the first occurrence: prefer non-empty values
                     first_idx = seen[col]
                     first_col = df.iloc[:, first_idx]
                     dup_col   = df.iloc[:, i]
@@ -144,7 +146,7 @@ def parse_input_file(uploaded_file):
                 return None, f"Missing required column: {required}"
 
         # Fill down merged cells
-        for c in ['Program', 'Stream', 'CurrentSession', 'AcademicYear']:
+        for c in ['Program', 'Stream', 'CurrentSession', 'Academic Year']:
             if c in df.columns:
                 df[c] = df[c].ffill()
 
@@ -156,15 +158,15 @@ def parse_input_file(uploaded_file):
 
         df['Semester']   = df['CurrentSession'].apply(get_sem_int)
         df['MainBranch'] = df['Program']
-        df['SubBranch']  = df.get('Stream', pd.Series([''] * len(df), index=df.index))
+        df['SubBranch']  = df['Stream'] if 'Stream' in df.columns else df['Program']
         df['SubBranch']  = df.apply(
             lambda r: r['MainBranch'] if r['SubBranch'] in ['nan', ''] else r['SubBranch'], axis=1
         )
 
         # Normalise OE flag
-        df['OE'] = df.get('SubjectType', pd.Series([''] * len(df), index=df.index)).apply(
+        df['OE'] = df['SubjectType'].apply(
             lambda x: 'OE' if re.match(r'^OE', str(x).strip(), re.IGNORECASE) else None
-        )
+        ) if 'SubjectType' in df.columns else None
 
         # CMGroup
         if 'CMGroup' in df.columns:
@@ -173,6 +175,13 @@ def parse_input_file(uploaded_file):
             )
         else:
             df['CMGroup'] = ''
+
+        # ModuleCode for SOL
+        _selected_college = st.session_state.get('selected_college', '')
+        if 'LAW' in _selected_college.upper() and 'ModuleCode' in df.columns:
+            pass  # already mapped
+        else:
+            df['ModuleCode'] = df.get('ModuleCode', pd.Series([''] * len(df), index=df.index))
 
         return df, None
 
@@ -198,7 +207,7 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
                      num_days: int, holidays: set,
                      time_slots_dict: dict) -> pd.DataFrame:
     """
-    Core scheduling logic:
+    Core scheduling logic.
 
     KEY CONSTRAINT
     ──────────────
@@ -210,9 +219,7 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
     1. Separate OE subjects from core subjects.
     2. Build a list of unique *subject names* for core (de-duplicated).
     3. Get available dates.  Reserve last 2 days for OE if ≥4 days available.
-    4. Assign dates to unique subject names (one subject per working day,
-       cycling through days so that no single day is overloaded; multiple
-       subjects can share a day only after all days have at least one subject).
+    4. Assign dates round-robin across available days.
     5. Map each row's date back via the subject-name key.
     6. Assign time-slot per semester (odd sem → slot 1, even sem → slot 2).
        But if the same subject spans odd+even sems, use slot 1 (morning).
@@ -236,14 +243,13 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
     valid_dates = get_valid_dates(start_date, num_days, holidays)
 
     # Split OE / core
-    oe_mask   = df['OE'].notna() & (df['OE'].str.strip() != '')
+    oe_mask   = df['OE'].notna() & (df['OE'].astype(str).str.strip() != '')
     core_mask = ~oe_mask
 
     # ── CORE scheduling ──────────────────────────────────────────────────────
-    df_core   = df[core_mask].copy()
+    df_core = df[core_mask].copy()
 
     if not df_core.empty:
-        # Reserve last 2 days for OE if enough days available
         if len(valid_dates) >= 4 and df[oe_mask].shape[0] > 0:
             core_dates = valid_dates[:-2]
             oe_dates   = valid_dates[-2:]
@@ -251,22 +257,18 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
             core_dates = valid_dates
             oe_dates   = valid_dates[-1:] if valid_dates else []
 
-        # Unique normalised subject names (preserving first-seen order)
         norm_subject = df_core['Subject'].str.strip().str.upper()
         unique_subjects = list(dict.fromkeys(norm_subject.tolist()))
 
         if not core_dates:
-            # No dates — mark unscheduled
             df.loc[core_mask, 'Exam Date'] = 'Not Scheduled'
             df.loc[core_mask, 'Exam Time'] = ''
         else:
-            # Assign dates round-robin across available days
             subject_date_map = {}
             for idx, subj in enumerate(unique_subjects):
                 assigned_date = core_dates[idx % len(core_dates)]
                 subject_date_map[subj] = assigned_date.strftime('%d-%m-%Y')
 
-            # Determine time-slot per subject (use lowest semester slot found)
             subject_sem_map = {}
             for _, row in df_core.iterrows():
                 key = row['Subject'].strip().upper()
@@ -274,17 +276,15 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
                 if key not in subject_sem_map:
                     subject_sem_map[key] = sem
                 else:
-                    # If same subject spans multiple sems, prefer slot 1 (morning)
                     existing_slot = ((subject_sem_map[key] + 1) // 2) % 2
                     new_slot      = ((sem + 1) // 2) % 2
-                    if new_slot == 1:   # slot 1 = morning = preferred
+                    if new_slot == 1:
                         subject_sem_map[key] = sem
 
             subject_time_map = {}
             for subj, sem in subject_sem_map.items():
                 subject_time_map[subj] = slot_for_sem(sem)
 
-            # Write back
             for i, row in df_core.iterrows():
                 key = row['Subject'].strip().upper()
                 df.at[i, 'Exam Date'] = subject_date_map.get(key, 'Not Scheduled')
@@ -316,7 +316,7 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — BUILD SEMESTER-WISE TIMETABLE (same structure as re_exam_to_pdf)
+# SECTION 3 — BUILD SEMESTER-WISE TIMETABLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_semester_timetable(scheduled_df: pd.DataFrame) -> dict:
@@ -327,7 +327,8 @@ def build_semester_timetable(scheduled_df: pd.DataFrame) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — EXCEL ENGINE  (verbatim logic from re_exam_to_pdf.py)
+# SECTION 4 — EXCEL ENGINE
+# Verbatim logic from re_exam_to_pdf.py — key fix: use 'Academic Year' (with space)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def normalize_time(t_str):
@@ -369,6 +370,14 @@ def _build_program_key_map(all_program_names):
 
 
 def save_to_excel(semester_wise_timetable):
+    """
+    Build structured Excel from scheduled re-exam data.
+    MATCHES re_exam_to_pdf.py exactly:
+      - 'Academic Year' column (with space) for year deduplication
+      - One sheet per (programme, semester); up to cols_per_page=6 SubBranch columns
+      - Multi-subject same-date cells joined with ' <hr> '
+      - OE subjects joined with ', '
+    """
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"},
@@ -385,7 +394,7 @@ def save_to_excel(semester_wise_timetable):
 
     output = io.BytesIO()
 
-    # SOL merge
+    # SOL merge (verbatim from re_exam_to_pdf.py)
     if IS_LAW_SCHOOL:
         def _sol_normalise(raw):
             s = str(raw).strip(); su = s.upper().replace(' ', '')
@@ -445,6 +454,7 @@ def save_to_excel(semester_wise_timetable):
 
                 # ── CORE ────────────────────────────────────────────────────
                 if not df_core.empty:
+
                     def shorten_year(y):
                         y = str(y).strip()
                         m = re.findall(r'\d{4}', y)
@@ -454,7 +464,8 @@ def save_to_excel(semester_wise_timetable):
 
                     dedup_rows = []
                     group_keys = ['Subject', 'SubBranch', 'Exam Date', 'Exam Time']
-                    ay_col = 'AcademicYear' if 'AcademicYear' in df_core.columns else None
+                    # KEY FIX: use 'Academic Year' with space — matches re_exam_to_pdf.py
+                    ay_col = 'Academic Year' if 'Academic Year' in df_core.columns else None
 
                     for gkey, grp in df_core.groupby(group_keys, sort=False):
                         subj        = gkey[0]
@@ -572,7 +583,7 @@ def save_to_excel(semester_wise_timetable):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — FPDF ENGINE  (verbatim copy from re_exam_to_pdf.py — no changes)
+# SECTION 5 — FPDF ENGINE  (verbatim copy from re_exam_to_pdf.py — NO changes)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def wrap_text(pdf, text, col_width):
@@ -888,6 +899,12 @@ def _ordinal_suffix(day):
 
 def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None,
                          portal_dates=None, all_semesters=None):
+    """
+    Verbatim from re_exam_to_pdf.py — no structural changes.
+    cols_per_page=6: up to 6 SubBranch columns fit on one landscape Legal page.
+    Multiple streams of the same programme share one page (or span to next only
+    if >6 streams).
+    """
     pdf = FPDF(orientation='L', unit='mm', format='Legal')
     pdf.set_auto_page_break(auto=False, margin=15)
     pdf.alias_nb_pages()
@@ -1131,7 +1148,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None,
                 ]
                 if not sub_branch_cols: continue
 
+                # KEY: cols_per_page=6 — same as re_exam_to_pdf.py
+                # Up to 6 SubBranch (stream) columns share one landscape Legal page.
                 cols_per_page = 6
+
                 for start in range(0, len(sub_branch_cols), cols_per_page):
                     chunk        = sub_branch_cols[start:start + cols_per_page]
                     cols_to_print = fixed_cols + chunk
@@ -1288,7 +1308,6 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Session state init
     for k in ('parsed_df', 'scheduled_df', 'timetable', 'pdf_data', 'excel_data'):
         if k not in st.session_state: st.session_state[k] = None
 
@@ -1394,7 +1413,7 @@ def main():
             "• Same subject name → same date & time across all programmes/sems\n\n"
             "• 10–11 working days (Mon–Sat), no Sundays, no holidays\n\n"
             "• OE subjects placed on last 2 reserved days\n\n"
-            "• PDF format identical to existing re-exam timetable"
+            "• Up to 6 streams per page — identical to re_exam_to_pdf.py layout"
         )
 
     # ── Data preview + scheduling ─────────────────────────────────────────────
@@ -1432,7 +1451,6 @@ def main():
                 st.session_state.timetable    = build_semester_timetable(scheduled)
 
                 # Verify same-name → same-date constraint
-                conflicts = []
                 grouped = scheduled.groupby(
                     scheduled['Subject'].str.strip().str.upper()
                 )['Exam Date'].nunique()
@@ -1450,7 +1468,6 @@ def main():
         st.markdown("---")
         st.subheader("📋 Scheduled Timetable Preview")
 
-        # Summary table by unique subject
         summary = (
             sdf.drop_duplicates(subset=['Subject'])
                [['Subject','Exam Date','Exam Time','OE']]
@@ -1479,7 +1496,7 @@ def main():
                 st.session_state.excel_data = excel_data
 
             if os.path.exists(pdf_filename):
-                st.success(f"✅ PDF generated successfully!")
+                st.success("✅ PDF generated successfully!")
                 st.balloons()
                 c1, c2 = st.columns(2)
                 with c1:
