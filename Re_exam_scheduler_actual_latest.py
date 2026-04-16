@@ -115,6 +115,30 @@ def parse_input_file(uploaded_file):
         }
         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
+        # If both 'Programme' and 'Program' existed in the input, renaming both to 'Program'
+        # creates duplicate columns — df['Program'] would return a DataFrame instead of a Series,
+        # causing "'DataFrame' object has no attribute 'str'" downstream.
+        # Fix: collapse duplicates by keeping the first non-empty value per row.
+        if df.columns.duplicated().any():
+            seen = {}
+            new_cols = []
+            for i, col in enumerate(df.columns):
+                if col not in seen:
+                    seen[col] = i
+                    new_cols.append(col)
+                else:
+                    # Merge duplicate column into the first occurrence: prefer non-empty values
+                    first_idx = seen[col]
+                    first_col = df.iloc[:, first_idx]
+                    dup_col   = df.iloc[:, i]
+                    df.iloc[:, first_idx] = first_col.where(
+                        first_col.notna() & (first_col.astype(str).str.strip() != ''),
+                        other=dup_col
+                    )
+                    new_cols.append(f'_DROP_{i}')
+            df.columns = new_cols
+            df = df.loc[:, ~df.columns.str.startswith('_DROP_')]
+
         for required in ['Program', 'Subject', 'CurrentSession']:
             if required not in df.columns:
                 return None, f"Missing required column: {required}"
