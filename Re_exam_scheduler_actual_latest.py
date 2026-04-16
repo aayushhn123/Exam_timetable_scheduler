@@ -234,22 +234,7 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
                      num_days: int, holidays: set,
                      time_slots_dict: dict) -> pd.DataFrame:
     """
-    Core scheduling logic.
-
-    KEY CONSTRAINT
-    ──────────────
-    Any two rows that share the SAME normalised Subject name must get the SAME
-    (date, time_slot) assignment regardless of programme / semester / academic year.
-
-    Algorithm
-    ─────────
-    1. Separate OE subjects from core subjects.
-    2. Build a list of unique *subject names* for core (de-duplicated).
-    3. Get available dates.  Reserve last 2 days for OE if ≥4 days available.
-    4. Assign dates round-robin across available days.
-    5. Map each row's date back via the subject-name key.
-    6. Assign time-slot per semester (odd sem → slot 1, even sem → slot 2).
-       But if the same subject spans odd+even sems, use slot 1 (morning).
+    Core scheduling logic with Anti-Clash Tracking.
     """
     df = df.copy()
     df['Exam Date'] = ''
@@ -291,10 +276,48 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
             df.loc[core_mask, 'Exam Date'] = 'Not Scheduled'
             df.loc[core_mask, 'Exam Time'] = ''
         else:
+            # --- NEW ANTI-CLASH LOGIC ---
+            # Group subjects by the student cohorts taking them
+            subject_cohorts = {}
+            for _, row in df_core.iterrows():
+                subj = row['Subject'].strip().upper()
+                cohort = (row['MainBranch'], row['SubBranch'], row['Semester'])
+                if subj not in subject_cohorts:
+                    subject_cohorts[subj] = set()
+                subject_cohorts[subj].add(cohort)
+
             subject_date_map = {}
-            for idx, subj in enumerate(unique_subjects):
-                assigned_date = core_dates[idx % len(core_dates)]
-                subject_date_map[subj] = assigned_date.strftime('%d-%m-%Y')
+            cohort_busy_dates = {}
+
+            for subj in unique_subjects:
+                cohorts_for_subj = subject_cohorts.get(subj, set())
+                assigned_date = None
+
+                # Find the first available date without a clash for this cohort
+                for d in core_dates:
+                    d_str = d.strftime('%d-%m-%Y')
+                    is_free = True
+                    for cohort in cohorts_for_subj:
+                        if d_str in cohort_busy_dates.get(cohort, set()):
+                            is_free = False
+                            break
+                    if is_free:
+                        assigned_date = d_str
+                        break
+
+                # Fallback to round-robin only if no clash-free date exists
+                if not assigned_date:
+                    fallback_d = core_dates[len(subject_date_map) % len(core_dates)]
+                    assigned_date = fallback_d.strftime('%d-%m-%Y')
+
+                subject_date_map[subj] = assigned_date
+
+                # Mark this date as busy for these cohorts
+                for cohort in cohorts_for_subj:
+                    if cohort not in cohort_busy_dates:
+                        cohort_busy_dates[cohort] = set()
+                    cohort_busy_dates[cohort].add(assigned_date)
+            # ------------------------------
 
             subject_sem_map = {}
             for _, row in df_core.iterrows():
@@ -324,9 +347,45 @@ def schedule_reexams(df: pd.DataFrame, start_date: datetime,
         unique_oe_subjects = list(dict.fromkeys(
             df_oe['Subject'].str.strip().str.upper().tolist()
         ))
+        
+        # --- NEW ANTI-CLASH LOGIC FOR OE ---
+        oe_subject_cohorts = {}
+        for _, row in df_oe.iterrows():
+            subj = row['Subject'].strip().upper()
+            cohort = (row['MainBranch'], row['SubBranch'], row['Semester'])
+            if subj not in oe_subject_cohorts:
+                oe_subject_cohorts[subj] = set()
+            oe_subject_cohorts[subj].add(cohort)
+
         oe_date_map = {}
-        for idx, subj in enumerate(unique_oe_subjects):
-            oe_date_map[subj] = oe_dates_avail[idx % len(oe_dates_avail)].strftime('%d-%m-%Y')
+        oe_cohort_busy_dates = {}
+
+        for subj in unique_oe_subjects:
+            cohorts_for_subj = oe_subject_cohorts.get(subj, set())
+            assigned_date = None
+
+            for d in oe_dates_avail:
+                d_str = d.strftime('%d-%m-%Y')
+                is_free = True
+                for cohort in cohorts_for_subj:
+                    if d_str in oe_cohort_busy_dates.get(cohort, set()):
+                        is_free = False
+                        break
+                if is_free:
+                    assigned_date = d_str
+                    break
+
+            if not assigned_date:
+                fallback_d = oe_dates_avail[len(oe_date_map) % len(oe_dates_avail)]
+                assigned_date = fallback_d.strftime('%d-%m-%Y')
+
+            oe_date_map[subj] = assigned_date
+
+            for cohort in cohorts_for_subj:
+                if cohort not in oe_cohort_busy_dates:
+                    oe_cohort_busy_dates[cohort] = set()
+                oe_cohort_busy_dates[cohort].add(assigned_date)
+        # ------------------------------
 
         oe_time_map = {}
         for _, row in df_oe.iterrows():
