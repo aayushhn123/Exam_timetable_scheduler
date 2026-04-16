@@ -1,19 +1,22 @@
 """
 Re-Exam Auto-Scheduler
 ======================
-• Reads the same input template as the existing Re-Exam Data-to-PDF converter
-  (columns: Program, Stream, Academic Year, Current Session,
-           Module Abbreviation, Module Description, Subject Type, CM group Number)
-• Schedules all re-exams across 10/11 working days (no Sundays, no bank-holidays)
+• Reads Program name from the 'Program' column and stream name from the 'Stream' column
+  directly — no 'Programme' alias needed.
+• Expected columns: Program, Stream, Academic Year, Current Session,
+                    Module Abbreviation, Module Description, Subject Type, CM group Number
+• Schedules all re-exams across 10/11 working days (no Sundays, no bank-holidays).
   CONSTRAINT: subjects with the same Module Description are always assigned the
               SAME date AND SAME time-slot, regardless of programme / semester.
 • Generates BOTH:
     – Excel output  (same intermediate format as re_exam_to_pdf.py)
     – PDF timetable (pixel-perfect copy of the existing re-exam PDF format)
 
-FIX: Excel pivot now groups all SubBranch columns for a programme on a single sheet
-     (up to cols_per_page=6), matching re_exam_to_pdf.py exactly. Academic Year
-     column name is normalised so year-suffix deduplication works correctly.
+Excel/PDF layout matches re_exam_to_pdf.py exactly:
+  - One sheet per (MainBranch programme, semester)
+  - Each programme's streams (SubBranch) become pivot columns on that sheet
+  - Up to cols_per_page=6 SubBranch columns per landscape Legal page
+  - Academic Year column kept as 'Academic Year' (with space) for year-suffix deduplication
 """
 
 import streamlit as st
@@ -100,7 +103,21 @@ def get_sem_int(val):
 
 def parse_input_file(uploaded_file):
     """
-    Accepts the same Excel template used by the existing re-exam data-to-PDF converter.
+    Reads the re-exam input Excel template.
+
+    Column reading rules (matching re_exam_to_pdf.py exactly):
+      • 'Program'           → MainBranch  (read directly, no 'Programme' alias)
+      • 'Stream'            → SubBranch   (read directly)
+      • 'Module Description'→ Subject
+      • 'Module Abbreviation'→ ModuleCode (SOL only)
+      • 'Current Session'  → Semester integer
+      • 'Academic Year'    → kept as 'Academic Year' (with space) for year-suffix display
+      • 'Subject Type'     → OE flag
+      • 'CM group Number'  → CMGroup
+
+    Merged cells in Program / Stream / Current Session / Academic Year are filled down.
+    If Stream is blank for a row, SubBranch falls back to Program (same as re_exam_to_pdf.py).
+
     Returns (df_all, error_msg).
     """
     try:
@@ -109,19 +126,19 @@ def parse_input_file(uploaded_file):
         df = pd.read_excel(uploaded_file, sheet_name=sheet)
         df.columns = df.columns.str.strip()
 
-        # Flexible column mapping — keep 'Academic Year' with its space (matches re_exam_to_pdf.py)
+        # ── Rename only non-Program columns; 'Program' is read as-is ─────────
+        # 'Programme' alias is intentionally NOT mapped — the input must have 'Program'.
         col_map = {
-            'Programme':          'Program',
-            'Module Description': 'Subject',
-            'Module Abbreviation':'ModuleCode',
-            'Current Session':    'CurrentSession',
-            'Subject Type':       'SubjectType',
-            'CM group Number':    'CMGroup',
+            'Module Description':  'Subject',
+            'Module Abbreviation': 'ModuleCode',
+            'Current Session':     'CurrentSession',
+            'Subject Type':        'SubjectType',
+            'CM group Number':     'CMGroup',
         }
         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-        # Keep 'Academic Year' as-is (with space) — same as re_exam_to_pdf.py
+        # 'Program', 'Stream', 'Academic Year' are kept with their exact column names.
 
-        # Collapse duplicate columns that result from renaming
+        # Collapse any duplicate columns that may have resulted from renaming
         if df.columns.duplicated().any():
             seen = {}
             new_cols = []
@@ -141,45 +158,55 @@ def parse_input_file(uploaded_file):
             df.columns = new_cols
             df = df.loc[:, ~df.columns.str.startswith('_DROP_')]
 
+        # Validate required columns
         for required in ['Program', 'Subject', 'CurrentSession']:
             if required not in df.columns:
-                return None, f"Missing required column: {required}"
+                return None, (
+                    f"Missing required column: '{required}'. "
+                    f"The input file must contain a 'Program' column (not 'Programme') "
+                    f"and a 'Module Description' column."
+                )
 
-        # Fill down merged cells
+        # Fill down merged cells (same as re_exam_to_pdf.py)
         for c in ['Program', 'Stream', 'CurrentSession', 'Academic Year']:
             if c in df.columns:
                 df[c] = df[c].ffill()
 
+        # Normalise all columns to string
         for c in df.columns:
             df[c] = df[c].fillna('').astype(str).str.strip()
 
+        # Drop rows with no subject name
         df['Subject'] = df['Subject'].replace({'': None, 'nan': None})
         df = df[df['Subject'].notna()].copy()
 
+        # ── Derive internal columns (verbatim logic from re_exam_to_pdf.py) ──
         df['Semester']   = df['CurrentSession'].apply(get_sem_int)
-        df['MainBranch'] = df['Program']
+        df['MainBranch'] = df['Program']          # read directly from 'Program' column
         df['SubBranch']  = df['Stream'] if 'Stream' in df.columns else df['Program']
         df['SubBranch']  = df.apply(
-            lambda r: r['MainBranch'] if r['SubBranch'] in ['nan', ''] else r['SubBranch'], axis=1
+            lambda r: r['MainBranch'] if r['SubBranch'] in ['nan', ''] else r['SubBranch'],
+            axis=1
         )
 
-        # Normalise OE flag
+        # OE flag
         df['OE'] = df['SubjectType'].apply(
             lambda x: 'OE' if re.match(r'^OE', str(x).strip(), re.IGNORECASE) else None
         ) if 'SubjectType' in df.columns else None
 
-        # CMGroup
+        # CMGroup — strip trailing .0 and blank out zeros
         if 'CMGroup' in df.columns:
             df['CMGroup'] = df['CMGroup'].apply(
-                lambda x: '' if str(x).strip() in ['0', '0.0', 'nan', 'None', ''] else str(x).split('.')[0].strip()
+                lambda x: '' if str(x).strip() in ['0', '0.0', 'nan', 'None', '']
+                          else str(x).split('.')[0].strip()
             )
         else:
             df['CMGroup'] = ''
 
-        # ModuleCode for SOL
+        # ModuleCode (SOL only)
         _selected_college = st.session_state.get('selected_college', '')
         if 'LAW' in _selected_college.upper() and 'ModuleCode' in df.columns:
-            pass  # already mapped
+            pass  # already mapped above
         else:
             df['ModuleCode'] = df.get('ModuleCode', pd.Series([''] * len(df), index=df.index))
 
@@ -328,7 +355,11 @@ def build_semester_timetable(scheduled_df: pd.DataFrame) -> dict:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 4 — EXCEL ENGINE
-# Verbatim logic from re_exam_to_pdf.py — key fix: use 'Academic Year' (with space)
+# Matches re_exam_to_pdf.py exactly:
+#   - Iterates per MainBranch (programme) within each semester  ← KEY FIX
+#   - Each MainBranch's SubBranch columns become the pivot columns
+#   - 'Academic Year' (with space) used for year-suffix deduplication
+#   - SOL merge logic preserved
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def normalize_time(t_str):
@@ -373,10 +404,13 @@ def save_to_excel(semester_wise_timetable):
     """
     Build structured Excel from scheduled re-exam data.
     MATCHES re_exam_to_pdf.py exactly:
-      - 'Academic Year' column (with space) for year deduplication
-      - One sheet per (programme, semester); up to cols_per_page=6 SubBranch columns
+      - Iterates per MainBranch (programme) within each semester
+      - Each MainBranch gets its own core sheet + elective sheet
+      - SubBranch (stream) columns are the pivot columns on each core sheet
+      - 'Academic Year' column (with space) for year-suffix deduplication
       - Multi-subject same-date cells joined with ' <hr> '
       - OE subjects joined with ', '
+      - cols_per_page=6 handled in convert_excel_to_pdf (PDF stage)
     """
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -394,7 +428,7 @@ def save_to_excel(semester_wise_timetable):
 
     output = io.BytesIO()
 
-    # SOL merge (verbatim from re_exam_to_pdf.py)
+    # SOL: Merge B.A., LL.B.(Hons.) and B.B.A., LL.B.(Hons.) under a combined MainBranch
     if IS_LAW_SCHOOL:
         def _sol_normalise(raw):
             s = str(raw).strip(); su = s.upper().replace(' ', '')
@@ -416,6 +450,7 @@ def save_to_excel(semester_wise_timetable):
                 df_sem.loc[mask, 'SubBranch']  = norm_prefix + ' - ' + df_sem.loc[mask, 'SubBranch']
                 df_sem.loc[mask, 'MainBranch'] = 'B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)'
 
+    # Build programme key map for sheet names
     all_programs = []
     for df_s in semester_wise_timetable.values():
         if not df_s.empty:
@@ -432,8 +467,16 @@ def save_to_excel(semester_wise_timetable):
             name = base[:31 - len(str(n))] + str(n); n += 1
         used_sheet_names.add(name); return name
 
+    def shorten_year(y):
+        y = str(y).strip()
+        m = re.findall(r'\d{4}', y)
+        if len(m) >= 2: return f"{m[0][2:]}-{m[1][2:]}"
+        elif len(m) == 1: return m[0][2:]
+        return y
+
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         sheets_created = 0
+
         for sem, df_sem in semester_wise_timetable.items():
             if df_sem.empty: continue
 
@@ -442,161 +485,139 @@ def save_to_excel(semester_wise_timetable):
             p_cfg       = time_slots_dict.get(slot_id, time_slots_dict[1])
             header_norm = normalize_time(f"{p_cfg['start']} - {p_cfg['end']}")
 
-            # ── GROUP ALL PROGRAMMES FOR THIS SEMESTER ONTO ONE SHEET ────────
-            # Streams (SubBranch) across all MainBranch values become columns.
-            # _prog_ is set to the first MainBranch value (or a shared prefix).
+            # ── ITERATE PER MainBranch (programme) — matches re_exam_to_pdf.py ──
+            for main_branch in df_sem['MainBranch'].unique():
+                df_mb = df_sem[df_sem['MainBranch'] == main_branch].copy()
 
-            def shorten_year(y):
-                y = str(y).strip()
-                m = re.findall(r'\d{4}', y)
-                if len(m) >= 2: return f"{m[0][2:]}-{m[1][2:]}"
-                elif len(m) == 1: return m[0][2:]
-                return y
+                prog_key   = prog_key_map.get(main_branch, main_branch[:12])
+                core_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}"[:31])
+                elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
 
-            all_main_branches = df_sem['MainBranch'].unique().tolist()
-            # Derive a combined programme name: common prefix across all MainBranch values,
-            # stripped of trailing separators (dash, comma, space).
-            def _common_prefix(names):
-                if not names: return "Programme"
-                if len(names) == 1: return names[0]
-                prefix = names[0]
-                for n in names[1:]:
-                    new_p = ""
-                    for a, b in zip(prefix, n):
-                        if a == b: new_p += a
-                        else: break
-                    prefix = new_p
-                return re.sub(r'[\s,\-\u2013/]+$', '', prefix).strip() or names[0]
-            combined_prog = _common_prefix(all_main_branches)
-            prog_key   = prog_key_map.get(combined_prog, combined_prog[:12])
-            core_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}"[:31])
-            elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
+                df_core = df_mb[df_mb['OE'].isna()].copy()
+                df_elec = df_mb[df_mb['OE'].notna()].copy()
 
-            df_core_all = df_sem[df_sem['OE'].isna()].copy()
-            df_elec_all = df_sem[df_sem['OE'].notna()].copy()
+                # ── CORE SUBJECTS ──────────────────────────────────────────────
+                if not df_core.empty:
+                    # Deduplicate: same Subject + SubBranch + Exam Date + Exam Time
+                    # across different Academic Years → merge years into one display row
+                    dedup_rows = []
+                    group_keys = ['Subject', 'SubBranch', 'Exam Date', 'Exam Time']
+                    ay_col = 'Academic Year' if 'Academic Year' in df_core.columns else None
 
-            # Build a display column label: if SubBranch == MainBranch, use MainBranch;
-            # otherwise use SubBranch (the stream name).
-            def col_label(row):
-                mb = str(row['MainBranch']).strip()
-                sb = str(row['SubBranch']).strip()
-                return sb if sb and sb not in ['nan', '', mb] else mb
+                    for gkey, grp in df_core.groupby(group_keys, sort=False):
+                        subj        = gkey[0]
+                        actual_time = str(gkey[3]).strip()
 
-            if not df_core_all.empty:
-                df_core_all['_ColLabel'] = df_core_all.apply(col_label, axis=1)
+                        # Collect and deduplicate academic years
+                        if ay_col:
+                            raw_years = grp[ay_col].dropna().astype(str).str.strip().unique().tolist()
+                            raw_years = [y for y in raw_years if y.lower() not in ['nan', 'none', '']]
+                            short_years = sorted(set(shorten_year(y) for y in raw_years))
+                        else:
+                            short_years = []
 
-                ay_col = 'Academic Year' if 'Academic Year' in df_core_all.columns else None
+                        time_suffix = ""
+                        if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
+                            if IS_LAW_SCHOOL:
+                                time_suffix = f" [{actual_time}]"
+                            elif normalize_time(actual_time) != header_norm:
+                                time_suffix = f" [{actual_time}]"
 
-                dedup_rows = []
-                group_keys = ['Subject', '_ColLabel', 'Exam Date', 'Exam Time']
+                        # SOL: include module code between subject name and year
+                        code = ''
+                        if IS_LAW_SCHOOL and 'ModuleCode' in grp.columns:
+                            _codes = grp['ModuleCode'].dropna().astype(str).str.strip()
+                            _codes = [c for c in _codes if c and c.lower() not in ['nan', '']]
+                            if _codes: code = _codes[0]
 
-                for gkey, grp in df_core_all.groupby(group_keys, sort=False):
-                    subj        = gkey[0]
-                    actual_time = str(gkey[3]).strip()
+                        txt = subj
+                        if IS_LAW_SCHOOL and code:
+                            txt += f" ({code})"
+                        if short_years:
+                            txt += f" ({', '.join(short_years)})"
+                        txt += time_suffix
 
-                    if ay_col:
-                        raw_years   = grp[ay_col].dropna().astype(str).str.strip().unique().tolist()
-                        raw_years   = [y for y in raw_years if y.lower() not in ['nan','none','']]
-                        short_years = sorted(set(shorten_year(y) for y in raw_years))
-                    else:
-                        short_years = []
+                        # Parse sort time for chronological ordering
+                        m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', actual_time.upper())
+                        if m:
+                            h, mins = int(m.group(1)), int(m.group(2))
+                            if 'PM' in m.group(3) and h < 12: h += 12
+                            if 'AM' in m.group(3) and h == 12: h = 0
+                            sort_time = h * 60 + mins
+                        else:
+                            sort_time = 9999
 
-                    time_suffix = ""
-                    if actual_time and actual_time.lower() not in ['tbd','nan','']:
-                        if IS_LAW_SCHOOL:
+                        dedup_rows.append({
+                            'SubBranch':      gkey[1],
+                            'Exam Date':      gkey[2],
+                            'Exam Time':      actual_time,
+                            'SubjectDisplay': txt,
+                            '_SortTime':      sort_time,
+                        })
+
+                    df_core2 = pd.DataFrame(dedup_rows)
+                    df_core2['Exam Date'] = pd.to_datetime(
+                        df_core2['Exam Date'], format='%d-%m-%Y', dayfirst=True, errors='coerce'
+                    )
+                    df_core2 = df_core2.sort_values(
+                        by=['Exam Date', '_SortTime'], ascending=[True, True]
+                    )
+
+                    try:
+                        pivot = df_core2.groupby(['Exam Date', 'SubBranch']).agg(
+                            {'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)}
+                        ).reset_index()
+                        pivot = pivot.pivot_table(
+                            index='Exam Date', columns='SubBranch',
+                            values='SubjectDisplay', aggfunc='first'
+                        ).fillna("---")
+                        pivot = pivot.sort_index(ascending=True).reset_index()
+                        pivot['Exam Date'] = pivot['Exam Date'].apply(
+                            lambda x: x.strftime('%d-%m-%Y') if pd.notna(x) else ""
+                        )
+                        pivot['_prog_'] = main_branch
+                        pivot['_sem_']  = roman_sem
+                        pivot.to_excel(writer, sheet_name=core_sheet, index=False)
+                        sheets_created += 1
+                    except Exception:
+                        pass
+
+                # ── OPEN ELECTIVES ─────────────────────────────────────────────
+                if not df_elec.empty:
+                    e_displays = []
+                    for _, row in df_elec.iterrows():
+                        subj        = row['Subject']
+                        actual_time = str(row.get('Exam Time', '')).strip()
+                        time_suffix = ""
+                        if actual_time and normalize_time(actual_time) != header_norm \
+                                and actual_time.lower() not in ['tbd', 'nan', '']:
                             time_suffix = f" [{actual_time}]"
-                        elif normalize_time(actual_time) != header_norm:
-                            time_suffix = f" [{actual_time}]"
+                        e_displays.append(f"{subj}{time_suffix}")
 
-                    code = ''
-                    if IS_LAW_SCHOOL and 'ModuleCode' in grp.columns:
-                        _codes = grp['ModuleCode'].dropna().astype(str).str.strip()
-                        _codes = [c for c in _codes if c and c.lower() not in ['nan','']]
-                        if _codes: code = _codes[0]
+                    df_elec = df_elec.copy()
+                    df_elec['DisplaySubject'] = e_displays
 
-                    txt = subj
-                    if IS_LAW_SCHOOL and code: txt += f" ({code})"
-                    if short_years: txt += f" ({', '.join(short_years)})"
-                    txt += time_suffix
-
-                    m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', actual_time.upper())
-                    if m:
-                        h, mins = int(m.group(1)), int(m.group(2))
-                        if 'PM' in m.group(3) and h < 12: h += 12
-                        if 'AM' in m.group(3) and h == 12: h = 0
-                        sort_time = h * 60 + mins
-                    else:
-                        sort_time = 9999
-
-                    dedup_rows.append({
-                        'SubBranch':      gkey[1],
-                        'Exam Date':      gkey[2],
-                        'Exam Time':      actual_time,
-                        'SubjectDisplay': txt,
-                        '_SortTime':      sort_time,
-                    })
-
-                df_core2 = pd.DataFrame(dedup_rows)
-                df_core2['Exam Date'] = pd.to_datetime(
-                    df_core2['Exam Date'], format='%d-%m-%Y', dayfirst=True, errors='coerce'
-                )
-                df_core2 = df_core2.sort_values(by=['Exam Date','_SortTime'])
-
-                try:
-                    pivot = df_core2.groupby(['Exam Date','SubBranch']).agg(
-                        {'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)}
-                    ).reset_index()
-                    pivot = pivot.pivot_table(
-                        index='Exam Date', columns='SubBranch',
-                        values='SubjectDisplay', aggfunc='first'
-                    ).fillna("---")
-                    pivot = pivot.sort_index(ascending=True).reset_index()
-                    pivot['Exam Date'] = pivot['Exam Date'].apply(
-                        lambda x: x.strftime('%d-%m-%Y') if pd.notna(x) else ""
-                    )
-                    pivot['_prog_'] = combined_prog
-                    pivot['_sem_']  = roman_sem
-                    pivot.to_excel(writer, sheet_name=core_sheet, index=False)
-                    sheets_created += 1
-                except Exception:
-                    pass
-
-            # ── OPEN ELECTIVES (combined across all programmes) ──────────────
-            if not df_elec_all.empty:
-                e_displays = []
-                for _, row in df_elec_all.iterrows():
-                    subj        = row['Subject']
-                    actual_time = str(row.get('Exam Time', '')).strip()
-                    time_suffix = ""
-                    if actual_time and normalize_time(actual_time) != header_norm \
-                            and actual_time.lower() not in ['tbd','nan','']:
-                        time_suffix = f" [{actual_time}]"
-                    e_displays.append(f"{subj}{time_suffix}")
-
-                df_elec_all = df_elec_all.copy()
-                df_elec_all['DisplaySubject'] = e_displays
-
-                try:
-                    df_elec_all['Exam Date'] = pd.to_datetime(
-                        df_elec_all['Exam Date'], format='%d-%m-%Y', dayfirst=True, errors='coerce'
-                    )
-                    df_elec_all = df_elec_all.sort_values(by='Exam Date')
-                    df_elec_all['Exam Date'] = df_elec_all['Exam Date'].apply(
-                        lambda x: x.strftime('%d-%m-%Y') if pd.notna(x) else ""
-                    )
-                    ep = df_elec_all.groupby(['Exam Date','OE']).agg(
-                        {'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}
-                    ).reset_index()
-                    ep.rename(columns={
-                        'OE': 'OE Type',
-                        'DisplaySubject': 'Open Elective (All Applicable Streams)'
-                    }, inplace=True)
-                    ep['_prog_'] = combined_prog
-                    ep['_sem_']  = roman_sem
-                    ep.to_excel(writer, sheet_name=elec_sheet, index=False)
-                    sheets_created += 1
-                except Exception:
-                    pass
+                    try:
+                        df_elec['Exam Date'] = pd.to_datetime(
+                            df_elec['Exam Date'], format='%d-%m-%Y', dayfirst=True, errors='coerce'
+                        )
+                        df_elec = df_elec.sort_values(by='Exam Date', ascending=True)
+                        df_elec['Exam Date'] = df_elec['Exam Date'].apply(
+                            lambda x: x.strftime('%d-%m-%Y') if pd.notna(x) else ""
+                        )
+                        ep = df_elec.groupby(['Exam Date', 'OE']).agg(
+                            {'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}
+                        ).reset_index()
+                        ep.rename(columns={
+                            'OE': 'OE Type',
+                            'DisplaySubject': 'Open Elective (All Applicable Streams)'
+                        }, inplace=True)
+                        ep['_prog_'] = main_branch
+                        ep['_sem_']  = roman_sem
+                        ep.to_excel(writer, sheet_name=elec_sheet, index=False)
+                        sheets_created += 1
+                    except Exception:
+                        pass
 
         if sheets_created == 0:
             pd.DataFrame({'Info': ['No valid data']}).to_excel(writer, sheet_name="Empty")
@@ -925,8 +946,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None,
     """
     Verbatim from re_exam_to_pdf.py — no structural changes.
     cols_per_page=6: up to 6 SubBranch columns fit on one landscape Legal page.
-    Multiple streams of the same programme share one page (or span to next only
-    if >6 streams).
+    Each programme's own sheet is rendered onto its own page(s).
     """
     pdf = FPDF(orientation='L', unit='mm', format='Legal')
     pdf.set_auto_page_break(auto=False, margin=15)
@@ -1396,8 +1416,8 @@ def main():
         st.markdown("---")
         st.info(
             "**Input Excel columns expected:**\n\n"
-            "- Program / Programme\n"
-            "- Stream\n"
+            "- **Program** (not 'Programme')\n"
+            "- **Stream**\n"
             "- Academic Year\n"
             "- Current Session\n"
             "- Module Abbreviation\n"
@@ -1413,7 +1433,7 @@ def main():
         st.markdown(
             '<div class="upload-section">'
             '<h3 style="margin:0 0 1rem 0;color:#951C1C;">📁 Upload Re-Exam Subject List (Excel)</h3>'
-            '<p style="margin:0;color:#666;">Same template used by the existing Re-Exam Data-to-PDF app</p>'
+            '<p style="margin:0;color:#666;">Columns required: Program, Stream, Module Description, Current Session, Academic Year, Subject Type</p>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -1436,7 +1456,8 @@ def main():
             "• Same subject name → same date & time across all programmes/sems\n\n"
             "• 10–11 working days (Mon–Sat), no Sundays, no holidays\n\n"
             "• OE subjects placed on last 2 reserved days\n\n"
-            "• Up to 6 streams per page — identical to re_exam_to_pdf.py layout"
+            "• Each programme gets its own page — identical to re_exam_to_pdf.py layout\n\n"
+            "• Up to 6 streams per page"
         )
 
     # ── Data preview + scheduling ─────────────────────────────────────────────
