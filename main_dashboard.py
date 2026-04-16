@@ -2,91 +2,109 @@ import streamlit as st
 
 # Page Configuration
 st.set_page_config(
-    page_title="Exam Management Dashboard",
-    page_icon="📅",
+    page_title="Exam Hub",
+    page_icon="📚",
     layout="wide"
 )
 
-# Custom CSS for the Tiles
+# Advanced CSS for Grid and Visibility
 st.markdown("""
     <style>
-    /* Main container styling */
-    .main {
-        background-color: #f8f9fa;
-    }
-    
-    /* Title styling */
-    .main-title {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        color: #1E1E1E;
-        text-align: center;
-        padding: 20px;
-        font-weight: 700;
+    /* Remove default padding */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
     }
 
-    /* Card styling */
-    .card-container {
+    /* Title Styling */
+    .header-text {
+        text-align: center;
+        font-family: 'Inter', sans-serif;
+        color: #FFFFFF;
+        padding-bottom: 30px;
+    }
+
+    /* The Flexbox Grid */
+    .dashboard-grid {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
-        gap: 25px;
-        padding: 20px;
+        gap: 20px;
+        width: 100%;
     }
 
+    /* Individual Card Styling - Glassmorphism */
     .card {
-        background-color: white;
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        padding: 30px;
-        width: 300px;
+        padding: 25px;
+        width: 320px;
+        height: 250px;
         text-align: center;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        text-decoration: none;
-        color: inherit;
-        border: 1px solid #e0e0e0;
+        transition: all 0.3s ease;
+        text-decoration: none !important;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
-        min-height: 200px;
+        justify-content: center;
+        align-items: center;
     }
 
     .card:hover {
         transform: translateY(-10px);
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+        background: rgba(255, 255, 255, 0.1);
         border-color: #ff4b4b;
-        color: #ff4b4b;
-        cursor: pointer;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.4);
     }
 
+    /* Text Inside Cards */
     .card h3 {
-        font-size: 1.2rem;
-        margin-bottom: 15px;
+        color: #ffffff !important;
+        font-size: 1.2rem !important;
+        margin-top: 15px !important;
+        margin-bottom: 10px !important;
+        font-weight: 600 !important;
     }
 
     .card p {
-        font-size: 0.9rem;
-        color: #6c757d;
+        color: #bbbbbb !important;
+        font-size: 0.9rem !important;
+        line-height: 1.4;
     }
 
-    .icon {
-        font-size: 40px;
-        margin-bottom: 10px;
+    .card .icon {
+        font-size: 45px;
+    }
+
+    .launch-btn {
+        margin-top: 15px;
+        color: #ff4b4b;
+        font-weight: bold;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    /* Link behavior */
+    a {
+        text-decoration: none !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Dashboard Header
-st.markdown("<h1 class='main-title'>📚 Exam Timetable Project Hub</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #666;'>Select a tool below to launch it in a new tab.</p>", unsafe_allow_html=True)
-st.write("---")
+# Header Section
+st.markdown("<h1 class='header-text'>📚 Exam Timetable Project Hub</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #888; margin-top: -20px;'>Aayush's Centralized Management System</p>", unsafe_allow_html=True)
+st.write("<br>", unsafe_allow_html=True)
 
-# Data for the tools
+# Define Tools
 tools = [
     {
         "name": "Final Exam Timetable Scheduler",
         "desc": "Generate and manage primary exam schedules efficiently.",
         "url": "https://examtimetablescheduler-dqttcyf5vzakkjfpkt6xhp.streamlit.app/",
-        "icon": "🗓️"
+        "icon": "📅"
     },
     {
         "name": "Re-exam Timetable Scheduler",
@@ -108,24 +126,25 @@ tools = [
     }
 ]
 
-# Rendering the Tiles
-cols = st.columns(2) # Create a 2x2 grid
+# Build the Grid in HTML
+grid_html = "<div class='dashboard-grid'>"
 
-for i, tool in enumerate(tools):
-    with cols[i % 2]:
-        card_html = f"""
-            <a href="{tool['url']}" target="_blank" style="text-decoration: none; color: inherit;">
-                <div class="card">
-                    <div class="icon">{tool['icon']}</div>
-                    <h3>{tool['name']}</h3>
-                    <p>{tool['desc']}</p>
-                    <div style="margin-top: 10px; font-weight: bold; color: #ff4b4b;">Launch Tool →</div>
-                </div>
-            </a>
-        """
-        st.markdown(card_html, unsafe_allow_html=True)
-        st.write("") # Spacer
+for tool in tools:
+    grid_html += f"""
+        <a href="{tool['url']}" target="_blank">
+            <div class="card">
+                <div class="icon">{tool['icon']}</div>
+                <h3>{tool['name']}</h3>
+                <p>{tool['desc']}</p>
+                <div class="launch-btn">Launch Tool →</div>
+            </div>
+        </a>
+    """
+
+grid_html += "</div>"
+
+# Render the HTML
+st.markdown(grid_html, unsafe_allow_html=True)
 
 # Footer
-st.write("---")
-st.caption("Centralized Exam Management System | Built with Streamlit")
+st.markdown("<br><br><p style='text-align: center; color: #555; font-size: 0.8rem;'>NMIMS Data Science Project</p>", unsafe_allow_html=True)
