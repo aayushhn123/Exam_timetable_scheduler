@@ -1544,8 +1544,8 @@ def read_timetable(uploaded_file):
 
         # 4. Clean CMGroup (STRICT "0" HANDLING)
         if "CMGroup" in df.columns:
-            df["CMGroup"] = df["CMGroup"].astype(str)
-            df["CMGroup"] = df["CMGroup"].apply(lambda x: x.split('.')[0] if '.' in x else x).str.strip()
+            # Safely convert to string, split by decimal to remove .0, and strip whitespace using vectorized methods
+            df["CMGroup"] = df["CMGroup"].astype(str).str.split('.').str[0].str.strip()
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
         else:
             df["CMGroup"] = ""
