@@ -2341,21 +2341,33 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 timetable_data = st.session_state.get('timetable_data', {})
 
                 # Collect rows matching this branch & semester
+                # Strip the same prefixes from sem_key so "Trimester IX" → "IX"
+                # matches display_sem "IX" correctly.
+                def _strip_sem_prefix(s):
+                    s = str(s).strip()
+                    for pfx in ("trimester", "semester", "sem", "tri"):
+                        if s.lower().startswith(pfx):
+                            s = s[len(pfx):].strip()
+                            break
+                    return s.upper()
+
                 rows_for_sheet = []
+                disp_check = display_sem.strip().upper()
+                roman_map2 = {'XII':12,'XI':11,'X':10,'IX':9,'VIII':8,'VII':7,
+                              'VI':6,'V':5,'IV':4,'III':3,'II':2,'I':1}
+
                 for sem_key, sem_df in timetable_data.items():
                     if sem_df.empty: continue
-                    sem_str_check = str(sem_key).strip().upper()
-                    disp_check    = display_sem.strip().upper()
+                    sem_str_check = _strip_sem_prefix(sem_key)
+
                     if sem_str_check != disp_check:
-                        # try numeric match
-                        roman_map2 = {'XII':12,'XI':11,'X':10,'IX':9,'VIII':8,'VII':7,
-                                      'VI':6,'V':5,'IV':4,'III':3,'II':2,'I':1}
+                        # fall back to numeric equivalence (e.g. "9" == "IX")
                         sv = roman_map2.get(sem_str_check) or (
-                            int(re.search(r'\d+',sem_str_check).group())
-                            if re.search(r'\d+',sem_str_check) else None)
+                            int(re.search(r'\d+', sem_str_check).group())
+                            if re.search(r'\d+', sem_str_check) else None)
                         dv = roman_map2.get(disp_check) or (
-                            int(re.search(r'\d+',disp_check).group())
-                            if re.search(r'\d+',disp_check) else None)
+                            int(re.search(r'\d+', disp_check).group())
+                            if re.search(r'\d+', disp_check) else None)
                         if sv != dv: continue
 
                     branch_mask = sem_df['MainBranch'].astype(str) == main_branch_full
@@ -2364,8 +2376,10 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         rows_for_sheet.append(matched)
 
                 if not rows_for_sheet:
-                    # Fallback: parse the Excel sheet columns (old path)
-                    # Build a minimal date-only table; subject cells from excel
+                    # Fallback: parse the Excel sheet directly.
+                    # save_to_excel appends [HH:MM AM - HH:MM PM] to subjects
+                    # that are NOT in the primary slot. We parse that suffix to
+                    # determine the correct slot number for each subject.
                     _fallback_df = sheet_df.copy()
                     if 'Exam Date' not in _fallback_df.columns: continue
                     _meta = re.compile(
@@ -2376,22 +2390,50 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                                  and pd.notna(c) and str(c).strip() != '']
                     if not _sub_cols: continue
 
-                    # Build slot_pivot: date → {slot_num: text}
+                    # Build a lookup: time-range string → slot number
+                    _time_to_slot = {}
+                    for _sn, _scfg in time_slots_dict.items():
+                        # normalise both "10:00 AM - 1:00 PM" and "10:00 AM - 01:00 PM"
+                        _raw = f"{_scfg['start']} - {_scfg['end']}"
+                        _time_to_slot[_raw.upper().replace(' ', '')] = _sn
+
+                    def _slot_from_subject(text):
+                        """Extract slot number from [HH:MM xM - HH:MM xM] suffix, or return None."""
+                        m = re.search(
+                            r'\[\s*(\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M)\s*\]',
+                            text, re.IGNORECASE)
+                        if not m:
+                            return None
+                        key = m.group(1).upper().replace(' ', '')
+                        return _time_to_slot.get(key)
+
+                    # Build slot_pivot: date → {slot_num: [clean_subject, …]}
                     slot_pivot = {}
                     for _, row in _fallback_df.iterrows():
                         d = str(row.get('Exam Date', '')).strip()
-                        if not d or d in ('nan','','---'): continue
+                        if not d or d in ('nan', '', '---'): continue
                         try:
                             d = pd.to_datetime(d, format="%d-%m-%Y",
                                                errors='coerce').strftime("%A, %d %B, %Y")
                         except: pass
                         if d not in slot_pivot:
-                            slot_pivot[d] = {sn: [] for sn in range(1, num_slots+1)}
-                        # All subjects go to slot 1 (no slot info available)
+                            slot_pivot[d] = {sn: [] for sn in time_slots_dict}
+
                         for sc in _sub_cols:
                             val = str(row.get(sc, '')).strip()
-                            if val and val not in ('nan','---',''):
-                                slot_pivot[d][1].append(val)
+                            # each cell may contain multiple subjects joined by ' <hr> '
+                            for raw_subj in val.split('<hr>'):
+                                raw_subj = raw_subj.strip()
+                                if not raw_subj or raw_subj in ('nan', '---', ''):
+                                    continue
+                                detected_slot = _slot_from_subject(raw_subj)
+                                # strip the time suffix from the display text
+                                clean_subj = re.sub(
+                                    r'\s*\[\s*\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*\]',
+                                    '', raw_subj, flags=re.IGNORECASE).strip()
+                                # if no time suffix found, treat as slot 1
+                                sn = detected_slot if detected_slot else 1
+                                slot_pivot[d].setdefault(sn, []).append(clean_subj)
                 else:
                     combined = pd.concat(rows_for_sheet, ignore_index=True)
 
@@ -2726,7 +2768,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         pdf.output(pdf_path)
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
-
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
     
