@@ -1536,15 +1536,14 @@ def read_timetable(uploaded_file):
             if col in df.columns:
                 df[col] = df[col].ffill()
 
-        # 3. Clean Strings
+        # 3. Clean Strings (Now removes non-breaking spaces \xa0)
         string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
             if col in df.columns:
-                df[col] = df[col].fillna("").astype(str).str.strip()
+                df[col] = df[col].fillna("").astype(str).str.replace(r'\xa0', ' ', regex=True).str.strip()
 
         # 4. Clean CMGroup (STRICT "0" HANDLING)
         if "CMGroup" in df.columns:
-            # Safely fill NaNs with empty strings first, force string type, then split and strip
             df["CMGroup"] = df["CMGroup"].fillna("").astype(str)
             df["CMGroup"] = df["CMGroup"].apply(lambda x: str(x).split('.')[0].strip())
             df.loc[df["CMGroup"].isin(["0", "nan", "NaN", "None", ""]), "CMGroup"] = ""
@@ -1594,10 +1593,7 @@ def read_timetable(uploaded_file):
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
 
         # ---------------------------------------------------------------
-        # MBA TECH SPECIAL LOGIC (ABSOLUTE PRIORITY ENFORCEMENT):
-        # For rows in Sem VIII or X with IsCommon == 'within',
-        # assign a synthetic CMGroup PER MODULE CODE so they get scheduled 
-        # individually, ensuring they start from Day 1.
+        # MBA TECH SPECIAL LOGIC
         # ---------------------------------------------------------------
         sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
         target_sem_mask = (
@@ -1610,7 +1606,6 @@ def read_timetable(uploaded_file):
         priority_mask = target_sem_mask & is_common_within_mask
 
         if priority_mask.any():
-            # Group by Semester AND ModuleCode to create independent priority units
             df_priority_target = df[priority_mask]
             for (sem_val, mod_code), group_idx in df_priority_target.groupby(["Semester", "ModuleCode"]).groups.items():
                 synthetic_cm = f"MBATECH_PRIORITY_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}"
@@ -1627,8 +1622,6 @@ def read_timetable(uploaded_file):
             if not d.empty:
                 d["MainBranch"] = d["Program"]
                 d["SubBranch"] = d["Stream"]
-                
-                # --- FIX: Ensure SubBranch is never empty so Pandas doesn't name it 'Unnamed: 1' ---
                 d.loc[(d["SubBranch"] == "") | (d["SubBranch"].isna()) | (d["SubBranch"] == "nan"), "SubBranch"] = d["MainBranch"]
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
@@ -2350,12 +2343,17 @@ def save_verification_excel(original_df, semester_wise_timetable):
     else:
         scheduled_data["LookupModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False).str.strip()
 
+    # Bulletproof string cleaner for keys
+    def clean_key(s):
+        import re
+        return re.sub(r'\s+', '', str(s)).upper()
+
     # Create a robust lookup dictionary
     scheduled_lookup = {}
     for idx, row in scheduled_data.iterrows():
-        mod_code = str(row.get('LookupModuleCode', '')).strip()
-        sem = str(row.get('Semester', '')).strip()
-        key = f"{mod_code}_{sem}"
+        mod_code = row.get('LookupModuleCode', '')
+        sem = row.get('Semester', '')
+        key = f"{clean_key(mod_code)}_{clean_key(sem)}"
         
         if key not in scheduled_lookup:
             scheduled_lookup[key] = []
@@ -2375,7 +2373,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
         "Exam Slot Number": ["Exam Slot Number", "ExamSlotNumber", "exam slot number", "Exam_Slot_Number", "Slot Number"]
     }
     
-    # Clean headers of original_df just in case
     original_df.columns = original_df.columns.str.strip()
 
     # Find actual column names
@@ -2402,14 +2399,12 @@ def save_verification_excel(original_df, semester_wise_timetable):
     verification_df["Exam Time"] = ""
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
-    verification_df["Capacity Exceeded Limit"] = "No"  # NEW COLUMN
+    verification_df["Capacity Exceeded Limit"] = "No" 
     verification_df["Subject Type"] = ""
 
-    # Handle missing Campus column
     if "Campus" not in verification_df.columns:
         verification_df["Campus"] = "Unknown"
 
-    # Track statistics
     matched_count = 0
     unmatched_count = 0
     unique_subjects_matched = set()
@@ -2427,8 +2422,8 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 continue
             
             # 1. Build Verification Branch Name
-            program = str(row.get("Program", "")).strip()
-            stream = str(row.get("Stream", "")).strip()
+            program = str(row.get("Program", "")).replace('\xa0', ' ').strip()
+            stream = str(row.get("Stream", "")).replace('\xa0', ' ').strip()
             if not stream or stream == program or stream == "nan":
                 verify_branch = program
             else:
@@ -2440,7 +2435,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 continue
             
             # 2. Look up using only Module + Semester (Broad Search)
-            lookup_key = f"{module_code}_{semester_val}"
+            lookup_key = f"{clean_key(module_code)}_{clean_key(semester_val)}"
             
             match_found = False
             matched_subject = None
@@ -2450,16 +2445,19 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 
                 # 3. Narrow down by Branch (Soft Match)
                 for candidate in candidates:
-                    sched_branch = str(candidate.get('Branch', '')).strip()
+                    sched_branch = str(candidate.get('Branch', '')).replace('\xa0', ' ').strip()
                     
-                    # Check exact or partial match
-                    if verify_branch == sched_branch or verify_branch in sched_branch or sched_branch in verify_branch:
+                    # Case insensitive and robust match
+                    v_branch_clean = clean_key(verify_branch)
+                    s_branch_clean = clean_key(sched_branch)
+                    
+                    if v_branch_clean == s_branch_clean or v_branch_clean in s_branch_clean or s_branch_clean in v_branch_clean:
                         matched_subject = candidate
                         match_found = True
                         break
                         
                     # Check if common subject
-                    if str(candidate.get('CMGroup', '')).strip() != '' or candidate.get('IsCommon', 'NO') == 'YES':
+                    if str(candidate.get('CMGroup', '')).strip() != '' or str(candidate.get('IsCommon', '')).strip().upper() == 'YES':
                         matched_subject = candidate
                         match_found = True
                         break
@@ -2497,7 +2495,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     verification_df.at[idx, "Exam Date"] = exam_date
                     verification_df.at[idx, "Scheduling Status"] = "Scheduled"
                     
-                    # --- FLAG CAPACITY EXCEEDED ---
                     if str(matched_subject.get('Capacity_Exceeded_Flag', 'No')) == 'Yes':
                         verification_df.at[idx, "Capacity Exceeded Limit"] = "YES (MUMBAI LIMIT HIT)"
                     
@@ -2526,6 +2523,7 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_subjects_unmatched.add(module_code)
                      
         except Exception as e:
+            st.error(f"Error processing row {idx}: {e}")
             unmatched_count += 1
             if module_code:
                 unique_subjects_unmatched.add(module_code)
@@ -2574,7 +2572,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     overload_analysis_df = pd.DataFrame()
     
     if not scheduled_subjects.empty:
-        # A. Detailed Breakdown: Day > Slot > Subject
         detailed_schedule_df = scheduled_subjects[[
             'Exam Date', 'Exam Slot Number', 'Time Slot', 'Campus', 
             'Module Abbreviation', 'Module Description', 'Program', 'Stream', 
@@ -2583,31 +2580,26 @@ def save_verification_excel(original_df, semester_wise_timetable):
         detailed_schedule_df.rename(columns={'Student Count Clean': 'Student Count'}, inplace=True)
         detailed_schedule_df = detailed_schedule_df.sort_values(['Exam Date', 'Exam Slot Number', 'Campus', 'Module Abbreviation'])
 
-        # B. Slot Utilization & Overload Analysis
         max_capacity = st.session_state.get('capacity_slider', 1250)
         
         utilization_data = []
         overload_data = []
         
-        # Group by Date, Slot, Campus
         grp = scheduled_subjects.groupby(['Exam Date', 'Exam Slot Number', 'Time Slot', 'Campus'])
         for (date, slot_num, time, campus), inner_df in grp:
             total_studs = int(inner_df['Student Count Clean'].sum())
             subj_count = len(inner_df)
             
-            # ONLY flag overload for MUMBAI
             is_mumbai = "MUMBAI" in str(campus).upper()
             util_pct = (total_studs / max_capacity) * 100 if is_mumbai else (total_studs / max_capacity) * 100
             is_overload = is_mumbai and (total_studs > max_capacity)
             
-            # Generate a summary string of subjects for the utilization sheet
             subj_summary = []
             for _, r in inner_df.iterrows():
                 s_name = str(r.get('Module Description', r.get('Module Abbreviation', '')))
                 s_cnt = str(int(r.get('Student Count Clean', 0)))
                 subj_summary.append(f"{s_name} ({s_cnt})")
             
-            # Truncate if too long for Excel cell
             subjects_str = "; ".join(subj_summary)
             if len(subjects_str) > 3000: subjects_str = subjects_str[:2997] + "..."
 
@@ -2624,7 +2616,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 'Contributing Subjects': subjects_str
             })
             
-            # If Overload (and it's Mumbai), populate the detailed Overload Analysis Sheet
             if is_overload:
                 for _, r in inner_df.iterrows():
                     overload_data.append({
@@ -2655,7 +2646,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     # ---------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Sheet 1: Main Verification
         base_cols = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
                      'Exam Date', 'Exam Slot Number', 'Configured Slot', 'Exam Time',
                      'Student count', 'Campus', 'Scheduling Status', 'Capacity Exceeded Limit', 'Subject Type', 'Is Common Status']
@@ -2667,23 +2657,18 @@ def save_verification_excel(original_df, semester_wise_timetable):
         final_cols = [c for c in base_cols if c in verification_df.columns] + remaining_cols
         verification_df[final_cols].to_excel(writer, sheet_name="Verification", index=False)
         
-        # Sheet 2: Daily Stats
         if not daily_stats_df.empty:
             daily_stats_df.to_excel(writer, sheet_name="Daily_Statistics", index=False)
             
-        # Sheet 3: Utilization Analysis
         if not utilization_df.empty:
             utilization_df.to_excel(writer, sheet_name="Utilization_Analysis", index=False)
             
-        # Sheet 4: Overload Analysis
         if not overload_analysis_df.empty:
             overload_analysis_df.to_excel(writer, sheet_name="Overload_Analysis", index=False)
             
-        # Sheet 5: Detailed Schedule
         if not detailed_schedule_df.empty:
             detailed_schedule_df.to_excel(writer, sheet_name="Detailed_Schedule", index=False)
         
-        # Sheet 6: Summary
         summary_data = {
             "Metric": ["Total Instances", "Scheduled", "Unscheduled", "Success Rate (%)"],
             "Value": [
@@ -2695,7 +2680,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
         }
         pd.DataFrame(summary_data).to_excel(writer, sheet_name="Summary", index=False)
         
-        # Sheet 7: Unmatched (Optional)
         unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
         if not unmatched_subjects.empty:
             unmatched_export = unmatched_subjects[final_cols].copy()
