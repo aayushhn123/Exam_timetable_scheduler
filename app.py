@@ -3515,11 +3515,20 @@ def main():
         st.markdown("")
     
         # Initialize session state for time slots with College Specific Defaults
+        # Initialize session state for time slots with College Specific Defaults
+        is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
+        
         if 'time_slots' not in st.session_state:
             if IS_LAW_SCHOOL:
                 st.session_state.time_slots = {
                     1: {"start": "11:00 AM", "end": "1:00 PM"},
                     2: {"start": "02:30 PM", "end": "04:30 PM"}
+                }
+            elif is_business_school:
+                st.session_state.time_slots = {
+                    1: {"start": "08:30 AM", "end": "10:30 AM"},
+                    2: {"start": "11:30 AM", "end": "01:30 PM"},
+                    3: {"start": "03:00 PM", "end": "05:00 PM"}
                 }
             else:
                 st.session_state.time_slots = {
@@ -3577,17 +3586,37 @@ def main():
         st.markdown("")
 
         # Capacity slider logic
-        max_students_per_session = st.slider(
-            "Maximum Students Per Session",
-            min_value=0,
-            max_value=3000,
-            value=st.session_state.capacity_slider,
-            step=1, 
-            help="Set the maximum number of students allowed in a single session",
-            key="capacity_slider"
-        )
+        # Capacity slider and text input logic
+        if "capacity_val" not in st.session_state:
+            st.session_state.capacity_val = st.session_state.get('capacity_slider', 1250)
 
+        def sync_num_to_slider():
+            st.session_state.capacity_val = st.session_state.cap_slide
+        def sync_slider_to_num():
+            st.session_state.capacity_val = st.session_state.cap_num
+
+        col_slide, col_text = st.columns([3, 1])
+        with col_slide:
+            st.slider(
+                "Maximum Students Per Session", 
+                min_value=100, max_value=5000, step=50, 
+                key="cap_slide", 
+                value=st.session_state.capacity_val, 
+                on_change=sync_num_to_slider
+            )
+        with col_text:
+            st.number_input(
+                "Type Capacity", 
+                min_value=100, max_value=5000, step=50, 
+                key="cap_num", 
+                value=st.session_state.capacity_val, 
+                on_change=sync_slider_to_num,
+                label_visibility="visible"
+            )
+
+        st.session_state['capacity_slider'] = st.session_state.capacity_val
         st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
+        
     
         st.markdown("---")
     
