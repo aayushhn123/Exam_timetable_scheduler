@@ -2299,7 +2299,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     main_branch_full = sheet_name
 
                 display_sem = semester_raw.strip()
-                for prefix in ("semester", "sem"):
+                for prefix in ("trimester", "semester", "sem", "tri"):
                     if display_sem.lower().startswith(prefix):
                         display_sem = display_sem[len(prefix):].strip(); break
 
@@ -2533,10 +2533,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     continue
 
                 display_sem = semester_raw.strip()
-                if display_sem.lower().startswith("semester"):
-                    display_sem = display_sem[8:].strip()
-                elif display_sem.lower().startswith("sem"):
-                    display_sem = display_sem[3:].strip()
+                for prefix in ("trimester", "semester", "sem", "tri"):
+                    if display_sem.lower().startswith(prefix):
+                        display_sem = display_sem[len(prefix):].strip(); break
 
                 header_content  = {'main_branch_full': main_branch_full,
                                    'semester_roman': display_sem}
