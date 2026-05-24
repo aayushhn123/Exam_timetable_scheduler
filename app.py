@@ -2156,31 +2156,40 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 pdf.image(logo_file, x=(pdf.w - logo_w) / 2, y=logo_y, w=logo_w)
 
             # All text starts below the logo (logo ~40 mm tall at w=45)
-            text_y = logo_y + 44
+            text_y  = logo_y + 42
+            # Reduced font sizes + tight 1mm inter-line gap for SBM/Pravin Dalal
+            F_COLLEGE = 10    # college name
+            F_TITLE   = 8.5   # "FINAL EXAMINATION TIMETABLE…"
+            F_PROG    = 8.5   # program / branch name
+            F_YEAR    = 8.5   # "YEAR: …, TRIMESTER: …"
+            LINE_GAP  = 1     # mm added between every line
 
             # College name
             college_name = st.session_state.get('selected_college',
                                                  "SVKM's NMIMS University").upper()
             pdf.set_text_color(0, 0, 0)
-            pdf.set_font("Times", 'B', 12)
+            pdf.set_font("Times", 'B', F_COLLEGE)
+            cell_h = F_COLLEGE * 0.40
             pdf.set_xy(10, text_y)
-            pdf.cell(pdf.w - 20, 5, college_name, 0, 1, 'C')
-            text_y += 5
+            pdf.cell(pdf.w - 20, cell_h, college_name, 0, 1, 'C')
+            text_y += cell_h + LINE_GAP
 
             # Timetable title
-            pdf.set_font("Times", 'B', 10)
+            pdf.set_font("Times", 'B', F_TITLE)
+            cell_h = F_TITLE * 0.40
             pdf.set_xy(10, text_y)
-            pdf.cell(pdf.w - 20, 4,
+            pdf.cell(pdf.w - 20, cell_h,
                      "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)",
                      0, 1, 'C')
-            text_y += 4
+            text_y += cell_h + LINE_GAP
 
             # Program name
             prog_name = str(header_content.get('main_branch_full', '')).upper()
-            pdf.set_font("Times", 'B', 10)
+            pdf.set_font("Times", 'B', F_PROG)
+            cell_h = F_PROG * 0.40
             pdf.set_xy(10, text_y)
-            pdf.cell(pdf.w - 20, 4, prog_name, 0, 1, 'C')
-            text_y += 4
+            pdf.cell(pdf.w - 20, cell_h, prog_name, 0, 1, 'C')
+            text_y += cell_h + LINE_GAP
 
             # Year & Semester
             sem_roman = str(header_content.get('semester_roman', '')).upper()
@@ -2201,15 +2210,17 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     while n >= v: r += s; n -= v
                 return r
 
-            pdf.set_font("Times", 'B', 10)
+            pdf.set_font("Times", 'B', F_YEAR)
+            cell_h = F_YEAR * 0.40
             pdf.set_xy(10, text_y)
-            pdf.cell(pdf.w - 20, 4,
+            pdf.cell(pdf.w - 20, cell_h,
                      f"YEAR: {_to_roman(year_int)}, TRIMESTER: {sem_roman}",
                      0, 1, 'C')
-            text_y += 4
+            text_y += cell_h + LINE_GAP
 
-            # Small gap then hand off to table (update header_end_y dynamically)
+            # Small gap then position cursor for table
             pdf.set_xy(pdf.l_margin, text_y + 3)
+
 
 
         # ── single-cell text wrapper for portrait columns ────────────────────
