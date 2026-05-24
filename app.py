@@ -2431,63 +2431,75 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
 
                 if not slot_pivot: continue
 
+                # ── detect which slot numbers actually have data ──────────────
+                # Only show columns for slots used by this program; unused slots
+                # are omitted and the remaining columns span the full table width.
+                all_slots_sorted = sorted(time_slots_dict.keys())
+                active_slots = [sn for sn in all_slots_sorted
+                                if any(slot_pivot[d].get(sn) for d in slot_pivot)]
+                if not active_slots:
+                    active_slots = all_slots_sorted   # fallback: show all
+
+                # Recompute col_widths for active slots only
+                n_active   = len(active_slots)
+                act_slot_w = (page_w - date_w) / n_active
+                act_col_widths = [date_w] + [act_slot_w] * n_active
+
+                # Build header / time-row cells for active slots only
+                act_header_cells = ["DAY & DATE"] + ["TIMING & SUBJECT"] * n_active
+                act_time_cells   = [""] + [slot_labels[sn] for sn in active_slots]
+
                 # ── add new page & render header ─────────────────────────────
                 pdf.add_page()
                 render_footer_sbm()
                 render_header_sbm(header_content, declaration_date)
 
-
                 # ── column-header row ─────────────────────────────────────────
-                header_cells = ["DAY & DATE"] + ["TIMING & SUBJECT"] * num_slots
-                _draw_row(header_cells, col_widths,
+                _draw_row(act_header_cells, act_col_widths,
                           font_style='B', font_size=9.5)
 
                 # ── time-range sub-header row ─────────────────────────────────
-                time_cells = [""] + [slot_labels[sn]
-                                     for sn in sorted(time_slots_dict.keys())]
-                _draw_row(time_cells, col_widths,
+                _draw_row(act_time_cells, act_col_widths,
                           font_style='B', font_size=9)
 
                 # ── pre-calculate instructions block height to reserve space ─
                 _instr_h = _measure_instructions(7.5, 7.5 * 0.55,
                                                  pdf.w - 2 * pdf.l_margin)
-                # bottom boundary = footer + instructions + small gap
                 _table_bottom = pdf.h - footer_height - _instr_h - 4
 
                 # ── data rows ────────────────────────────────────────────────
                 pdf.set_font("Times", '', 9.5)
                 for d_str, slots in slot_pivot.items():
                     row_cells = [d_str]
-                    for sn in sorted(time_slots_dict.keys()):
+                    for sn in active_slots:
                         subj_list = slots.get(sn, [])
-                        if subj_list:
-                            row_cells.append("\n".join(subj_list))
-                        else:
-                            row_cells.append("-------------------")
+                        row_cells.append(
+                            "\n".join(subj_list) if subj_list else "-------------------"
+                        )
 
                     # estimate row height for page-break check
                     max_lines_est = 1
                     for i, txt in enumerate(row_cells):
-                        avail = col_widths[i] - 2 * PAD
+                        avail = act_col_widths[i] - 2 * PAD
                         lns   = _wrap_cell(txt, avail, '', 9.5)
                         max_lines_est = max(max_lines_est, len(lns))
                     est_h = LINE_H * max_lines_est
 
                     if pdf.get_y() + est_h > _table_bottom:
-                        # render instructions on the current page before turning
                         render_instructions_sbm(pdf.get_y() + 2)
                         pdf.add_page()
                         render_footer_sbm()
                         render_header_sbm(header_content, declaration_date)
-                        _draw_row(header_cells, col_widths, 'B', 9.5)
-                        _draw_row(time_cells,   col_widths, 'B', 9)
+                        _draw_row(act_header_cells, act_col_widths, 'B', 9.5)
+                        _draw_row(act_time_cells,   act_col_widths, 'B', 9)
 
-                    _draw_row(row_cells, col_widths, '', 9.5)
+                    _draw_row(row_cells, act_col_widths, '', 9.5)
 
                 # ── instructions below the table on the last page ─────────────
                 render_instructions_sbm(pdf.get_y() + 2)
 
                 sheets_processed += 1
+
 
             except Exception as e:
                 st.warning(f"Error processing sheet {sheet_name}: {e}")
