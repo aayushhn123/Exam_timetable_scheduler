@@ -1810,11 +1810,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     if df.empty: return
     setattr(pdf, '_row_counter', 0)
 
-    current_college = st.session_state.get('selected_college', '')
-    is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
-
     footer_height = 14
-    header_end_y = 65 if is_business_school else 60     
+    header_end_y = 60     # LOCKED: compact header ends exactly at y=60
 
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
@@ -1840,45 +1837,44 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
             decl_str = f"DATE: {day}{suffix} {declaration_date.strftime('%B, %Y')}".upper()
 
-            pdf.set_font("Times", 'B', 11 if is_business_school else 12)
+            pdf.set_font("Times", 'B', 12)
             pdf.set_text_color(0, 0, 0)
             pdf.set_xy(pdf.w - 80, 8)
             pdf.cell(70, 10, decl_str, 0, 0, 'R')
 
         # Logo
-        logo_width = 40 if is_business_school else 45
+        logo_width = 45
         logo_x = (pdf.w - logo_width) / 2
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
 
-        # College Name 
+        # College Name — Size 12, Bold
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
-        pdf.set_font("Times", 'B', 11 if is_business_school else 12)
-        pdf.set_xy(10, 22 if is_business_school else 25)
+        pdf.set_font("Times", 'B', 12)
+        pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
 
-        # Main Title 
+        # Main Title — Size 10, Bold
         pdf.set_font("Times", 'B', 10)
         pdf.set_text_color(0, 0, 0)
-        current_y = 28 if is_business_school else 33
-        pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE", 0, 1, 'C')
-        current_y += 4
+        pdf.set_xy(10, 33)
+        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
 
-        # Program Name
+        current_y = 38
+
+        # Program Name — Size 10, Bold
         pdf.set_font("Times", 'B', 10)
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
         current_y += 4
 
-        # Year and Semester 
+        # Year and Semester — Size 10, Bold
         sem_roman = str(header_content['semester_roman']).upper()
         roman_map = {'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8, 'VII': 7,
                      'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1}
         sem_int = roman_map.get(sem_roman)
         if not sem_int:
-            import re
             m = re.search(r'(\d+)', sem_roman)
             if m: sem_int = int(m.group(1))
             else: sem_int = 1
@@ -1896,21 +1892,20 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
         pdf.set_font("Times", 'B', 10)
         pdf.set_xy(10, current_y)
-        
-        # SBM uses Trimester nomenclature typically, but we adapt dynamically
-        term_label = "TRIMESTER" if is_business_school else "SEMESTER"
-        pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, {term_label}: {sem_roman}".upper(), 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
         current_y += 4
 
         if time_slot:
+            # Exam Time — Size 9, Bold
             pdf.set_font("Times", 'B', 9)
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
 
+            # Subtitle — Size 9, Bold & Italic
             pdf.set_font("Times", 'BI', 9)
             pdf.set_xy(10, current_y)
-            pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME IN COLUMN)".upper(), 0, 1, 'C')
+            pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
 
         pdf.set_xy(pdf.l_margin, header_end_y)
@@ -1920,11 +1915,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
     upper_columns = [str(c).upper() for c in columns]
 
-    # Table Headers 
+    # Table Headers — Size 9.5, Bold
     pdf.set_font("Times", 'B', 9.5)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
 
-    # Table Row Content
+    # Table Row Content — Size 9.5, Regular
     pdf.set_font("Times", '', 9.5)
 
     for idx in range(len(df)):
@@ -1951,250 +1946,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
-    current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college_context
-    IS_BUSINESS_SCHOOL = "School of Business Management" in current_college_context or "Pravin Dalal" in current_college_context
-
-    # SBM specific logic: Portrait orientation
-    pdf_orientation = 'P' if IS_BUSINESS_SCHOOL else 'L'
-    pdf = FPDF(orientation=pdf_orientation, unit='mm', format='Legal')
-    pdf.set_auto_page_break(auto=False, margin=15)
-    pdf.alias_nb_pages()
-    
-    SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
-
-    time_slots_dict = st.session_state.get('time_slots', {
-        1: {"start": "10:00 AM", "end": "1:00 PM"},
-        2: {"start": "2:00 PM", "end": "5:00 PM"}
-    })
-    
-    try:
-        df_dict = pd.read_excel(excel_path, sheet_name=None)
-    except Exception as e:
-        st.error(f"Error reading Excel file: {e}")
-        return
-
-    def get_header_time_for_semester(sem_str):
-        try:
-            s = str(sem_str).strip().upper()
-            sem_int = 1
-            romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12}
-            found = False
-            for r_key, r_val in romans.items():
-                if s == r_key or s.endswith(f" {r_key}") or s.endswith(f"_{r_key}"):
-                    sem_int = r_val
-                    found = True
-                    break
-            if not found:
-                import re
-                digits = re.findall(r'\d+', s)
-                if digits: sem_int = int(digits[0])
-            slot_indicator = ((sem_int + 1) // 2) % 2
-            slot_num = 1 if slot_indicator == 1 else 2
-            slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
-            return f"{slot_cfg['start']} - {slot_cfg['end']}"
-        except:
-            return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
-
-    sheets_processed = 0
-    
-    for sheet_name, sheet_df in df_dict.items():
-        try:
-            if sheet_df.empty: continue
-            if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
-                sheet_df = sheet_df.reset_index()
-            
-            main_branch_full = ""
-            if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
-                 main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
-            elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
-                 main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
-            
-            if "Unnamed" in main_branch_full or main_branch_full == "":
-                if '_|_' in sheet_name:
-                    main_branch_full = sheet_name.split('_|_')[0]
-
-            rename_cols = {}
-            for col in sheet_df.columns:
-                if str(col).startswith("Unnamed:"):
-                    rename_cols[col] = main_branch_full
-            if rename_cols:
-                sheet_df = sheet_df.rename(columns=rename_cols)
-            
-            sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
-            if IS_LAW_SCHOOL and main_branch_full:
-                prog_upper = main_branch_full.upper()
-                if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
-                    sheet_college_name = "Kirit P. Mehta School of Law"
-                else:
-                    sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
-            
-            semester_raw = "General"
-            if '_|_' in sheet_name:
-                parts = sheet_name.split('_|_')
-                if not main_branch_full: main_branch_full = parts[0]
-                semester_raw = parts[1]
-            else:
-                if sheet_name in ["No_Data", "Daily_Statistics", "Summary", "Verification", "Empty"]: continue
-                if not main_branch_full: main_branch_full = sheet_name
-
-            import re
-            is_elective = False
-            if re.search(r'_Ele(\d*)$', semester_raw):
-                semester_raw = re.sub(r'_Ele\d*$', '', semester_raw)
-                is_elective = True
-
-            if IS_LAW_SCHOOL and is_elective:
-                continue
-            
-            display_sem = semester_raw.strip()
-            if display_sem.lower().startswith("semester"):
-                display_sem = display_sem[8:].strip()
-            elif display_sem.lower().startswith("sem"):
-                display_sem = display_sem[3:].strip()
-            elif display_sem.lower().startswith("trimester"):
-                display_sem = display_sem[9:].strip()
-            
-            header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-            header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
-
-            if not is_elective:
-                if 'Exam Date' not in sheet_df.columns: continue
-                sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
-                fixed_cols = ["Exam Date"]
-                _meta_pattern = re.compile(
-                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
-                    re.IGNORECASE
-                )
-                sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not _meta_pattern.match(str(c)) and pd.notna(c) and str(c).strip() != '']
-                if not sub_branch_cols: continue
-                
-                # Dynamic column chunking based on orientation
-                cols_per_page = 3 if IS_BUSINESS_SCHOOL else 6
-                
-                for start in range(0, len(sub_branch_cols), cols_per_page):
-                    chunk = sub_branch_cols[start:start + cols_per_page]
-                    cols_to_print = fixed_cols + chunk
-                    chunk_df = sheet_df[cols_to_print].copy()
-                    
-                    subset = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
-                    valid_cells = (subset != "") & (subset != "nan") & (subset != "---")
-                    mask = valid_cells.any(axis=1)
-                    chunk_df = chunk_df[mask].reset_index(drop=True)
-                    if chunk_df.empty: continue
-
-                    try:
-                        # Format date explicitly for the output
-                        chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                    except: pass
-
-                    page_width = pdf.w - 2 * pdf.l_margin 
-                    date_col_width = 35 if IS_BUSINESS_SCHOOL else 30
-                    remaining_width = page_width - date_col_width
-                    
-                    num_sub = max(len(chunk), 1)
-                    sub_width = remaining_width / num_sub
-                    
-                    col_widths = [date_col_width] + [sub_width] * len(chunk)
-                    
-                    pdf.add_page()
-                    
-                    original_college = st.session_state.get('selected_college')
-                    st.session_state['selected_college'] = sheet_college_name
-                    
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5,
-                                     header_content=header_content, Programs=chunk,
-                                     time_slot=header_exam_time, actual_time_slots=None,
-                                     declaration_date=declaration_date)
-
-                    if original_college: st.session_state['selected_college'] = original_college
-                    sheets_processed += 1
-            else:
-                if 'Subjects' in sheet_df.columns and 'Open Elective (All Applicable Streams)' not in sheet_df.columns:
-                    sheet_df.rename(columns={'Subjects': 'Open Elective (All Applicable Streams)'}, inplace=True)
-
-                target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
-                available_cols = [c for c in target_cols if c in sheet_df.columns]
-
-                if len(available_cols) >= 3:
-                    sheet_df = sheet_df.dropna(subset=['Exam Date']).reset_index(drop=True)
-                    if sheet_df.empty: continue
-
-                    try:
-                        sheet_df["Exam Date"] = pd.to_datetime(sheet_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                    except: pass
-
-                    pdf.add_page()
-
-                    page_width = pdf.w - 2 * pdf.l_margin 
-                    col_widths = [35 if IS_BUSINESS_SCHOOL else 30, 25]
-                    remaining_width = page_width - sum(col_widths)
-                    col_widths.append(remaining_width)
-
-                    original_college = st.session_state.get('selected_college')
-                    st.session_state['selected_college'] = sheet_college_name
-
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5,
-                                     header_content=header_content, Programs=["Electives"],
-                                     time_slot=header_exam_time, actual_time_slots=None,
-                                     declaration_date=declaration_date)
-                    
-                    if original_college: st.session_state['selected_college'] = original_college
-                    sheets_processed += 1
-                
-        except Exception as e:
-            st.warning(f"Error processing PDF sheet {sheet_name}: {e}")
-            continue
-
-    if sheets_processed == 0:
-        st.error("No valid sheets generated in PDF.")
-        return
-
-    try:
-        pdf.add_page()
-        pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Times", 'B', 8)
-        pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-        pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Times", size=9)
-        pdf.set_xy(pdf.w - 30, pdf.h - 15)
-        pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
-
-        pdf.set_y(0)
-        if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_xy(10, 25)
-        pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
-
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_xy(10, 40)
-        pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
-
-        pdf.set_y(60)
-        pdf.set_font("Times", 'B', 12)
-        pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
-        pdf.ln(5)
-        instrs = [
-            "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
-            "2. Candidates must produce their University Identity Card at the time of the examination.",
-            "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time."
-        ]
-        pdf.set_font("Times", size=12)
-        for i in instrs:
-            pdf.multi_cell(0, 7, i)
-            pdf.ln(2)
-    except Exception as e:
-        pass
-
-    try:
-        pdf.output(pdf_path)
-    except Exception as e:
-        st.error(f"Save PDF failed: {e}")
         
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
@@ -2218,41 +1969,49 @@ def calculate_end_time(start_time, duration_hours):
         
 
         
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
-    pdf = FPDF(orientation='L', unit='mm', format='Legal')
-    pdf.set_auto_page_break(auto=False, margin=15)
-    pdf.alias_nb_pages()
-    
-    current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college_context
+## ─────────────────────────────────────────────────────────────────────────────
+##  DROP-IN REPLACEMENT  —  convert_excel_to_pdf
+##
+##  • School of Business Management  &  Pravin Dalal School of …
+##    → Portrait A4, 4 columns: DAY & DATE | TIMING & SUBJECT (×3)
+##      Time ranges appear in a bold sub-header row under the column headers.
+##      No "EXAM TIME:" line in the page header.
+##
+##  • All other colleges → existing Landscape Legal logic (unchanged).
+## ─────────────────────────────────────────────────────────────────────────────
 
-    # Combined SOL merged-branch label (must match what save_to_excel writes)
+def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
+
+    current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL   = "Law" in current_college_context
+    IS_BUSINESS_SCH = ("School of Business Management" in current_college_context
+                       or "Pravin Dalal" in current_college_context)
+
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
 
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
-        2: {"start": "2:00 PM", "end": "5:00 PM"}
+        2: {"start": "2:00 PM",  "end": "5:00 PM"}
     })
-    
+
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
         return
 
+    # ── helper: semester string → default time-slot string ───────────────────
     def get_header_time_for_semester(sem_str):
         try:
             s = str(sem_str).strip().upper()
             sem_int = 1
-            romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12}
+            romans = {'I':1,'II':2,'III':3,'IV':4,'V':5,'VI':6,
+                      'VII':7,'VIII':8,'IX':9,'X':10,'XI':11,'XII':12}
             found = False
             for r_key, r_val in romans.items():
                 if s == r_key or s.endswith(f" {r_key}") or s.endswith(f"_{r_key}"):
-                    sem_int = r_val
-                    found = True
-                    break
+                    sem_int = r_val; found = True; break
             if not found:
-                import re
                 digits = re.findall(r'\d+', s)
                 if digits: sem_int = int(digits[0])
             slot_indicator = ((sem_int + 1) // 2) % 2
@@ -2263,177 +2022,565 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
     sheets_processed = 0
-    
-    for sheet_name, sheet_df in df_dict.items():
-        try:
-            if sheet_df.empty: continue
-            if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
-                sheet_df = sheet_df.reset_index()
-            
-            main_branch_full = ""
-            if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
-                 main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
-            elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
-                 main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
-            
-            if "Unnamed" in main_branch_full or main_branch_full == "":
-                if '_|_' in sheet_name:
-                    main_branch_full = sheet_name.split('_|_')[0]
 
-            rename_cols = {}
-            for col in sheet_df.columns:
-                if str(col).startswith("Unnamed:"):
-                    rename_cols[col] = main_branch_full
-            if rename_cols:
-                sheet_df = sheet_df.rename(columns=rename_cols)
-            
-            sheet_college_name = st.session_state.get('selected_college', "SVKM's NMIMS University")
-            if IS_LAW_SCHOOL and main_branch_full:
-                prog_upper = main_branch_full.upper()
-                if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
-                    sheet_college_name = "Kirit P. Mehta School of Law"
+    # ══════════════════════════════════════════════════════════════════════════
+    #  BRANCH A — School of Business Management / Pravin Dalal
+    #  Portrait A4, pivot by time-slot slot (columns = slot 1 / 2 / 3 …)
+    # ══════════════════════════════════════════════════════════════════════════
+    if IS_BUSINESS_SCH:
+        pdf = FPDF(orientation='P', unit='mm', format='A4')
+        pdf.set_auto_page_break(auto=False, margin=15)
+        pdf.alias_nb_pages()
+
+        footer_height = 14
+        header_end_y  = 62   # compact page-header ends here
+
+        # ── time slot labels from session state ──────────────────────────────
+        num_slots   = len(time_slots_dict)
+        slot_labels = {}                           # slot_num → "HH:MM AM - HH:MM PM"
+        for sn, scfg in sorted(time_slots_dict.items()):
+            slot_labels[sn] = f"{scfg['start']} to {scfg['end']}"
+
+        # ── render page footer ───────────────────────────────────────────────
+        def render_footer_sbm():
+            pdf.set_xy(10, pdf.h - footer_height)
+            pdf.set_font("Times", 'B', 8)
+            pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
+            pdf.line(10, pdf.h - footer_height + 5, 70, pdf.h - footer_height + 5)
+            pdf.set_font("Times", '', 8)
+            page_text = f"{pdf.page_no()} of {{nb}}"
+            tw = pdf.get_string_width(page_text.replace("{nb}", "99"))
+            pdf.set_xy(pdf.w - 10 - tw, pdf.h - footer_height + 5)
+            pdf.cell(tw, 5, page_text, 0, 0, 'R')
+
+        # ── render page header ───────────────────────────────────────────────
+        def render_header_sbm(header_content, declaration_date):
+            pdf.set_y(0)
+
+            # Declaration date (top-right)
+            if declaration_date:
+                day = declaration_date.day
+                suffix = ('TH' if 11 <= (day % 100) <= 13
+                          else {1:'ST',2:'ND',3:'RD'}.get(day % 10, 'TH'))
+                decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
+                pdf.set_font("Times", 'B', 11)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_xy(pdf.w - 80, 8)
+                pdf.cell(70, 8, decl_str, 0, 0, 'R')
+
+            # Logo — centred
+            logo_w = 40
+            if os.path.exists(LOGO_PATH):
+                pdf.image(LOGO_PATH, x=(pdf.w - logo_w) / 2, y=5, w=logo_w)
+
+            # College name
+            college_name = st.session_state.get('selected_college',
+                                                 "SVKM's NMIMS University").upper()
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Times", 'B', 12)
+            pdf.set_xy(10, 26)
+            pdf.cell(pdf.w - 20, 5, college_name, 0, 1, 'C')
+
+            # Timetable title
+            pdf.set_font("Times", 'B', 10)
+            pdf.set_xy(10, 32)
+            pdf.cell(pdf.w - 20, 4,
+                     "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)",
+                     0, 1, 'C')
+
+            current_y = 37
+
+            # Program name
+            prog_name = str(header_content.get('main_branch_full', '')).upper()
+            pdf.set_font("Times", 'B', 10)
+            pdf.set_xy(10, current_y)
+            pdf.cell(pdf.w - 20, 4, prog_name, 0, 1, 'C')
+            current_y += 5
+
+            # Year & Semester
+            sem_roman = str(header_content.get('semester_roman', '')).upper()
+            roman_map = {'XII':12,'XI':11,'X':10,'IX':9,'VIII':8,'VII':7,
+                         'VI':6,'V':5,'IV':4,'III':3,'II':2,'I':1}
+            sem_int = roman_map.get(sem_roman, None)
+            if sem_int is None:
+                m = re.search(r'(\d+)', sem_roman)
+                sem_int = int(m.group(1)) if m else 1
+            year_int = (sem_int + 1) // 2
+
+            def _to_roman(n):
+                val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),
+                       (90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),
+                       (5,"V"),(4,"IV"),(1,"I")]
+                r = ""
+                for v, s in val:
+                    while n >= v: r += s; n -= v
+                return r
+
+            pdf.set_font("Times", 'B', 10)
+            pdf.set_xy(10, current_y)
+            pdf.cell(pdf.w - 20, 4,
+                     f"YEAR: {_to_roman(year_int)}, TRIMESTER: {sem_roman}",
+                     0, 1, 'C')
+
+            pdf.set_xy(pdf.l_margin, header_end_y)
+
+        # ── single-cell text wrapper for portrait columns ────────────────────
+        def _wrap_cell(text, avail_w, font_style='', font_size=9):
+            pdf.set_font("Times", font_style, font_size)
+            words  = str(text).split()
+            lines  = []
+            cur    = ""
+            for w in words:
+                test = (cur + " " + w).strip()
+                if pdf.get_string_width(test) <= avail_w:
+                    cur = test
                 else:
-                    sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
-            
-            semester_raw = "General"
-            if '_|_' in sheet_name:
-                parts = sheet_name.split('_|_')
-                if not main_branch_full: main_branch_full = parts[0]
-                semester_raw = parts[1]
-            else:
-                if sheet_name in ["No_Data", "Daily_Statistics", "Summary", "Verification", "Empty"]: continue
-                if not main_branch_full: main_branch_full = sheet_name
+                    if cur: lines.append(cur)
+                    cur = w
+            if cur: lines.append(cur)
+            return lines if lines else [""]
 
-            import re
-            is_elective = False
-            if re.search(r'_Ele(\d*)$', semester_raw):
-                semester_raw = re.sub(r'_Ele\d*$', '', semester_raw)
-                is_elective = True
+        # ── draw one table row (header-sub-row or data row) ──────────────────
+        LINE_H   = 5          # mm per text line
+        PAD      = 1.5        # mm cell padding
 
-            # --- SOL: suppress elective-only sheets (OE is already inline in core sheet) ---
-            if IS_LAW_SCHOOL and is_elective:
+        def _draw_row(cells, col_widths, font_style='', font_size=9,
+                      fill_color=None, text_color=(0,0,0)):
+            """
+            cells      : list of strings, one per column
+            col_widths : list of mm widths, one per column
+            """
+            if fill_color:
+                pdf.set_fill_color(*fill_color)
+            pdf.set_text_color(*text_color)
+            pdf.set_font("Times", font_style, font_size)
+
+            # Pre-wrap every cell
+            wrapped = []
+            for i, txt in enumerate(cells):
+                avail = col_widths[i] - 2 * PAD
+                wrapped.append(_wrap_cell(txt, avail, font_style, font_size))
+
+            max_lines = max(len(lns) for lns in wrapped)
+            row_h     = LINE_H * max_lines
+            x0, y0    = pdf.get_x(), pdf.get_y()
+
+            # Background fill
+            if fill_color:
+                pdf.rect(x0, y0, sum(col_widths), row_h, 'F')
+
+            # Text + borders
+            cx = x0
+            for i, lines in enumerate(wrapped):
+                total_text_h = len(lines) * LINE_H * 0.85
+                pad_v = (row_h - total_text_h) / 2
+                for j, ln in enumerate(lines):
+                    pdf.set_xy(cx + PAD,
+                               y0 + pad_v + j * LINE_H * 0.85)
+                    pdf.cell(col_widths[i] - 2 * PAD, LINE_H * 0.85,
+                             ln, border=0, align='C')
+                pdf.rect(cx, y0, col_widths[i], row_h)
+                cx += col_widths[i]
+
+            pdf.set_xy(x0, y0 + row_h)
+            return row_h
+
+        # ── column layout: date col + one col per slot ───────────────────────
+        page_w    = pdf.w - 2 * pdf.l_margin   # usable width in portrait A4 ≈ 190 mm
+        date_w    = 38                          # DAY & DATE column
+        slot_w    = (page_w - date_w) / num_slots
+
+        col_widths = [date_w] + [slot_w] * num_slots
+
+        # ── process each sheet ────────────────────────────────────────────────
+        for sheet_name, sheet_df in df_dict.items():
+            try:
+                if sheet_df.empty: continue
+                if sheet_name in ["No_Data","Daily_Statistics","Summary",
+                                  "Verification","Empty"]: continue
+
+                # skip elective-only sheets (electives fold into core below)
+                if re.search(r'_Ele(\d*)$', sheet_name): continue
+
+                # ── extract metadata ─────────────────────────────────────────
+                main_branch_full = ""
+                for col in ("Program", "MainBranch"):
+                    if col in sheet_df.columns and not sheet_df[col].dropna().empty:
+                        main_branch_full = str(sheet_df[col].dropna().iloc[0])
+                        break
+                if not main_branch_full or "Unnamed" in main_branch_full:
+                    if '_|_' in sheet_name:
+                        main_branch_full = sheet_name.split('_|_')[0]
+                    else:
+                        main_branch_full = sheet_name
+
+                semester_raw = "General"
+                if '_|_' in sheet_name:
+                    semester_raw = sheet_name.split('_|_')[1]
+                else:
+                    main_branch_full = sheet_name
+
+                display_sem = semester_raw.strip()
+                for prefix in ("semester", "sem"):
+                    if display_sem.lower().startswith(prefix):
+                        display_sem = display_sem[len(prefix):].strip(); break
+
+                header_content = {
+                    'main_branch_full': main_branch_full,
+                    'semester_roman':   display_sem
+                }
+
+                # ── rebuild pivot by ExamSlotNumber from session-state data ──
+                # The Excel sheet has columns: Exam Date, <SubBranch1>, <SubBranch2>, …
+                # We need to find the original timetable data for this
+                # main_branch + semester and re-pivot by ExamSlotNumber.
+                #
+                # Strategy: read back from semester_wise_timetable stored in
+                # session_state (it was used to generate the Excel in the first
+                # place), so we don't lose slot info.
+
+                timetable_data = st.session_state.get('timetable_data', {})
+
+                # Collect rows matching this branch & semester
+                rows_for_sheet = []
+                for sem_key, sem_df in timetable_data.items():
+                    if sem_df.empty: continue
+                    sem_str_check = str(sem_key).strip().upper()
+                    disp_check    = display_sem.strip().upper()
+                    if sem_str_check != disp_check:
+                        # try numeric match
+                        roman_map2 = {'XII':12,'XI':11,'X':10,'IX':9,'VIII':8,'VII':7,
+                                      'VI':6,'V':5,'IV':4,'III':3,'II':2,'I':1}
+                        sv = roman_map2.get(sem_str_check) or (
+                            int(re.search(r'\d+',sem_str_check).group())
+                            if re.search(r'\d+',sem_str_check) else None)
+                        dv = roman_map2.get(disp_check) or (
+                            int(re.search(r'\d+',disp_check).group())
+                            if re.search(r'\d+',disp_check) else None)
+                        if sv != dv: continue
+
+                    branch_mask = sem_df['MainBranch'].astype(str) == main_branch_full
+                    matched = sem_df[branch_mask].copy()
+                    if not matched.empty:
+                        rows_for_sheet.append(matched)
+
+                if not rows_for_sheet:
+                    # Fallback: parse the Excel sheet columns (old path)
+                    # Build a minimal date-only table; subject cells from excel
+                    _fallback_df = sheet_df.copy()
+                    if 'Exam Date' not in _fallback_df.columns: continue
+                    _meta = re.compile(
+                        r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
+                        re.IGNORECASE)
+                    _sub_cols = [c for c in _fallback_df.columns
+                                 if c != 'Exam Date' and not _meta.match(str(c))
+                                 and pd.notna(c) and str(c).strip() != '']
+                    if not _sub_cols: continue
+
+                    # Build slot_pivot: date → {slot_num: text}
+                    slot_pivot = {}
+                    for _, row in _fallback_df.iterrows():
+                        d = str(row.get('Exam Date', '')).strip()
+                        if not d or d in ('nan','','---'): continue
+                        try:
+                            d = pd.to_datetime(d, format="%d-%m-%Y",
+                                               errors='coerce').strftime("%A, %d %B, %Y")
+                        except: pass
+                        if d not in slot_pivot:
+                            slot_pivot[d] = {sn: [] for sn in range(1, num_slots+1)}
+                        # All subjects go to slot 1 (no slot info available)
+                        for sc in _sub_cols:
+                            val = str(row.get(sc, '')).strip()
+                            if val and val not in ('nan','---',''):
+                                slot_pivot[d][1].append(val)
+                else:
+                    combined = pd.concat(rows_for_sheet, ignore_index=True)
+
+                    # normalise Exam Date
+                    combined['Exam Date'] = pd.to_datetime(
+                        combined['Exam Date'], format="%d-%m-%Y",
+                        errors='coerce')
+                    combined = combined.dropna(subset=['Exam Date'])
+                    combined = combined.sort_values('Exam Date')
+
+                    # ensure ExamSlotNumber column
+                    if 'ExamSlotNumber' not in combined.columns:
+                        combined['ExamSlotNumber'] = 1
+                    combined['ExamSlotNumber'] = (
+                        pd.to_numeric(combined['ExamSlotNumber'], errors='coerce')
+                        .fillna(1).astype(int))
+                    combined['ExamSlotNumber'] = combined['ExamSlotNumber'].apply(
+                        lambda x: x if x in time_slots_dict else 1)
+
+                    # build slot_pivot: date_str → {slot_num: [subject, …]}
+                    slot_pivot = {}
+                    for _, row in combined.iterrows():
+                        d_obj = row['Exam Date']
+                        d_str = d_obj.strftime("%A, %d %B, %Y")
+                        sn    = int(row.get('ExamSlotNumber', 1))
+                        subj  = str(row.get('Subject', '')).strip()
+                        if not subj or subj in ('nan', ''): continue
+
+                        # append OE tag if applicable
+                        oe = str(row.get('OE', '')).strip()
+                        if oe and oe not in ('nan', ''):
+                            subj = f"{subj} [{oe}]"
+
+                        if d_str not in slot_pivot:
+                            slot_pivot[d_str] = {sn2: [] for sn2 in time_slots_dict}
+                        slot_pivot[d_str].setdefault(sn, []).append(subj)
+
+                if not slot_pivot: continue
+
+                # ── add new page & render header ─────────────────────────────
+                pdf.add_page()
+                render_footer_sbm()
+                render_header_sbm(header_content, declaration_date)
+
+                pdf.set_xy(pdf.l_margin, header_end_y)
+
+                # ── column-header row ─────────────────────────────────────────
+                header_cells = ["DAY & DATE"] + ["TIMING & SUBJECT"] * num_slots
+                _draw_row(header_cells, col_widths,
+                          font_style='B', font_size=9.5)
+
+                # ── time-range sub-header row ─────────────────────────────────
+                time_cells = [""] + [slot_labels[sn]
+                                     for sn in sorted(time_slots_dict.keys())]
+                _draw_row(time_cells, col_widths,
+                          font_style='B', font_size=9)
+
+                # ── data rows ────────────────────────────────────────────────
+                pdf.set_font("Times", '', 9.5)
+                for d_str, slots in slot_pivot.items():
+                    row_cells = [d_str]
+                    for sn in sorted(time_slots_dict.keys()):
+                        subj_list = slots.get(sn, [])
+                        if subj_list:
+                            row_cells.append("\n".join(subj_list))
+                        else:
+                            row_cells.append("-------------------")
+
+                    # estimate row height for page-break check
+                    max_lines_est = 1
+                    for i, txt in enumerate(row_cells):
+                        avail = col_widths[i] - 2 * PAD
+                        lns   = _wrap_cell(txt, avail, '', 9.5)
+                        max_lines_est = max(max_lines_est, len(lns))
+                    est_h = LINE_H * max_lines_est
+
+                    if pdf.get_y() + est_h > pdf.h - footer_height - 5:
+                        pdf.add_page()
+                        render_footer_sbm()
+                        render_header_sbm(header_content, declaration_date)
+                        pdf.set_xy(pdf.l_margin, header_end_y)
+                        _draw_row(header_cells, col_widths, 'B', 9.5)
+                        _draw_row(time_cells,   col_widths, 'B', 9)
+
+                    _draw_row(row_cells, col_widths, '', 9.5)
+
+                sheets_processed += 1
+
+            except Exception as e:
+                st.warning(f"Error processing sheet {sheet_name}: {e}")
                 continue
-            
-            display_sem = semester_raw.strip()
-            if display_sem.lower().startswith("semester"):
-                display_sem = display_sem[8:].strip()
-            elif display_sem.lower().startswith("sem"):
-                display_sem = display_sem[3:].strip()
-            
-            header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-            header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
 
-            if not is_elective:
-                if 'Exam Date' not in sheet_df.columns: continue
-                sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
-                fixed_cols = ["Exam Date"]
-                _meta_pattern = re.compile(
-                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
-                    re.IGNORECASE
-                )
-                sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols and not _meta_pattern.match(str(c)) and pd.notna(c) and str(c).strip() != '']
-                if not sub_branch_cols: continue
-                
-                cols_per_page = 6
-                
-                for start in range(0, len(sub_branch_cols), cols_per_page):
-                    chunk = sub_branch_cols[start:start + cols_per_page]
-                    cols_to_print = fixed_cols + chunk
-                    chunk_df = sheet_df[cols_to_print].copy()
-                    
-                    subset = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
-                    valid_cells = (subset != "") & (subset != "nan") & (subset != "---")
-                    mask = valid_cells.any(axis=1)
-                    chunk_df = chunk_df[mask].reset_index(drop=True)
-                    if chunk_df.empty: continue
+    # ══════════════════════════════════════════════════════════════════════════
+    #  BRANCH B — All other colleges  (original Landscape Legal logic)
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        pdf = FPDF(orientation='L', unit='mm', format='Legal')
+        pdf.set_auto_page_break(auto=False, margin=15)
+        pdf.alias_nb_pages()
 
-                    try:
-                        chunk_df["Exam Date"] = pd.to_datetime(chunk_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                    except: pass
+        for sheet_name, sheet_df in df_dict.items():
+            try:
+                if sheet_df.empty: continue
+                if hasattr(sheet_df, 'index') and len(sheet_df.index.names) > 1:
+                    sheet_df = sheet_df.reset_index()
 
-                    page_width = pdf.w - 2 * pdf.l_margin 
-                    date_col_width = 30
-                    remaining_width = page_width - date_col_width
-                    
-                    num_sub = max(len(chunk), 1)
-                    sub_width = remaining_width / num_sub
-                    
-                    col_widths = [date_col_width] + [sub_width] * len(chunk)
-                    
-                    pdf.add_page()
-                    
-                    original_college = st.session_state.get('selected_college')
-                    st.session_state['selected_college'] = sheet_college_name
-                    
-                    print_table_custom(pdf, chunk_df, cols_to_print, col_widths, line_height=5,
-                                     header_content=header_content, Programs=chunk,
-                                     time_slot=header_exam_time, actual_time_slots=None,
-                                     declaration_date=declaration_date)
+                main_branch_full = ""
+                if "Program" in sheet_df.columns and not sheet_df["Program"].dropna().empty:
+                    main_branch_full = str(sheet_df["Program"].dropna().iloc[0])
+                elif "MainBranch" in sheet_df.columns and not sheet_df["MainBranch"].dropna().empty:
+                    main_branch_full = str(sheet_df["MainBranch"].dropna().iloc[0])
 
-                    if original_college: st.session_state['selected_college'] = original_college
-                    sheets_processed += 1
-            else:
-                if 'Subjects' in sheet_df.columns and 'Open Elective (All Applicable Streams)' not in sheet_df.columns:
-                    sheet_df.rename(columns={'Subjects': 'Open Elective (All Applicable Streams)'}, inplace=True)
+                if "Unnamed" in main_branch_full or main_branch_full == "":
+                    if '_|_' in sheet_name:
+                        main_branch_full = sheet_name.split('_|_')[0]
 
-                target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
-                available_cols = [c for c in target_cols if c in sheet_df.columns]
+                rename_cols = {}
+                for col in sheet_df.columns:
+                    if str(col).startswith("Unnamed:"):
+                        rename_cols[col] = main_branch_full
+                if rename_cols:
+                    sheet_df = sheet_df.rename(columns=rename_cols)
 
-                if len(available_cols) >= 3:
-                    sheet_df = sheet_df.dropna(subset=['Exam Date']).reset_index(drop=True)
-                    if sheet_df.empty: continue
+                sheet_college_name = st.session_state.get('selected_college',
+                                                          "SVKM's NMIMS University")
+                if IS_LAW_SCHOOL and main_branch_full:
+                    prog_upper = main_branch_full.upper()
+                    if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper:
+                        sheet_college_name = "Kirit P. Mehta School of Law"
+                    else:
+                        sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
 
-                    try:
-                        sheet_df["Exam Date"] = pd.to_datetime(sheet_df["Exam Date"], format="%d-%m-%Y", errors='coerce').dt.strftime("%A, %d %B, %Y")
-                    except: pass
+                semester_raw = "General"
+                if '_|_' in sheet_name:
+                    parts = sheet_name.split('_|_')
+                    if not main_branch_full: main_branch_full = parts[0]
+                    semester_raw = parts[1]
+                else:
+                    if sheet_name in ["No_Data","Daily_Statistics","Summary",
+                                      "Verification","Empty"]: continue
+                    if not main_branch_full: main_branch_full = sheet_name
 
-                    pdf.add_page()
+                is_elective = False
+                if re.search(r'_Ele(\d*)$', semester_raw):
+                    semester_raw = re.sub(r'_Ele\d*$', '', semester_raw)
+                    is_elective  = True
 
-                    col_widths = [30, 25]
-                    remaining_width = pdf.w - 2 * pdf.l_margin - sum(col_widths)
-                    col_widths.append(remaining_width)
+                if IS_LAW_SCHOOL and is_elective:
+                    continue
 
-                    original_college = st.session_state.get('selected_college')
-                    st.session_state['selected_college'] = sheet_college_name
+                display_sem = semester_raw.strip()
+                if display_sem.lower().startswith("semester"):
+                    display_sem = display_sem[8:].strip()
+                elif display_sem.lower().startswith("sem"):
+                    display_sem = display_sem[3:].strip()
 
-                    print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5,
-                                     header_content=header_content, Programs=["Electives"],
-                                     time_slot=header_exam_time, actual_time_slots=None,
-                                     declaration_date=declaration_date)
-                    
-                    if original_college: st.session_state['selected_college'] = original_college
-                    sheets_processed += 1
-                
-        except Exception as e:
-            st.warning(f"Error processing PDF sheet {sheet_name}: {e}")
-            continue
+                header_content  = {'main_branch_full': main_branch_full,
+                                   'semester_roman': display_sem}
+                header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
 
+                if not is_elective:
+                    if 'Exam Date' not in sheet_df.columns: continue
+                    sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
+                    fixed_cols   = ["Exam Date"]
+                    _meta_pattern = re.compile(
+                        r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
+                        re.IGNORECASE)
+                    sub_branch_cols = [c for c in sheet_df.columns
+                                       if c not in fixed_cols
+                                       and not _meta_pattern.match(str(c))
+                                       and pd.notna(c) and str(c).strip() != '']
+                    if not sub_branch_cols: continue
+
+                    cols_per_page = 6
+                    for start in range(0, len(sub_branch_cols), cols_per_page):
+                        chunk        = sub_branch_cols[start:start + cols_per_page]
+                        cols_to_print = fixed_cols + chunk
+                        chunk_df     = sheet_df[cols_to_print].copy()
+
+                        subset     = chunk_df[chunk].astype(str).apply(lambda x: x.str.strip())
+                        valid_cells = (subset != "") & (subset != "nan") & (subset != "---")
+                        mask       = valid_cells.any(axis=1)
+                        chunk_df   = chunk_df[mask].reset_index(drop=True)
+                        if chunk_df.empty: continue
+
+                        try:
+                            chunk_df["Exam Date"] = pd.to_datetime(
+                                chunk_df["Exam Date"], format="%d-%m-%Y",
+                                errors='coerce').dt.strftime("%A, %d %B, %Y")
+                        except: pass
+
+                        page_w         = pdf.w - 2 * pdf.l_margin
+                        date_col_width = 30
+                        remaining_w    = page_w - date_col_width
+                        num_sub        = max(len(chunk), 1)
+                        sub_width      = remaining_w / num_sub
+                        col_widths_lp  = [date_col_width] + [sub_width] * len(chunk)
+
+                        pdf.add_page()
+                        original_college = st.session_state.get('selected_college')
+                        st.session_state['selected_college'] = sheet_college_name
+
+                        print_table_custom(pdf, chunk_df, cols_to_print,
+                                           col_widths_lp, line_height=5,
+                                           header_content=header_content,
+                                           Programs=chunk,
+                                           time_slot=header_exam_time,
+                                           actual_time_slots=None,
+                                           declaration_date=declaration_date)
+
+                        if original_college:
+                            st.session_state['selected_college'] = original_college
+                        sheets_processed += 1
+
+                else:
+                    if ('Subjects' in sheet_df.columns and
+                            'Open Elective (All Applicable Streams)' not in sheet_df.columns):
+                        sheet_df.rename(columns={'Subjects':
+                            'Open Elective (All Applicable Streams)'}, inplace=True)
+
+                    target_cols    = ['Exam Date','OE Type',
+                                      'Open Elective (All Applicable Streams)']
+                    available_cols = [c for c in target_cols if c in sheet_df.columns]
+
+                    if len(available_cols) >= 3:
+                        sheet_df = sheet_df.dropna(
+                            subset=['Exam Date']).reset_index(drop=True)
+                        if sheet_df.empty: continue
+
+                        try:
+                            sheet_df["Exam Date"] = pd.to_datetime(
+                                sheet_df["Exam Date"], format="%d-%m-%Y",
+                                errors='coerce').dt.strftime("%A, %d %B, %Y")
+                        except: pass
+
+                        pdf.add_page()
+                        col_widths_oe = [30, 25]
+                        remaining_w   = pdf.w - 2 * pdf.l_margin - sum(col_widths_oe)
+                        col_widths_oe.append(remaining_w)
+
+                        original_college = st.session_state.get('selected_college')
+                        st.session_state['selected_college'] = sheet_college_name
+
+                        print_table_custom(pdf, sheet_df, available_cols,
+                                           col_widths_oe, line_height=5,
+                                           header_content=header_content,
+                                           Programs=["Electives"],
+                                           time_slot=header_exam_time,
+                                           actual_time_slots=None,
+                                           declaration_date=declaration_date)
+
+                        if original_college:
+                            st.session_state['selected_college'] = original_college
+                        sheets_processed += 1
+
+            except Exception as e:
+                st.warning(f"Error processing PDF sheet {sheet_name}: {e}")
+                continue
+
+    # ── shared: guard against empty PDF ──────────────────────────────────────
     if sheets_processed == 0:
         st.error("No valid sheets generated in PDF.")
         return
 
+    # ── shared: instructions/guidelines last page ─────────────────────────────
     try:
         pdf.add_page()
         pdf.set_xy(10, pdf.h - 20)
         pdf.set_font("Times", 'B', 8)
         pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
         pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Times", size=9)
+        pdf.set_font("Times", '', 9)
         pdf.set_xy(pdf.w - 30, pdf.h - 15)
         pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
 
         pdf.set_y(0)
-        if os.path.exists(LOGO_PATH): pdf.image(LOGO_PATH, x=(pdf.w-45)/2, y=5, w=45)
+        if os.path.exists(LOGO_PATH):
+            pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Times", 'B', 12)
         pdf.set_xy(10, 25)
-        pdf.cell(pdf.w - 20, 8, st.session_state.get('selected_college', "SVKM's NMIMS University").upper(), 0, 1, 'C')
-
+        pdf.cell(pdf.w - 20, 8,
+                 st.session_state.get('selected_college',
+                                      "SVKM's NMIMS University").upper(),
+                 0, 1, 'C')
         pdf.set_font("Times", 'B', 12)
-        pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 40)
-        pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
-
+        pdf.cell(0, 10, "EXAMINATION GUIDELINES", 0, 1, 'C')
         pdf.set_y(60)
         pdf.set_font("Times", 'B', 12)
         pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
@@ -2442,20 +2589,22 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
             "2. Candidates must produce their University Identity Card at the time of the examination.",
             "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time."
+            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
+            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall.",
+            "   Carrying the same will be treated as usage of unfair means.",
         ]
-        pdf.set_font("Times", size=12)
-        for i in instrs:
-            pdf.multi_cell(0, 7, i)
+        pdf.set_font("Times", '', 12)
+        for instr in instrs:
+            pdf.multi_cell(0, 7, instr)
             pdf.ln(2)
-    except Exception as e:
+    except Exception:
         pass
 
+    # ── save ──────────────────────────────────────────────────────────────────
     try:
         pdf.output(pdf_path)
     except Exception as e:
         st.error(f"Save PDF failed: {e}")
-
 
 def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date=None):
     #st.write("🔄 Starting PDF generation process...")
