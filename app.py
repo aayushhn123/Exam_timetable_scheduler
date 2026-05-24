@@ -2032,8 +2032,86 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         pdf.set_auto_page_break(auto=False, margin=15)
         pdf.alias_nb_pages()
 
-        footer_height = 14
-        header_end_y  = 62   # compact page-header ends here
+        footer_height    = 14
+        header_end_y     = 62   # compact page-header ends here
+
+        # ── instructions block (printed below the table on every page) ───────
+        INSTRS = [
+            ("INSTRUCTIONS TO CANDIDATES", True),   # (text, is_heading)
+            ("1. Candidates are required to be present at the examination centre "
+             "THIRTY MINUTES before the stipulated time.", False),
+            ("2. Candidates must produce their University Identity Card at the "
+             "time of the examination.", False),
+            ("3. Candidates are not permitted to enter the examination hall after "
+             "stipulated time.", False),
+            ("4. Candidates will not be permitted to leave the examination hall "
+             "during the examination time.", False),
+            ("5. Candidates are forbidden from taking any unauthorized material "
+             "inside the examination hall. Carrying the same will be treated as "
+             "usage of unfair means.", False),
+        ]
+
+        def _measure_instructions(font_size, line_h, usable_w):
+            """Return total height needed to render INSTRS at given font_size."""
+            total = 0
+            for text, is_heading in INSTRS:
+                pdf.set_font("Times", 'BU' if is_heading else '', font_size)
+                # estimate lines via word-wrap
+                words = text.split()
+                lines, cur = [], ""
+                for w in words:
+                    test = (cur + " " + w).strip()
+                    if pdf.get_string_width(test) <= usable_w:
+                        cur = test
+                    else:
+                        if cur: lines.append(cur)
+                        cur = w
+                if cur: lines.append(cur)
+                total += len(lines) * line_h + (1 if is_heading else 0.5)
+            return total
+
+        def render_instructions_sbm(y_start):
+            """
+            Render INSTRUCTIONS TO CANDIDATES block starting at y_start.
+            Auto-shrinks font so it fits between y_start and (pdf.h - footer_height - 2).
+            """
+            usable_w  = pdf.w - 2 * pdf.l_margin
+            available = pdf.h - footer_height - 2 - y_start
+
+            # find largest font that fits (try 8.5 down to 6.5)
+            chosen_size = 6.5
+            chosen_lh   = 4.0
+            for fs in [8.5, 8.0, 7.5, 7.0, 6.5]:
+                lh = fs * 0.55
+                if _measure_instructions(fs, lh, usable_w) <= available:
+                    chosen_size = fs
+                    chosen_lh   = lh
+                    break
+
+            pdf.set_text_color(0, 0, 0)
+            cy = y_start + 1
+            for text, is_heading in INSTRS:
+                if is_heading:
+                    pdf.set_font("Times", 'BU', chosen_size)
+                else:
+                    pdf.set_font("Times", '', chosen_size)
+
+                words = text.split()
+                lines, cur = [], ""
+                for w in words:
+                    test = (cur + " " + w).strip()
+                    if pdf.get_string_width(test) <= usable_w:
+                        cur = test
+                    else:
+                        if cur: lines.append(cur)
+                        cur = w
+                if cur: lines.append(cur)
+
+                for ln in lines:
+                    pdf.set_xy(pdf.l_margin, cy)
+                    pdf.cell(usable_w, chosen_lh, ln, 0, 0, 'L')
+                    cy += chosen_lh
+                cy += 0.5 if not is_heading else 1.0
 
         # ── time slot labels from session state ──────────────────────────────
         num_slots   = len(time_slots_dict)
@@ -2350,6 +2428,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 _draw_row(time_cells, col_widths,
                           font_style='B', font_size=9)
 
+                # ── pre-calculate instructions block height to reserve space ─
+                _instr_h = _measure_instructions(7.5, 7.5 * 0.55,
+                                                 pdf.w - 2 * pdf.l_margin)
+                # bottom boundary = footer + instructions + small gap
+                _table_bottom = pdf.h - footer_height - _instr_h - 4
+
                 # ── data rows ────────────────────────────────────────────────
                 pdf.set_font("Times", '', 9.5)
                 for d_str, slots in slot_pivot.items():
@@ -2369,7 +2453,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         max_lines_est = max(max_lines_est, len(lns))
                     est_h = LINE_H * max_lines_est
 
-                    if pdf.get_y() + est_h > pdf.h - footer_height - 5:
+                    if pdf.get_y() + est_h > _table_bottom:
+                        # render instructions on the current page before turning
+                        render_instructions_sbm(pdf.get_y() + 2)
                         pdf.add_page()
                         render_footer_sbm()
                         render_header_sbm(header_content, declaration_date)
@@ -2378,6 +2464,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         _draw_row(time_cells,   col_widths, 'B', 9)
 
                     _draw_row(row_cells, col_widths, '', 9.5)
+
+                # ── instructions below the table on the last page ─────────────
+                render_instructions_sbm(pdf.get_y() + 2)
 
                 sheets_processed += 1
 
@@ -2557,48 +2646,50 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         st.error("No valid sheets generated in PDF.")
         return
 
-    # ── shared: instructions/guidelines last page ─────────────────────────────
-    try:
-        pdf.add_page()
-        pdf.set_xy(10, pdf.h - 20)
-        pdf.set_font("Times", 'B', 8)
-        pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-        pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
-        pdf.set_font("Times", '', 9)
-        pdf.set_xy(pdf.w - 30, pdf.h - 15)
-        pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
+    # ── dedicated instructions last page — non-SBM colleges only ─────────────
+    # (SBM/Pravin Dalal render instructions inline below each table instead)
+    if not IS_BUSINESS_SCH:
+        try:
+            pdf.add_page()
+            pdf.set_xy(10, pdf.h - 20)
+            pdf.set_font("Times", 'B', 8)
+            pdf.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
+            pdf.line(10, pdf.h - 15, 60, pdf.h - 15)
+            pdf.set_font("Times", '', 9)
+            pdf.set_xy(pdf.w - 30, pdf.h - 15)
+            pdf.cell(20, 5, f"{pdf.page_no()} of {{nb}}", 0, 0, 'R')
 
-        pdf.set_y(0)
-        if os.path.exists(LOGO_PATH):
-            pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_xy(10, 25)
-        pdf.cell(pdf.w - 20, 8,
-                 st.session_state.get('selected_college',
-                                      "SVKM's NMIMS University").upper(),
-                 0, 1, 'C')
-        pdf.set_font("Times", 'B', 12)
-        pdf.set_xy(10, 40)
-        pdf.cell(0, 10, "EXAMINATION GUIDELINES", 0, 1, 'C')
-        pdf.set_y(60)
-        pdf.set_font("Times", 'B', 12)
-        pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
-        pdf.ln(5)
-        instrs = [
-            "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
-            "2. Candidates must produce their University Identity Card at the time of the examination.",
-            "3. Candidates are not permitted to enter the examination hall after stipulated time.",
-            "4. Candidates will not be permitted to leave the examination hall during the examination time.",
-            "5. Candidates are forbidden from taking any unauthorized material inside the examination hall.",
-            "   Carrying the same will be treated as usage of unfair means.",
-        ]
-        pdf.set_font("Times", '', 12)
-        for instr in instrs:
-            pdf.multi_cell(0, 7, instr)
-            pdf.ln(2)
-    except Exception:
-        pass
+            pdf.set_y(0)
+            if os.path.exists(LOGO_PATH):
+                pdf.image(LOGO_PATH, x=(pdf.w - 45) / 2, y=5, w=45)
+            pdf.set_text_color(0, 0, 0)
+            pdf.set_font("Times", 'B', 12)
+            pdf.set_xy(10, 25)
+            pdf.cell(pdf.w - 20, 8,
+                     st.session_state.get('selected_college',
+                                          "SVKM's NMIMS University").upper(),
+                     0, 1, 'C')
+            pdf.set_font("Times", 'B', 12)
+            pdf.set_xy(10, 40)
+            pdf.cell(0, 10, "EXAMINATION GUIDELINES", 0, 1, 'C')
+            pdf.set_y(60)
+            pdf.set_font("Times", 'B', 12)
+            pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
+            pdf.ln(5)
+            instrs = [
+                "1. Candidates are required to be present at the examination center THIRTY MINUTES before the stipulated time.",
+                "2. Candidates must produce their University Identity Card at the time of the examination.",
+                "3. Candidates are not permitted to enter the examination hall after stipulated time.",
+                "4. Candidates will not be permitted to leave the examination hall during the examination time.",
+                "5. Candidates are forbidden from taking any unauthorized material inside the examination hall.",
+                "   Carrying the same will be treated as usage of unfair means.",
+            ]
+            pdf.set_font("Times", '', 12)
+            for instr in instrs:
+                pdf.multi_cell(0, 7, instr)
+                pdf.ln(2)
+        except Exception:
+            pass
 
     # ── save ──────────────────────────────────────────────────────────────────
     try:
