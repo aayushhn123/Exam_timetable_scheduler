@@ -2156,7 +2156,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 pdf.image(logo_file, x=(pdf.w - logo_w) / 2, y=logo_y, w=logo_w)
 
             # All text starts below the logo (logo ~40 mm tall at w=45)
-            text_y = logo_y + 42
+            text_y = logo_y + 44
 
             # College name
             college_name = st.session_state.get('selected_college',
