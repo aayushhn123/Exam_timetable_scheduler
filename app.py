@@ -2146,10 +2146,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 pdf.set_xy(pdf.w - 80, 8)
                 pdf.cell(70, 8, decl_str, 0, 0, 'R')
 
-            # Logo — centred
-            logo_w = 40
-            if os.path.exists(LOGO_PATH):
-                pdf.image(LOGO_PATH, x=(pdf.w - logo_w) / 2, y=5, w=logo_w)
+            # Logo — centred (SBM/Pravin Dalal use their own logo)
+            logo_w    = 40
+            sbm_logo  = "logo_sbm.png"
+            logo_file = sbm_logo if os.path.exists(sbm_logo) else LOGO_PATH
+            if os.path.exists(logo_file):
+                pdf.image(logo_file, x=(pdf.w - logo_w) / 2, y=5, w=logo_w)
 
             # College name
             college_name = st.session_state.get('selected_college',
