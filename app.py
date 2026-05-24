@@ -2033,7 +2033,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         pdf.alias_nb_pages()
 
         footer_height    = 14
-        header_end_y     = 62   # compact page-header ends here
+        header_end_y     = 68   # compact page-header ends here
 
         # ── instructions block (printed below the table on every page) ───────
         INSTRS = [
@@ -2147,35 +2147,40 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 pdf.cell(70, 8, decl_str, 0, 0, 'R')
 
             # Logo — centred (SBM/Pravin Dalal use their own logo)
-            logo_w    = 40
+            # logo_sbm.png is taller; place at y=3 w=45 and start text below it
+            logo_w    = 45
+            logo_y    = 3
             sbm_logo  = "logo_sbm.png"
             logo_file = sbm_logo if os.path.exists(sbm_logo) else LOGO_PATH
             if os.path.exists(logo_file):
-                pdf.image(logo_file, x=(pdf.w - logo_w) / 2, y=5, w=logo_w)
+                pdf.image(logo_file, x=(pdf.w - logo_w) / 2, y=logo_y, w=logo_w)
+
+            # All text starts below the logo (logo ~40 mm tall at w=45)
+            text_y = logo_y + 42
 
             # College name
             college_name = st.session_state.get('selected_college',
                                                  "SVKM's NMIMS University").upper()
             pdf.set_text_color(0, 0, 0)
             pdf.set_font("Times", 'B', 12)
-            pdf.set_xy(10, 26)
+            pdf.set_xy(10, text_y)
             pdf.cell(pdf.w - 20, 5, college_name, 0, 1, 'C')
+            text_y += 5
 
             # Timetable title
             pdf.set_font("Times", 'B', 10)
-            pdf.set_xy(10, 32)
+            pdf.set_xy(10, text_y)
             pdf.cell(pdf.w - 20, 4,
                      "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)",
                      0, 1, 'C')
-
-            current_y = 37
+            text_y += 4
 
             # Program name
             prog_name = str(header_content.get('main_branch_full', '')).upper()
             pdf.set_font("Times", 'B', 10)
-            pdf.set_xy(10, current_y)
+            pdf.set_xy(10, text_y)
             pdf.cell(pdf.w - 20, 4, prog_name, 0, 1, 'C')
-            current_y += 5
+            text_y += 4
 
             # Year & Semester
             sem_roman = str(header_content.get('semester_roman', '')).upper()
@@ -2197,12 +2202,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 return r
 
             pdf.set_font("Times", 'B', 10)
-            pdf.set_xy(10, current_y)
+            pdf.set_xy(10, text_y)
             pdf.cell(pdf.w - 20, 4,
                      f"YEAR: {_to_roman(year_int)}, TRIMESTER: {sem_roman}",
                      0, 1, 'C')
+            text_y += 4
 
-            pdf.set_xy(pdf.l_margin, header_end_y)
+            # Small gap then hand off to table (update header_end_y dynamically)
+            pdf.set_xy(pdf.l_margin, text_y + 3)
+
 
         # ── single-cell text wrapper for portrait columns ────────────────────
         def _wrap_cell(text, avail_w, font_style='', font_size=9):
@@ -2417,7 +2425,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 render_footer_sbm()
                 render_header_sbm(header_content, declaration_date)
 
-                pdf.set_xy(pdf.l_margin, header_end_y)
 
                 # ── column-header row ─────────────────────────────────────────
                 header_cells = ["DAY & DATE"] + ["TIMING & SUBJECT"] * num_slots
@@ -2461,7 +2468,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         pdf.add_page()
                         render_footer_sbm()
                         render_header_sbm(header_content, declaration_date)
-                        pdf.set_xy(pdf.l_margin, header_end_y)
                         _draw_row(header_cells, col_widths, 'B', 9.5)
                         _draw_row(time_cells,   col_widths, 'B', 9)
 
