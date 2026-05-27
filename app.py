@@ -1114,15 +1114,19 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     
     # If no slot fits, return None
     return None
+                                     
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college
     IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
+    is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
     
     st.info(f"🚀 SCHEDULING STRATEGY: Stream-by-Stream -> Common (Alternate Day) -> Individual (Gap Fill)")
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
-    
+    if is_business_school:
+        st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Multi-slot utilization & Even Spread Distribution")
+        
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
@@ -1175,16 +1179,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     else:
         eligible_subjects['CMGroup_Clean'] = ""
 
-    # ── SOL: B.A./B.B.A. uncommon subject pairing ─────────────────────────────
-    # For School of Law, subjects with no CM group that belong to B.A. LL.B or
-    # B.B.A. LL.B in the same semester must be scheduled on the same day at the
-    # same time (one subject per program side-by-side). We achieve this by
-    # assigning a synthetic shared CMGroup to each BA subject and the
-    # corresponding BBA subject in the same semester, pairing them by index
-    # (sorted by ModuleCode so the pairing is deterministic).
-    #
-    # The resulting synthetic unit contains rows from BOTH programs, so the
-    # scheduler's branch_sems set covers both → they land on the same date.
     import re as _re
     _sol_ba_bba_re  = _re.compile(r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B', _re.IGNORECASE)
     _sol_llm_re     = _re.compile(r'(LL\.M|master\s+of\s+law|llm)',    _re.IGNORECASE)
@@ -1199,21 +1193,18 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         pairing_pool = eligible_subjects[no_cm_mask & sol_mask].copy()
 
         if not pairing_pool.empty:
-            # Identify BA and BBA rows separately using Program column
             _ba_re  = _re.compile(r'^B\.A\.',   _re.IGNORECASE)
             _bba_re = _re.compile(r'^B\.B\.A\.', _re.IGNORECASE)
 
             ba_rows  = pairing_pool[pairing_pool['Program'].str.match(r'^B\.A\.',   case=False, na=False)]
             bba_rows = pairing_pool[pairing_pool['Program'].str.match(r'^B\.B\.A\.', case=False, na=False)]
 
-            # Group by Semester, then pair BA subjects with BBA subjects in order
-            # of ModuleCode (sorted) so the pairing is stable across runs.
             for sem_val, ba_sem_group in ba_rows.groupby('Semester'):
                 bba_sem_group = bba_rows[bba_rows['Semester'] == sem_val]
                 if bba_sem_group.empty:
                     continue
 
-                ba_sorted  = ba_sem_group.sort_values('ModuleCode').reset_index()   # has 'index' col = orig idx
+                ba_sorted  = ba_sem_group.sort_values('ModuleCode').reset_index()   
                 bba_sorted = bba_sem_group.sort_values('ModuleCode').reset_index()
 
                 pair_count = min(len(ba_sorted), len(bba_sorted))
@@ -1224,10 +1215,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     eligible_subjects.loc[ba_orig_idx,  'CMGroup_Clean'] = synthetic_cm
                     eligible_subjects.loc[bba_orig_idx, 'CMGroup_Clean'] = synthetic_cm
 
-                # Any leftover unpaired subjects (if counts differ) keep CMGroup_Clean=""
-                # so they still get scheduled as individual units.
-
-    # MBA TECH SPECIAL PRIORITY LOGIC
     mba_tech_common_within_ids = set()
     if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
         mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains("MBA TECH", na=False)
@@ -1243,8 +1230,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     df_common    = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
     
-    # ── Helper: detect if ALL rows in a group are 2-credit (Difficulty == 0) ──
-    # Difficulty column was read as numeric; 0 means 2-credit per spec.
     def _all_two_credit(group_df):
         if 'Difficulty' not in group_df.columns:
             return False
@@ -1259,7 +1244,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'fixed_slot': group['ExamSlotNumber'].iloc[0],
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum(),
-                'is_two_credit': _all_two_credit(group),   # ← NEW
+                'is_two_credit': _all_two_credit(group),   
             }
             if cm_id in mba_tech_common_within_ids or "PRIORITY" in cm_id: 
                 common_units_priority.append(unit)
@@ -1275,7 +1260,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'fixed_slot': group['ExamSlotNumber'].iloc[0],
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum(),
-                'is_two_credit': _all_two_credit(group),   # ← NEW
+                'is_two_credit': _all_two_credit(group),   
             }
             individual_units.append(unit)
 
@@ -1284,6 +1269,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     def execute_pass(enforce_cap):
         work_df = df.copy()
         daily_schedule_map = {d.strftime("%d-%m-%Y"): set() for d in all_valid_dates}
+        slot_schedule_map = {d.strftime("%d-%m-%Y"): {s: set() for s in time_slots_dict.keys()} for d in all_valid_dates}
+        date_load_tracker = {d.strftime("%d-%m-%Y"): 0 for d in all_valid_dates}
         session_capacity = {} 
         
         def check_campus_capacity(date_str, time_slot, unit_row_indices):
@@ -1316,23 +1303,25 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
             
-            # ── 2-credit subjects bypass the alternate-day rule entirely ──────
-            # Difficulty == 0 flags a 2-credit subject. These are lightweight and
-            # do not need a rest day between them, even for Law School.
             is_two_credit = unit.get('is_two_credit', False)
 
-            for date_obj in allowed_dates:
+            if is_business_school:
+                # Sort by the current number of subjects scheduled on each date to guarantee an even spread
+                dates_to_try = sorted(allowed_dates, key=lambda d: date_load_tracker[d.strftime("%d-%m-%Y")])
+            else:
+                dates_to_try = allowed_dates
+
+            for date_obj in dates_to_try:
                 date_str = date_obj.strftime("%d-%m-%Y")
                 
-                # Check Same Day Conflict (Always enforced)
-                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
-                    continue
+                if not is_business_school:
+                    # Standard Same Day Conflict (Always enforced unless SBM)
+                    if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
+                        continue
                 
-                # Check 1-Day Gap Constraint:
-                # Applied when: require_1_day_gap=True (common subjects), OR globally
-                # for Law School — EXCEPT when the subject is 2-credit (Difficulty==0).
+                # Check 1-Day Gap Constraint
                 apply_gap = (IS_LAW_SCHOOL or require_1_day_gap) and not is_two_credit
-                if apply_gap:
+                if apply_gap and not is_business_school:
                     prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
                     
@@ -1343,6 +1332,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 
                 # Check Capacity
                 for slot_num in slots_to_try:
+                    if is_business_school:
+                        # Verify SLOT conflict specifically. Students can't be in 2 places at the EXACT same time.
+                        if not set(unit['branch_sems']).isdisjoint(slot_schedule_map.get(date_str, {}).get(slot_num, set())):
+                            continue
+                            
                     time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                     allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
                     
@@ -1354,6 +1348,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
                         
                         daily_schedule_map[date_str].update(unit['branch_sems'])
+                        if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
+                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                            
+                        date_load_tracker[date_str] += 1
                         add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
                         return True
             return False
@@ -3765,10 +3763,16 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     """
     st.info("🎯 Optimizing schedule by filling gaps (Capacity Aware & CM Group Safe)...")
     
-    # Detect Law Context to apply Alternate Day logic during gap filling
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
+    is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
     
+    # SBM requested an even spread across the entire date range.
+    # Gap-filling moves exams backwards to compress the schedule, which completely undoes the even spread.
+    if is_business_school:
+        st.info("💼 Skipping backward gap-fill to maintain an even spread across the full date range for Business School.")
+        return sem_dict, 0, []
+        
     moves_made = 0
     optimization_log = []
     
