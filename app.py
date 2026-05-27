@@ -4038,16 +4038,18 @@ def main():
         st.markdown("#### 📅 Examination Period")
         st.markdown("")
     
-        # Default Dates Logic based on College
-        if IS_MPSTME:
-            def_start = datetime(2026, 5, 2)
-            def_end = datetime(2026, 5, 16)
-        elif IS_LAW_SCHOOL:
-            def_start = datetime(2026, 5, 2)
-            def_end = datetime(2026, 5, 20)
-        else:
-            def_start = datetime(2025, 4, 1)
-            def_end = datetime(2025, 5, 30)
+       # Default Dates Logic: Current date and Current date + 10 days for ALL colleges
+        def_start = datetime.today()
+        def_end = datetime.today() + timedelta(days=10)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            base_date = st.date_input("📆 Start Date", value=def_start)
+            base_date = datetime.combine(base_date, datetime.min.time())
+    
+        with col2:
+            end_date = st.date_input("📆 End Date", value=def_end)
+            end_date = datetime.combine(end_date, datetime.min.time())
 
         col1, col2 = st.columns(2)
         with col1:
