@@ -29,16 +29,23 @@ components.html("""
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  /* Custom sleek scrollbar for the iframe */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    background: transparent; /* Let the Streamlit background show through */
     min-height: 100vh;
     padding: 2rem 1.5rem 3rem 1.5rem;
+    overflow-x: hidden;
   }
 
   .hero {
     text-align: center;
-    padding: 2.5rem 1rem 2rem 1rem;
+    padding: 2.5rem 1rem 1.5rem 1rem;
     animation: fadeInDown 0.7s ease;
   }
 
@@ -89,11 +96,6 @@ components.html("""
     max-width: 1000px;
     margin: 2.5rem auto 0 auto;
     animation: fadeInUp 0.8s ease;
-  }
-
-  @media (max-width: 650px) {
-    .grid { grid-template-columns: 1fr; }
-    .hero-title { font-size: 2rem; }
   }
 
   .card {
@@ -241,6 +243,48 @@ components.html("""
     from { opacity:0; transform:translateY(20px); }
     to   { opacity:1; transform:translateY(0); }
   }
+
+  /* --- RESPONSIVE MEDIA QUERIES --- */
+  
+  /* Tablets and smaller screens */
+  @media (max-width: 900px) {
+    .grid { 
+        gap: 1rem; 
+        padding: 0 0.5rem;
+    }
+  }
+
+  /* Mobile screens */
+  @media (max-width: 650px) {
+    body {
+        padding: 1rem 0.5rem 2rem 0.5rem;
+    }
+    .hero {
+        padding: 1.5rem 0.5rem 1rem 0.5rem;
+    }
+    .hero-title { 
+        font-size: 2.2rem; 
+    }
+    .hero-sub {
+        font-size: 0.95rem;
+    }
+    .grid { 
+        grid-template-columns: 1fr; 
+        margin-top: 1.5rem;
+    }
+    .card {
+        padding: 1.5rem;
+    }
+    .icon {
+        width: 48px;
+        height: 48px;
+        font-size: 1.3rem;
+        margin-bottom: 0.9rem;
+    }
+    .title {
+        font-size: 1.05rem;
+    }
+  }
 </style>
 </head>
 <body>
@@ -298,4 +342,4 @@ components.html("""
 
 </body>
 </html>
-""", height=900, scrolling=False)
+""", height=1200, scrolling=True)
