@@ -4181,20 +4181,12 @@ def main():
 
                             try:
                                 if sem_dict:
-                                    pdf_output = io.BytesIO()
-                                    temp_pdf_path = "temp_timetable.pdf"
-                                    generate_pdf_timetable(sem_dict, temp_pdf_path, declaration_date=declaration_date)
+                                    # The updated generate_pdf_timetable handles ZIPs and Session State natively in-memory!
+                                    generate_pdf_timetable(sem_dict, "temp_timetable.pdf", declaration_date=declaration_date)
                                     
-                                    if os.path.exists(temp_pdf_path):
-                                        with open(temp_pdf_path, "rb") as f:
-                                            pdf_output.write(f.read())
-                                        pdf_output.seek(0)
-                                        st.session_state.pdf_data = pdf_output.getvalue()
-                                        os.remove(temp_pdf_path)
-                                        st.success("✅ PDF generated successfully")
-                                    else:
-                                        st.warning("⚠️ PDF generation completed but file not found")
-                                        st.session_state.pdf_data = None
+                                    # Verify if the function successfully populated the session state
+                                    if not st.session_state.get('pdf_data'):
+                                        st.warning("⚠️ PDF generation failed to return data.")
                                 else:
                                     st.warning("⚠️ No data available for PDF generation")
                                     st.session_state.pdf_data = None
