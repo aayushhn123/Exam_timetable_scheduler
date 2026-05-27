@@ -4051,15 +4051,6 @@ def main():
             end_date = st.date_input("📆 End Date", value=def_end)
             end_date = datetime.combine(end_date, datetime.min.time())
 
-        col1, col2 = st.columns(2)
-        with col1:
-            base_date = st.date_input("📆 Start Date", value=def_start)
-            base_date = datetime.combine(base_date, datetime.min.time())
-    
-        with col2:
-            end_date = st.date_input("📆 End Date", value=def_end)
-            end_date = datetime.combine(end_date, datetime.min.time())
-
         # Validate date range
         if end_date <= base_date:
             st.error("⚠️ End date must be after start date!")
