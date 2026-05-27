@@ -342,4 +342,4 @@ components.html("""
 
 </body>
 </html>
-""", height=1800, scrolling=False)
+""", height=1400, scrolling=False)
