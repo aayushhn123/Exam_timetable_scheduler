@@ -2115,8 +2115,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(0)
             if declaration_date:
                 day = declaration_date.day
-                # Sr 1: lowercase ordinal suffix, no comma — e.g. '2nd February 2026'
-                suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
+                suffix = ('TH' if 11 <= (day % 100) <= 13 else {1:'ST',2:'ND',3:'RD'}.get(day % 10, 'TH'))
                 decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
                 pdf_obj.set_font("Times", 'B', 11)
                 pdf_obj.set_text_color(0, 0, 0)
@@ -2160,12 +2159,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             if sem_int is None:
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
-            # Sr 5: Year concept for SBM/PDSE:
-            # Year I  = Trim I, II, III  (sem 1-3)
-            # Year II = Trim IV, V, VI   (sem 4-6)
-            # Year III= Trim VII,VIII,IX (sem 7-9)  etc.
-            import math
-            year_int = math.ceil(sem_int / 3)
+            year_int = (sem_int + 1) // 2
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
@@ -3161,11 +3155,9 @@ def save_to_excel(semester_wise_timetable):
         st.warning("No timetable data to save")
         return None
 
-    # College detection
+    # SOL detection
     current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL    = "Law" in current_college_context
-    IS_BUSINESS_SCH  = ("School of Business Management" in current_college_context
-                        or "Pravin Dalal" in current_college_context)
+    IS_LAW_SCHOOL = "Law" in current_college_context
 
     # The combined header string that replaces both individual program headers
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
@@ -3324,104 +3316,54 @@ def save_to_excel(semester_wise_timetable):
                    
                     if not df_non_elec.empty:
                         df_processed = df_non_elec.copy().reset_index(drop=True)
-
-                        # Ensure SubBranch is never blank/NaN — fall back to MainBranch
-                        # This is critical for SBM where SubBranch == MainBranch or is empty
-                        df_processed['SubBranch'] = (
-                            df_processed['SubBranch']
-                            .fillna(main_branch)
-                            .astype(str)
-                            .str.strip()
-                            .replace('', main_branch)
-                            .replace('nan', main_branch)
-                        )
-
-                        # Sr 4: helper for a.m./p.m. format (SBM only)
-                        def _fmt_time_lower(t):
-                            t = str(t).strip()
-                            t = re.sub(r'\bAM\b', 'a.m.', t, flags=re.IGNORECASE)
-                            t = re.sub(r'\bPM\b', 'p.m.', t, flags=re.IGNORECASE)
-                            return t
-
                         subject_displays = []
                         for idx in range(len(df_processed)):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
-                            try:
-                                duration = float(row.get('Exam Duration', 3.0))
-                            except:
-                                duration = 3.0
-
+                            duration = float(row.get('Exam Duration', 3.0))
+                            
                             calculated_time_str = assigned_slot_str
                             try:
                                 if assigned_slot_str and " - " in assigned_slot_str:
                                     start_time_part = assigned_slot_str.split(" - ")[0].strip()
                                     end_time_calc = calculate_end_time(start_time_part, duration)
                                     calculated_time_str = f"{start_time_part} - {end_time_calc}"
-                            except:
-                                pass
+                            except: pass
 
                             subj_time_norm = normalize_time(calculated_time_str)
-
-                            if IS_BUSINESS_SCH:
-                                # Sr 4: always show exam time for SBM/PDSE
-                                if calculated_time_str and " - " in calculated_time_str:
-                                    parts_t = calculated_time_str.split(" - ", 1)
-                                    fmt_time = f"{_fmt_time_lower(parts_t[0])} to {_fmt_time_lower(parts_t[1])}"
-                                    time_suffix = f" ({fmt_time})"
-                                else:
-                                    time_suffix = ""
-                            elif subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                time_suffix = f" [{calculated_time_str}]"
+                            
+                            if subj_time_norm != primary_slot_norm and subj_time_norm != "":
+                                time_suffix = f" [{calculated_time_str}]" 
                             else:
                                 time_suffix = ""
-
+                                
                             subject_displays.append(base_subject + time_suffix)
-
+                       
                         df_processed["SubjectDisplay"] = subject_displays
-                        df_processed["Exam Date"] = pd.to_datetime(
-                            df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
+                        df_processed["Exam Date"] = pd.to_datetime(df_processed["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
-
+                        
+                        grouped = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
+                            'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)
+                        }).reset_index()
+                        
                         try:
-                            grouped = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
-                                'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)
-                            }).reset_index()
-
-                            pivot_df = grouped.pivot_table(
-                                index="Exam Date", columns="SubBranch",
-                                values="SubjectDisplay", aggfunc='first'
-                            ).fillna("---")
+                            pivot_df = grouped.pivot_table(index="Exam Date", columns="SubBranch", values="SubjectDisplay", aggfunc='first').fillna("---")
                             pivot_df = pivot_df.sort_index(ascending=True).reset_index()
-                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(
-                                lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
-
+                            pivot_df['Exam Date'] = pivot_df['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
+                            
                             pivot_df['Program'] = main_branch
                             pivot_df['Semester'] = raw_sem_str
-
+                            
                             pivot_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                        except Exception as _pivot_err:
-                            st.warning(f"⚠️ Sheet '{sheet_name}' pivot failed: {_pivot_err}")
-                            # Fallback: write a flat table so the sheet is never skipped
-                            try:
-                                flat_df = df_processed[['Exam Date', 'SubBranch', 'SubjectDisplay']].copy()
-                                flat_df['Exam Date'] = flat_df['Exam Date'].apply(
-                                    lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
-                                flat_df['Program'] = main_branch
-                                flat_df['Semester'] = raw_sem_str
-                                flat_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                sheets_created += 1
-                            except Exception as _flat_err:
-                                st.warning(f"⚠️ Sheet '{sheet_name}' flat fallback failed: {_flat_err}")
+                        except: pass
                     else:
                         try:
-                            pd.DataFrame({'Exam Date': ['No exams'], 'Note': ['No core subjects']}).to_excel(
-                                writer, sheet_name=sheet_name, index=False)
+                            pd.DataFrame({'Exam Date': ['No exams'], 'Note': ['No core subjects']}).to_excel(writer, sheet_name=sheet_name, index=False)
                             sheets_created += 1
-                        except Exception as _empty_err:
-                            st.warning(f"⚠️ Could not write empty sheet '{sheet_name}': {_empty_err}")
+                        except: pass
 
                     if not df_elec.empty:
                         suffix_elec = f"_|_{raw_sem_str}_Ele"
@@ -4713,3 +4655,4 @@ def main():
     
 if __name__ == "__main__":
     main()
+
