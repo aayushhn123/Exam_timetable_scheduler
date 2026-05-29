@@ -2019,7 +2019,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
     sheets_processed = 0
-    pdf_outputs = {} # Dictionary to store multiple PDFs
+    pdf_outputs = {}
 
     # ══════════════════════════════════════════════════════════════════════════
     #  BRANCH A — School of Business Management / Pravin Dalal (MULTIPLE PDFs)
@@ -2043,7 +2043,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
              "usage of unfair means.", False),
         ]
 
-        # --- Sub-functions strictly scoped for SBM ---
         def _measure_instructions(pdf_obj, font_size, line_h, usable_w):
             total = 0
             for text, is_heading in INSTRS:
@@ -2115,7 +2114,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(0)
             if declaration_date:
                 day = declaration_date.day
-                suffix = ('TH' if 11 <= (day % 100) <= 13 else {1:'ST',2:'ND',3:'RD'}.get(day % 10, 'TH'))
+                # CHANGE 1: Use lowercase suffix (st, nd, rd, th) to get "2nd February 2026"
+                suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
                 decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
                 pdf_obj.set_font("Times", 'B', 11)
                 pdf_obj.set_text_color(0, 0, 0)
@@ -2159,7 +2159,9 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             if sem_int is None:
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
-            year_int = (sem_int + 1) // 2
+                
+            # CHANGE 3: Year Concept -> 3 Trimesters = 1 Year.
+            year_int = (sem_int + 2) // 3
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
@@ -2218,7 +2220,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_xy(x0, y0 + row_h)
             return row_h
 
-        # Iterate sheets and build individual PDFs
         for sheet_name, sheet_df in df_dict.items():
             try:
                 if sheet_df.empty or sheet_name in ["No_Data","Daily_Statistics","Summary","Verification","Empty"]: continue
@@ -2275,16 +2276,42 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                     for _, row in combined.iterrows():
                         d_str = row['Exam Date'].strftime("%A, %d %B, %Y")
-                        sn, subj = int(row.get('ExamSlotNumber', 1)), str(row.get('Subject', '')).strip()
+                        sn = int(row.get('ExamSlotNumber', 1))
+                        subj = str(row.get('Subject', '')).strip()
                         if not subj or subj in ('nan', ''): continue
+                        
+                        # CHANGE 2: Extract Module Code and combine it with Subject
+                        mod_code = str(row.get('ModuleCode', row.get('Module Abbreviation', ''))).strip()
+                        if mod_code and mod_code.lower() != 'nan':
+                            subj = f"{subj} ({mod_code})"
+
+                        # Calculate duration to add exact 1-hour time
+                        try:
+                            duration = float(row.get('Exam Duration', row.get('Duration', 2.0)))
+                        except:
+                            duration = 2.0
+
+                        if duration == 1.0:
+                            slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
+                            try:
+                                start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
+                                end_dt = start_dt + timedelta(hours=1)
+                                
+                                st_fmt = start_dt.strftime('%I:%M').lstrip('0') + " " + start_dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
+                                en_fmt = end_dt.strftime('%I:%M').lstrip('0') + " " + end_dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
+                                
+                                subj = f"{subj} ({st_fmt} to {en_fmt})"
+                            except:
+                                pass
+
                         oe = str(row.get('OE', '')).strip()
-                        if oe and oe not in ('nan', ''): subj = f"{subj} [{oe}]"
+                        if oe and oe.lower() != 'nan': subj = f"{subj} [{oe}]"
+                        
                         if d_str not in slot_pivot: slot_pivot[d_str] = {sn2: [] for sn2 in time_slots_dict}
                         slot_pivot[d_str].setdefault(sn, []).append(subj)
 
                 if not slot_pivot: continue
 
-                # INITIALIZE NEW PDF FOR THIS SPECIFIC PROGRAM/SEMESTER
                 pdf = FPDF(orientation='P', unit='mm', format='A4')
                 pdf.set_auto_page_break(auto=False, margin=15)
                 pdf.alias_nb_pages()
@@ -2330,7 +2357,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                 render_instructions_sbm(pdf, pdf.get_y() + 2)
 
-                # SAVE THIS PDF TO DICTIONARY USING UNIQUE NAME
                 clean_branch = re.sub(r'[^A-Za-z0-9_\- ]', '', main_branch_full).strip().replace(" ", "_")
                 clean_sem = re.sub(r'[^A-Za-z0-9_\- ]', '', display_sem).strip().replace(" ", "_")
                 filename = f"{clean_branch}_Trimester_{clean_sem}.pdf"
