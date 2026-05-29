@@ -2060,14 +2060,17 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 total += len(lines) * line_h + (1 if is_heading else 0.5)
             return total
 
-        def render_instructions_sbm(pdf_obj, y_start):
+        # CHANGE: Merged instructions and signature block so they print immediately together
+        def render_instructions_and_signature_sbm(pdf_obj, y_start):
             usable_w  = pdf_obj.w - 2 * pdf_obj.l_margin
             available = pdf_obj.h - footer_height - 2 - y_start
             chosen_size = 6.5
             chosen_lh   = 4.0
+            
+            # Ensure we account for the +16 height of the signature block in size selection
             for fs in [8.5, 8.0, 7.5, 7.0, 6.5]:
                 lh = fs * 0.55
-                if _measure_instructions(pdf_obj, fs, lh, usable_w) <= available:
+                if _measure_instructions(pdf_obj, fs, lh, usable_w) + 16 <= available:
                     chosen_size = fs
                     chosen_lh   = lh
                     break
@@ -2093,6 +2096,16 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     pdf_obj.cell(usable_w, chosen_lh, ln, 0, 0, 'L')
                     cy += chosen_lh
                 cy += 0.5 if not is_heading else 1.0
+            
+            # CHANGE 1 & 2: Print Name and COE Title IMMEDIATELY after instructions
+            cy += 6 # Padding for a physical signature space
+            pdf_obj.set_y(cy)
+            pdf_obj.set_font("Times", 'B', 9)
+            pdf_obj.set_x(pdf_obj.l_margin)
+            pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
+            pdf_obj.set_x(pdf_obj.l_margin)
+            pdf_obj.cell(0, 4, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
+            pdf_obj.set_y(cy + 8)
 
         num_slots   = len(time_slots_dict)
         slot_labels = {}                           
@@ -2100,10 +2113,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             slot_labels[sn] = f"{scfg['start']} to {scfg['end']}"
 
         def render_footer_sbm(pdf_obj):
-            pdf_obj.set_xy(10, pdf_obj.h - footer_height)
-            pdf_obj.set_font("Times", 'B', 8)
-            pdf_obj.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-            pdf_obj.line(10, pdf_obj.h - footer_height + 5, 70, pdf_obj.h - footer_height + 5)
+            # CHANGE: Removed static signature block from bottom. Now only prints page numbers.
             pdf_obj.set_font("Times", '', 8)
             page_text = f"{pdf_obj.page_no()} of {{nb}}"
             tw = pdf_obj.get_string_width(page_text.replace("{nb}", "99"))
@@ -2114,7 +2124,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(0)
             if declaration_date:
                 day = declaration_date.day
-                # CHANGE 1: Use lowercase suffix (st, nd, rd, th) to get "2nd February 2026"
                 suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
                 decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
                 pdf_obj.set_font("Times", 'B', 11)
@@ -2139,6 +2148,14 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_xy(10, text_y)
             pdf_obj.cell(pdf_obj.w - 20, cell_h, college_name, 0, 1, 'C')
             text_y += cell_h + LINE_GAP
+            
+            # CHANGE 3: Append PDSE SBM INITIATIVE tag under College Name if PDSE is selected
+            if "PRAVIN DALAL" in college_name:
+                pdf_obj.set_font("Times", 'B', F_COLLEGE - 1.5)
+                cell_h_init = (F_COLLEGE - 1.5) * 0.40
+                pdf_obj.set_xy(10, text_y)
+                pdf_obj.cell(pdf_obj.w - 20, cell_h_init, "(SBM'S INITIATIVE)", 0, 1, 'C')
+                text_y += cell_h_init + LINE_GAP
 
             pdf_obj.set_font("Times", 'B', F_TITLE)
             cell_h = F_TITLE * 0.40
@@ -2160,7 +2177,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
                 
-            # CHANGE 3: Year Concept -> 3 Trimesters = 1 Year.
             year_int = (sem_int + 2) // 3
 
             def _to_roman(n):
@@ -2280,12 +2296,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         subj = str(row.get('Subject', '')).strip()
                         if not subj or subj in ('nan', ''): continue
                         
-                        # CHANGE 2: Extract Module Code and combine it with Subject
                         mod_code = str(row.get('ModuleCode', row.get('Module Abbreviation', ''))).strip()
                         if mod_code and mod_code.lower() != 'nan':
                             subj = f"{subj} ({mod_code})"
 
-                        # Calculate duration to add exact 1-hour time
                         try:
                             duration = float(row.get('Exam Duration', row.get('Duration', 2.0)))
                         except:
@@ -2334,7 +2348,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 _draw_row(pdf, act_header_cells, act_col_widths, font_style='B', font_size=9.5)
                 _draw_row(pdf, act_time_cells, act_col_widths, font_style='B', font_size=9)
 
-                _instr_h = _measure_instructions(pdf, 7.5, 7.5 * 0.55, pdf.w - 2 * pdf.l_margin)
+                # Added 16 buffer to account for the new signature block combined with instructions
+                _instr_h = _measure_instructions(pdf, 7.5, 7.5 * 0.55, pdf.w - 2 * pdf.l_margin) + 16
                 _table_bottom = pdf.h - footer_height - _instr_h - 4
 
                 pdf.set_font("Times", '', 9.5)
@@ -2346,7 +2361,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                     max_lines_est = max(len(_wrap_cell(pdf, txt, act_col_widths[i] - 2 * PAD, '', 9.5)) for i, txt in enumerate(row_cells))
                     if pdf.get_y() + (LINE_H * max_lines_est) > _table_bottom:
-                        render_instructions_sbm(pdf, pdf.get_y() + 2)
+                        render_instructions_and_signature_sbm(pdf, pdf.get_y() + 2)
                         pdf.add_page()
                         render_footer_sbm(pdf)
                         render_header_sbm(pdf, header_content, declaration_date)
@@ -2355,7 +2370,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                     _draw_row(pdf, row_cells, act_col_widths, '', 9.5)
 
-                render_instructions_sbm(pdf, pdf.get_y() + 2)
+                # Will trigger the instructions and signature immediately after table completion
+                render_instructions_and_signature_sbm(pdf, pdf.get_y() + 2)
 
                 clean_branch = re.sub(r'[^A-Za-z0-9_\- ]', '', main_branch_full).strip().replace(" ", "_")
                 clean_sem = re.sub(r'[^A-Za-z0-9_\- ]', '', display_sem).strip().replace(" ", "_")
