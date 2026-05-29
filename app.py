@@ -2067,10 +2067,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             chosen_size = 6.5
             chosen_lh   = 4.0
             
-            # Ensure we account for the +16 height of the signature block in size selection
+            # Ensure we account for the +28 height of the signature block in size selection
             for fs in [8.5, 8.0, 7.5, 7.0, 6.5]:
                 lh = fs * 0.55
-                if _measure_instructions(pdf_obj, fs, lh, usable_w) + 16 <= available:
+                if _measure_instructions(pdf_obj, fs, lh, usable_w) + 28 <= available:
                     chosen_size = fs
                     chosen_lh   = lh
                     break
@@ -2097,8 +2097,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     cy += chosen_lh
                 cy += 0.5 if not is_heading else 1.0
             
-            # CHANGE 1 & 2: Print Name and COE Title IMMEDIATELY after instructions
-            cy += 6 # Padding for a physical signature space
+            # CHANGE 1 & 2: Increased padding significantly for a physical signature space
+            cy += 18 
             pdf_obj.set_y(cy)
             pdf_obj.set_font("Times", 'B', 9)
             pdf_obj.set_x(pdf_obj.l_margin)
@@ -2348,8 +2348,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 _draw_row(pdf, act_header_cells, act_col_widths, font_style='B', font_size=9.5)
                 _draw_row(pdf, act_time_cells, act_col_widths, font_style='B', font_size=9)
 
-                # Added 16 buffer to account for the new signature block combined with instructions
-                _instr_h = _measure_instructions(pdf, 7.5, 7.5 * 0.55, pdf.w - 2 * pdf.l_margin) + 16
+                # Added 28 buffer to account for the new signature block combined with instructions and extra padding
+                _instr_h = _measure_instructions(pdf, 7.5, 7.5 * 0.55, pdf.w - 2 * pdf.l_margin) + 28
                 _table_bottom = pdf.h - footer_height - _instr_h - 4
 
                 pdf.set_font("Times", '', 9.5)
