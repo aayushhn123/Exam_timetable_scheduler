@@ -3882,25 +3882,34 @@ def main():
         st.markdown("")
     
         # Initialize session state for time slots with College Specific Defaults
-        # Initialize session state for time slots with College Specific Defaults
+        current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
+        IS_LAW_SCHOOL = "Law" in current_college
         is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
         
+        # If the user switches colleges, reset the slots to the new defaults automatically
+        if st.session_state.get('prev_college') != current_college:
+            if 'time_slots' in st.session_state:
+                del st.session_state['time_slots']
+            st.session_state['prev_college'] = current_college
+
+        # Initialize session state for time slots with College Specific Defaults
         if 'time_slots' not in st.session_state:
             if IS_LAW_SCHOOL:
                 st.session_state.time_slots = {
-                    1: {"start": "11:00 AM", "end": "1:00 PM"},
+                    1: {"start": "11:00 AM", "end": "01:00 PM"},
                     2: {"start": "02:30 PM", "end": "04:30 PM"}
                 }
             elif is_business_school:
+                # NEW STRICT PRIORITY SLOTS FOR SBM & PDSE
                 st.session_state.time_slots = {
-                    1: {"start": "08:30 AM", "end": "10:30 AM"},
-                    2: {"start": "11:30 AM", "end": "01:30 PM"},
-                    3: {"start": "03:00 PM", "end": "05:00 PM"}
+                    1: {"start": "11:30 AM", "end": "01:30 PM"},
+                    2: {"start": "03:00 PM", "end": "05:00 PM"},
+                    3: {"start": "08:30 AM", "end": "10:30 AM"}
                 }
             else:
                 st.session_state.time_slots = {
-                    1: {"start": "10:00 AM", "end": "1:00 PM"},
-                    2: {"start": "2:00 PM", "end": "5:00 PM"}
+                    1: {"start": "10:00 AM", "end": "01:00 PM"},
+                    2: {"start": "02:00 PM", "end": "05:00 PM"}
                 }
     
         # Number of time slots
