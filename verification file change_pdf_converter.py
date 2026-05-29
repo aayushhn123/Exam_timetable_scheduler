@@ -1210,7 +1210,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                                     subj = f"{subj} ({actual_time})"
 
                         oe = str(row.get('OE', '')).strip()
-                        if oe and oe not in ('nan', ''): subj = f"{subj} [{oe}]"
+                        if oe and oe not in ('nan', 'none', 'None', ''): subj = f"{subj} [{oe}]"
                         if d_str not in slot_pivot:
                             slot_pivot[d_str] = {sn2: [] for sn2 in time_slots_dict}
                         slot_pivot[d_str].setdefault(sn, []).append(subj)
@@ -1642,11 +1642,14 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
             with open(zip_path, "wb") as f:
                 f.write(zip_buf.getvalue())
             st.success(f"✅ PDF generation complete — {len(final_pdfs)} PDF(s) in ZIP")
+            _zip_college = st.session_state.get('selected_college', '')
+            _zip_prefix = "PDSE" if "Pravin Dalal" in _zip_college else "SBM"
+            _zip_filename = f"{_zip_prefix}_Timetables_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
             with open(zip_path, "rb") as f:
                 st.download_button(
                     "📥 Download All PDFs (ZIP)",
                     f,
-                    f"SBM_Timetables_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                    _zip_filename,
                     "application/zip",
                     use_container_width=True
                 )
