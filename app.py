@@ -2115,7 +2115,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(0)
             if declaration_date:
                 day = declaration_date.day
-                suffix = ('TH' if 11 <= (day % 100) <= 13 else {1:'ST',2:'ND',3:'RD'}.get(day % 10, 'TH'))
+                # Sr 1: lowercase ordinal suffix, no comma — e.g. '2nd February 2026'
+                suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
                 decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
                 pdf_obj.set_font("Times", 'B', 11)
                 pdf_obj.set_text_color(0, 0, 0)
@@ -2159,7 +2160,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             if sem_int is None:
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
-            year_int = (sem_int + 1) // 2
+            # Sr 5: Year concept for SBM/PDSE:
+            # Year I  = Trim I, II, III  (sem 1-3)
+            # Year II = Trim IV, V, VI   (sem 4-6)
+            # Year III= Trim VII,VIII,IX (sem 7-9)  etc.
+            import math
+            year_int = math.ceil(sem_int / 3)
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
@@ -3155,9 +3161,11 @@ def save_to_excel(semester_wise_timetable):
         st.warning("No timetable data to save")
         return None
 
-    # SOL detection
+    # College detection
     current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL = "Law" in current_college_context
+    IS_LAW_SCHOOL    = "Law" in current_college_context
+    IS_BUSINESS_SCH  = ("School of Business Management" in current_college_context
+                        or "Pravin Dalal" in current_college_context)
 
     # The combined header string that replaces both individual program headers
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
@@ -3332,9 +3340,25 @@ def save_to_excel(semester_wise_timetable):
                             except: pass
 
                             subj_time_norm = normalize_time(calculated_time_str)
-                            
-                            if subj_time_norm != primary_slot_norm and subj_time_norm != "":
-                                time_suffix = f" [{calculated_time_str}]" 
+
+                            if IS_BUSINESS_SCH:
+                                # Sr 4: For SBM/PDSE always show exam time next to subject.
+                                # Format: "Subject Name (Code) (11:30 a.m. to 12:30 p.m.)"
+                                # Convert calculated_time_str to lowercase a.m./p.m. format.
+                                def _fmt_time_lower(t):
+                                    """Convert '11:30 AM' -> '11:30 a.m.' etc."""
+                                    t = str(t).strip()
+                                    t = re.sub(r'\bAM\b', 'a.m.', t, flags=re.IGNORECASE)
+                                    t = re.sub(r'\bPM\b', 'p.m.', t, flags=re.IGNORECASE)
+                                    return t
+                                if calculated_time_str and " - " in calculated_time_str:
+                                    parts_t = calculated_time_str.split(" - ", 1)
+                                    fmt_time = f"{_fmt_time_lower(parts_t[0])} to {_fmt_time_lower(parts_t[1])}"
+                                    time_suffix = f" ({fmt_time})"
+                                else:
+                                    time_suffix = ""
+                            elif subj_time_norm != primary_slot_norm and subj_time_norm != "":
+                                time_suffix = f" [{calculated_time_str}]"
                             else:
                                 time_suffix = ""
                                 
