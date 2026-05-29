@@ -1126,14 +1126,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     if is_business_school:
-        st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Strict Slot Priority & Max 2 Exams/Day Enforced")
-        # Override and enforce SBM exact slot timings and preferences
+        st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Strict Slot Priority, Max 2 Exams/Day & Maximum Gap Spreading")
         time_slots_dict = {
             1: {"start": "11:30 AM", "end": "01:30 PM"},
             2: {"start": "03:00 PM", "end": "05:00 PM"},
             3: {"start": "08:30 AM", "end": "10:30 AM"}
         }
-        st.session_state['time_slots'] = time_slots_dict # Syncs to PDF generator
+        st.session_state['time_slots'] = time_slots_dict 
     else:
         time_slots_dict = st.session_state.get('time_slots', {
             1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -1313,19 +1312,34 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             is_two_credit = unit.get('is_two_credit', False)
 
             if is_business_school:
-                # SBM Specific Logic: Progressive Slots & Max 2 Exams/Day
-                sbm_slot_priority = [1, 2, 3] # Evaluated in strict order
+                sbm_slot_priority = [1, 2, 3] 
 
                 def get_cohort_daily_max(date_str):
                     if not unit['branch_sems']: return 0
                     return max(daily_branch_count[date_str][bs] for bs in unit['branch_sems'])
+                
+                # Logic to enforce MAXIMUM gaps between exams to utilize all days smoothly
+                def get_min_distance(date_str, branch_sems):
+                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
+                    min_dist = 999
+                    has_exams = False
+                    for scheduled_d_str, b_set in daily_schedule_map.items():
+                        if not set(branch_sems).isdisjoint(b_set):
+                            has_exams = True
+                            dist = abs((date_obj - datetime.strptime(scheduled_d_str, "%d-%m-%Y")).days)
+                            if dist < min_dist:
+                                min_dist = dist
+                    return min_dist if has_exams else 999
 
-                # Filter: A student must not be scheduled for more than 2 examinations per day.
                 valid_dates = [d for d in allowed_dates if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < 2]
 
-                # Sort: Prioritize days with 0 exams, then balance overall load
+                # SORTING PRIORITY: 
+                # 1. Zero exams today.
+                # 2. Maximum possible gap from other scheduled exams for this program (-get_min_distance).
+                # 3. Lowest overall university load.
                 sorted_dates = sorted(valid_dates, key=lambda d: (
                     get_cohort_daily_max(d.strftime("%d-%m-%Y")),
+                    -get_min_distance(d.strftime("%d-%m-%Y"), unit['branch_sems']),
                     date_load_tracker[d.strftime("%d-%m-%Y")]
                 ))
 
@@ -1335,11 +1349,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     for date_obj in sorted_dates:
                         date_str = date_obj.strftime("%d-%m-%Y")
 
-                        # Hard overlap check in the specific slot
                         if not set(unit['branch_sems']).isdisjoint(slot_schedule_map.get(date_str, {}).get(slot_num, set())):
                             continue
 
-                        # Capacity check
                         time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                         allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
 
@@ -1362,17 +1374,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 return False
 
             else:
-                # Standard Logic for All Other Schools
                 slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
                 
                 for date_obj in allowed_dates:
                     date_str = date_obj.strftime("%d-%m-%Y")
                     
-                    # Standard Same Day Conflict Check (1 exam per day)
                     if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
                         continue
                     
-                    # Check 1-Day Gap Constraint
                     apply_gap = (IS_LAW_SCHOOL or require_1_day_gap) and not is_two_credit
                     if apply_gap:
                         prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
@@ -1383,7 +1392,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]):
                             continue
                     
-                    # Check Capacity
                     for slot_num in slots_to_try:
                         time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                         allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
@@ -1409,7 +1417,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         unscheduled_groups = []
         scheduled_ids = set()
         
-        # --- Group units stream by stream ---
         branch_sem_map = {}
         all_units = common_units_priority + common_units_normal + individual_units
         
@@ -1430,11 +1437,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 
                 branch_sem_map[bs]['score'] += unit['student_count']
                 
-        # Sort branch_sems logically (Priority first, then size)
         sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
         priority_ids = set(u['id'] for u in common_units_priority)
         
-        # PASS 1: Schedule ALL Common subjects stream by stream (Enforcing the 1-Day Gap)
         for bs in sorted_bsems:
             branch_sem_map[bs]['common'].sort(
                 key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), 
@@ -1446,7 +1451,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
                     
-        # PASS 2: Schedule ALL Individual subjects stream by stream (Filling the Gaps)
         for bs in sorted_bsems:
             branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
             for unit in branch_sem_map[bs]['individual']:
@@ -1457,7 +1461,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
         return work_df, unscheduled_groups
 
-    # --- POPUP ROUTER LOGIC ---
     if 'capacity_override_choice' not in st.session_state:
         temp_df, unsched = execute_pass(enforce_cap=True)
         if unsched:
