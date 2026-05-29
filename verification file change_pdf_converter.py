@@ -266,12 +266,20 @@ def save_to_excel(semester_wise_timetable):
 
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+    IS_BUSINESS_SCH = ("School of Business Management" in current_college_context
+                       or "Pravin Dalal" in current_college_context)
 
     # SOL Fix 2: Override default time slots for School of Law
     if IS_LAW_SCHOOL:
         time_slots_dict = {
             1: {"start": "11:00 AM", "end": "1:00 PM"},
             2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
+    elif IS_BUSINESS_SCH:
+        time_slots_dict = {
+            1: {"start": "08:30 AM", "end": "10:30 AM"},
+            2: {"start": "11:30 AM", "end": "01:30 PM"},
+            3: {"start": "03:00 PM", "end": "05:00 PM"}
         }
 
     output = io.BytesIO()
@@ -701,7 +709,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
         
-        # College Name (Rule 3 handled inside convert_excel_to_pdf which passes it to st.session_state)
+        # College Name
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
         pdf.set_font("Times", 'B', 12) 
@@ -723,7 +731,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_xy(10, current_y)
         # SOL Fix: preserve exact capitalisation of program name (e.g. B.A., LL.B.(Hons.))
-        # All other colleges continue to use uppercase
         _prog_name = header_content['main_branch_full']
         _is_law = "LAW" in st.session_state.get('selected_college', '').upper()
         _prog_display = _prog_name if _is_law else _prog_name.upper()
@@ -739,20 +746,29 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             if m: sem_int = int(m.group(1))
             else: sem_int = 1
         year_int = (sem_int + 1) // 2
-        year_roman = int_to_roman(year_int)
+        
+        def int_to_roman_local(num):
+            val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),
+                   (50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
+            res = ""
+            for v, r in val:
+                while num >= v: res += r; num -= v
+            return res
+            
+        year_roman = int_to_roman_local(year_int)
 
-        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)  # SOL Fix: year/sem line
+        pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)  
         pdf.set_xy(10, current_y)
         pdf.cell(pdf.w - 20, 4, f"YEAR: {year_roman}, SEMESTER: {sem_roman}".upper(), 0, 1, 'C')
         current_y += 4
 
         if time_slot:
-            pdf.set_font("Times", 'B', 10.5 if _hdr_is_law else 9)  # SOL Fix
+            pdf.set_font("Times", 'B', 10.5 if _hdr_is_law else 9)  
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
             
-            pdf.set_font("Times", 'BI', 10.5 if _hdr_is_law else 9)  # SOL Fix
+            pdf.set_font("Times", 'BI', 10.5 if _hdr_is_law else 9)  
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
             current_y += 4
@@ -763,25 +779,16 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     render_header()
     
     # SOL Fix 3 & 4: For School of Law, strip program prefix from sub-branch column headers
-    # (show stream name only, highlighted in light grey). Also apply Proper Case for Sem X & LL.M Sem II.
     current_college_context_for_header = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL_HEADER = "LAW" in current_college_context_for_header.upper()
 
     def sol_clean_header_label(col_label, sem_roman_str):
-        """For SOL: strip the program prefix leaving only the stream name.
-        For Sem X and LL.M Sem II: return in Proper Case (title case).
-        Also normalises any residual program name to canonical capitalisation/spacing."""
         raw = str(col_label)
-        # Strip program prefix: everything before and including the LAST ' - '
-        # SubBranch was built as "CANONICAL_PROG - STREAM", so split once from right
         if " - " in raw:
             raw = raw.rsplit(" - ", 1)[-1].strip()
-        # SOL Fix: preserve exact casing of stream/program names — never force uppercase
-        # For Sem X and LL.M Sem II: use Proper Case (title case) for stream names
         sem_upper = str(sem_roman_str).strip().upper()
         if sem_upper in ("X", "10") or "LL.M" in sem_upper or "LLM" in sem_upper:
             return raw.title()
-        # All other SOL semesters: return as-is (canonical casing already applied by normaliser)
         return raw
 
     if IS_LAW_SCHOOL_HEADER:
@@ -792,17 +799,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
                 display_columns.append("EXAM DATE")
             else:
                 display_columns.append(sol_clean_header_label(c, sem_roman_for_header))
-        # Use light grey fill for SOL header row
-        sol_header_fill = (255, 255, 255)  # SOL Fix: plain white header
+        sol_header_fill = (255, 255, 255)  
         pdf.set_font("Times", 'B', 9.5)
-        # Temporarily patch header_bg_color via a custom attribute on the pdf object
         setattr(pdf, '_sol_header_fill', sol_header_fill)
-        setattr(pdf, '_sol_header_font_size', 10.5)  # SOL Fix: header font +1 (9.5 -> 10.5)
+        setattr(pdf, '_sol_header_font_size', 10.5)  
         print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
         delattr(pdf, '_sol_header_fill')
         delattr(pdf, '_sol_header_font_size')
     else:
-        # Uppercase the table columns (standard non-SOL path — unchanged)
         upper_columns = [str(c).upper() for c in columns]
         pdf.set_font("Times", 'B', 9.5)
         print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
@@ -823,7 +827,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             max_lines = max(max_lines, len(lines))
         row_h = line_height * max_lines
         
-        # Check Page Break
         if pdf.get_y() + row_h > pdf.h - footer_height - 5:
             pdf.add_page()
             render_footer()
@@ -831,7 +834,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             if IS_LAW_SCHOOL_HEADER:
                 pdf.set_font("Times", 'B', 9.5)
                 setattr(pdf, '_sol_header_fill', sol_header_fill)
-                setattr(pdf, '_sol_header_font_size', 10.5)  # SOL Fix: header font +1 (9.5 -> 10.5)
+                setattr(pdf, '_sol_header_font_size', 10.5) 
                 print_row_custom(pdf, display_columns, col_widths, line_height=line_height, header=True)
                 delattr(pdf, '_sol_header_fill')
                 delattr(pdf, '_sol_header_font_size')
@@ -843,8 +846,8 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         
         print_row_custom(pdf, row, col_widths, line_height=line_height, header=False)
 
-def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, declaration_date=None):
-    import uuid
+
+def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, declaration_date=None):
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL   = "LAW" in current_college_context.upper()
     IS_BUSINESS_SCH = ("School of Business Management" in current_college_context
@@ -855,11 +858,16 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
     })
 
-    # SOL Fix 2: Override default time slots for School of Law
     if IS_LAW_SCHOOL:
         time_slots_dict = {
             1: {"start": "11:00 AM", "end": "1:00 PM"},
             2: {"start": "2:30 PM",  "end": "4:30 PM"}
+        }
+    elif IS_BUSINESS_SCH:
+        time_slots_dict = {
+            1: {"start": "08:30 AM", "end": "10:30 AM"},
+            2: {"start": "11:30 AM", "end": "01:30 PM"},
+            3: {"start": "03:00 PM", "end": "05:00 PM"}
         }
 
     try:
@@ -889,11 +897,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
     sheets_processed = 0
-    pdf_outputs = {}  # dictionary: filename -> bytes
+    pdf_outputs = {}
 
     # ══════════════════════════════════════════════════════════════════════════
     #  BRANCH A — School of Business Management / Pravin Dalal
-    #  Portrait A4, one PDF per program/semester, inline instructions
+    #  Portrait A4, one PDF per program/semester, inline instructions & signature
     # ══════════════════════════════════════════════════════════════════════════
     if IS_BUSINESS_SCH:
         footer_height = 14
@@ -929,14 +937,15 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 total += len(lines) * line_h + (1 if is_heading else 0.5)
             return total
 
-        def render_instructions_sbm(pdf_obj, y_start):
+        def render_instructions_and_signature_sbm(pdf_obj, y_start):
             usable_w  = pdf_obj.w - 2 * pdf_obj.l_margin
             available = pdf_obj.h - footer_height - 2 - y_start
             chosen_size, chosen_lh = 6.5, 4.0
             for fs in [8.5, 8.0, 7.5, 7.0, 6.5]:
                 lh = fs * 0.55
-                if _measure_instructions(pdf_obj, fs, lh, usable_w) <= available:
+                if _measure_instructions(pdf_obj, fs, lh, usable_w) + 28 <= available:
                     chosen_size = fs; chosen_lh = lh; break
+            
             pdf_obj.set_text_color(0, 0, 0)
             cy = y_start + 1
             for text, is_heading in INSTRS:
@@ -955,16 +964,20 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     pdf_obj.cell(usable_w, chosen_lh, ln, 0, 0, 'L')
                     cy += chosen_lh
                 cy += 0.5 if not is_heading else 1.0
+                
+            cy += 18 
+            pdf_obj.set_y(cy)
+            pdf_obj.set_font("Times", 'B', 9)
+            pdf_obj.set_x(pdf_obj.l_margin)
+            pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
+            pdf_obj.set_x(pdf_obj.l_margin)
+            pdf_obj.cell(0, 4, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
 
         num_slots  = len(time_slots_dict)
         slot_labels = {sn: f"{scfg['start']} to {scfg['end']}"
                        for sn, scfg in sorted(time_slots_dict.items())}
 
         def render_footer_sbm(pdf_obj):
-            pdf_obj.set_xy(10, pdf_obj.h - footer_height)
-            pdf_obj.set_font("Times", 'B', 8)
-            pdf_obj.cell(0, 5, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
-            pdf_obj.line(10, pdf_obj.h - footer_height + 5, 70, pdf_obj.h - footer_height + 5)
             pdf_obj.set_font("Times", '', 8)
             page_text = f"{pdf_obj.page_no()} of {{nb}}"
             tw = pdf_obj.get_string_width(page_text.replace("{nb}", "99"))
@@ -1000,6 +1013,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             pdf_obj.set_xy(10, text_y)
             pdf_obj.cell(pdf_obj.w - 20, cell_h, college_name, 0, 1, 'C')
             text_y += cell_h + LINE_GAP
+            
+            if "PRAVIN DALAL" in college_name:
+                pdf_obj.set_font("Times", 'B', F_COLLEGE - 1.5)
+                cell_h_init = (F_COLLEGE - 1.5) * 0.40
+                pdf_obj.set_xy(10, text_y)
+                pdf_obj.cell(pdf_obj.w - 20, cell_h_init, "(SBM'S INITIATIVE)", 0, 1, 'C')
+                text_y += cell_h_init + LINE_GAP
 
             pdf_obj.set_font("Times", 'B', F_TITLE)
             cell_h = F_TITLE * 0.40
@@ -1021,7 +1041,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             sem_int = roman_map.get(sem_roman) or 1
             m = re.search(r'(\d+)', sem_roman)
             if m and sem_roman not in roman_map: sem_int = int(m.group(1))
-            year_int = (sem_int + 1) // 2
+            year_int = (sem_int + 2) // 3
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),
@@ -1077,7 +1097,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             pdf_obj.set_xy(x0, y0 + row_h)
             return row_h
 
-        # ── Process each sheet and build one PDF per program/semester ─────────
         for sheet_name, sheet_df in df_dict.items():
             try:
                 if sheet_df.empty or sheet_name in ["No_Data","Daily_Statistics",
@@ -1099,10 +1118,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
 
                 header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
 
-                # ── Build slot_pivot from session-state timetable_data ────────
-                # In the verification app, timetable_data is the processed_tt
-                # dict stored under 'processed_tt' (integers → DataFrames with
-                # ExamSlotNumber already derived in process_verification_file).
                 timetable_data = st.session_state.get('processed_tt', {})
 
                 def _strip_sem_prefix(s):
@@ -1160,7 +1175,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         slot_pivot[d_str].setdefault(sn, []).append(subj)
 
                 else:
-                    # Fallback: parse time suffixes from Excel cells
                     if 'Exam Date' not in sheet_df.columns: continue
                     _meta = re.compile(
                         r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\d+)?$',
@@ -1205,7 +1219,6 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
 
                 if not slot_pivot: continue
 
-                # ── Detect active slots (only cols with data) ─────────────────
                 all_slots_sorted = sorted(time_slots_dict.keys())
                 active_slots = [sn for sn in all_slots_sorted
                                 if any(slot_pivot[d].get(sn) for d in slot_pivot)]
@@ -1229,7 +1242,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 _draw_row(pdf, act_header_cells, act_col_widths, font_style='B', font_size=9.5)
                 _draw_row(pdf, act_time_cells,   act_col_widths, font_style='B', font_size=9)
 
-                _instr_h      = _measure_instructions(pdf, 7.5, 7.5*0.55, page_w)
+                _instr_h      = _measure_instructions(pdf, 7.5, 7.5*0.55, page_w) + 28
                 _table_bottom = pdf.h - footer_height - _instr_h - 4
 
                 pdf.set_font("Times", '', 9.5)
@@ -1242,7 +1255,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         len(_wrap_cell(pdf, txt, act_col_widths[i] - 2*PAD, '', 9.5))
                         for i, txt in enumerate(row_cells))
                     if pdf.get_y() + (LINE_H * max_lines_est) > _table_bottom:
-                        render_instructions_sbm(pdf, pdf.get_y() + 2)
+                        render_instructions_and_signature_sbm(pdf, pdf.get_y() + 2)
                         pdf.add_page()
                         render_footer_sbm(pdf)
                         render_header_sbm(pdf, header_content, declaration_date)
@@ -1250,9 +1263,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         _draw_row(pdf, act_time_cells,   act_col_widths, 'B', 9)
                     _draw_row(pdf, row_cells, act_col_widths, '', 9.5)
 
-                render_instructions_sbm(pdf, pdf.get_y() + 2)
+                render_instructions_and_signature_sbm(pdf, pdf.get_y() + 2)
 
-                # Save this program's PDF into the dict
                 clean_branch = re.sub(r'[^A-Za-z0-9_\- ]', '', main_branch_full).strip().replace(" ", "_")
                 clean_sem    = re.sub(r'[^A-Za-z0-9_\- ]', '', display_sem).strip().replace(" ", "_")
                 filename     = f"{clean_branch}_Trimester_{clean_sem}.pdf"
@@ -1310,11 +1322,11 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                 if IS_LAW_SCHOOL and main_branch_full:
                     prog_upper = main_branch_full.upper()
                     if "LL.M" in prog_upper or "MASTER OF LAW" in prog_upper or "LLM" in prog_upper:
-                        sheet_college_name = "Kirit P. Mehta School of Law"
+                        sheet_college_name = "Kirti P. Mehta School of Law"
                     elif "B.A." in prog_upper or "B.B.A." in prog_upper or "LL.B" in prog_upper:
-                        sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
+                        sheet_college_name = "Kirti P. Mehta School of Law / School of Law"
                     else:
-                        sheet_college_name = "Kirit P. Mehta School of Law / School of Law"
+                        sheet_college_name = "Kirti P. Mehta School of Law / School of Law"
 
                 semester_raw = "General"
                 if '_|_' in sheet_name:
@@ -1481,7 +1493,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                          0, 1, 'C')
                 pdf.set_font("Times", 'B', 12)
                 pdf.set_xy(10, 40)
-                pdf.cell(0, 10, "EXAMINATION GUIDELINES", 0, 1, 'C')
+                pdf.cell(0, 10, "EXAMINATION GUIDELINES - SEMESTER GENERAL", 0, 1, 'C')
                 pdf.set_y(60)
                 pdf.set_font("Times", 'B', 12)
                 pdf.cell(0, 10, "INSTRUCTIONS TO CANDIDATES", 0, 1, 'C')
@@ -1491,7 +1503,8 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                     "2. Candidates must produce their University Identity Card at the time of the examination.",
                     "3. Candidates are not permitted to enter the examination hall after stipulated time.",
                     "4. Candidates will not be permitted to leave the examination hall during the examination time.",
-                    "5. Candidates are forbidden from taking any unauthorized material inside the examination hall. Carrying the same will be treated as usage of unfair means."
+                    "5. Candidates are forbidden from taking any unauthorized material inside the examination hall.",
+                    "   Carrying the same will be treated as usage of unfair means."
                 ]
                 pdf.set_font("Times", size=12)
                 for i in instrs_final:
@@ -1501,7 +1514,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             temp_path = f"temp_{uuid.uuid4().hex}.pdf"
             pdf.output(temp_path)
             with open(temp_path, "rb") as fh:
-                pdf_outputs["Timetable.pdf"] = fh.read()
+                pdf_outputs["Verification_Timetable.pdf"] = fh.read()
             os.remove(temp_path)
 
     if sheets_processed == 0:
