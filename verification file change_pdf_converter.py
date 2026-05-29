@@ -128,7 +128,8 @@ def process_verification_file(uploaded_file):
             df = df[df['Exam Date'].notna()].copy()
             df['_date_str'] = df['Exam Date'].astype(str).str.strip().str.upper()
             df = df[~df['_date_str'].isin(['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', ''])].drop(columns=['_date_str'])
-            parsed_dates = pd.to_datetime(df['Exam Date'], errors='coerce')
+            # Force dayfirst=True so DD-MM-YYYY strings like "06-03-2026" parse as 6th March not 3rd June
+            parsed_dates = pd.to_datetime(df['Exam Date'], dayfirst=True, errors='coerce')
             df = df[parsed_dates.notna()].copy()
             parsed_dates = parsed_dates[parsed_dates.notna()]
             df['Exam Date'] = parsed_dates.dt.strftime('%d-%m-%Y')
@@ -141,6 +142,12 @@ def process_verification_file(uploaded_file):
 
         df['Subject']    = df.get('Module Description',  pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['ModuleCode'] = df.get('Module Abbreviation', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
+
+        # Capture Exam Duration (1hr vs 2hr) for use in SBM PDF time-suffix rendering
+        if 'Exam Duration' in df.columns:
+            df['ExamDuration'] = pd.to_numeric(df['Exam Duration'], errors='coerce').fillna(2.0)
+        else:
+            df['ExamDuration'] = 2.0
 
         # Rule 2 Tagging Setup: Capture the actual OE string dynamically if it contains "OE"
         if 'Subject Type' in df.columns:
@@ -1175,6 +1182,33 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         if not subj or subj in ('nan', ''): continue
                         code  = str(row.get('ModuleCode', '')).strip()
                         if code and code.lower() != 'nan': subj = f"{subj} ({code})"
+
+                        # Duration=1 time suffix: format actual exam time beside subject name
+                        try:
+                            duration = float(row.get('ExamDuration', 2.0))
+                        except:
+                            duration = 2.0
+                        if duration == 1.0:
+                            # Verification Excel has the actual 1hr slot in 'Exam Time' column
+                            actual_time = str(row.get('Exam Time', '')).strip()
+                            if actual_time and actual_time.lower() not in ('nan', ''):
+                                # Parse and reformat to match scheduler style: "11:30 a.m. to 12:30 p.m."
+                                try:
+                                    _m = re.match(
+                                        r'(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)',
+                                        actual_time.strip(), re.IGNORECASE)
+                                    if _m:
+                                        from datetime import datetime as _dt
+                                        _st = _dt.strptime(_m.group(1).strip(), "%I:%M %p")
+                                        _en = _dt.strptime(_m.group(2).strip(), "%I:%M %p")
+                                        def _fmt_t(dt):
+                                            return dt.strftime('%I:%M').lstrip('0') + " " + dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
+                                        subj = f"{subj} ({_fmt_t(_st)} to {_fmt_t(_en)})"
+                                    else:
+                                        subj = f"{subj} ({actual_time})"
+                                except:
+                                    subj = f"{subj} ({actual_time})"
+
                         oe = str(row.get('OE', '')).strip()
                         if oe and oe not in ('nan', ''): subj = f"{subj} [{oe}]"
                         if d_str not in slot_pivot:
