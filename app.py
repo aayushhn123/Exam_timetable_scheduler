@@ -1117,6 +1117,7 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
                                      
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
     from collections import defaultdict
+    import random
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college
     IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
@@ -1139,7 +1140,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             2: {"start": "2:00 PM", "end": "5:00 PM"}
         })
     
-    # 1. Define Valid Dates & Reserve Last 2 for OE
+    # 1. Define Valid Dates
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     all_valid_dates = []
     for d_str in all_valid_strings:
@@ -1150,11 +1151,18 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         except ValueError:
             continue
 
-    if len(all_valid_dates) < 3:
-        st.warning("⚠️ Date range too short to reserve 2 days for OE! Scheduling compressed (No Reservation).")
+    # 2. Check for Open Electives to determine if last 2 days actually need reserving
+    has_oe = False
+    if 'OE' in df.columns:
+        has_oe = (df['OE'].notna() & (df['OE'].str.strip() != "")).any()
+        
+    if len(all_valid_dates) < 3 or not has_oe:
         core_valid_dates = all_valid_dates
+        if not has_oe:
+            st.info("📅 Full date range unlocked & utilized (No Open Electives detected).")
     else:
         core_valid_dates = all_valid_dates[:-2]
+        st.info("📅 Last 2 days reserved specifically for Open Electives.")
         
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
@@ -1331,13 +1339,19 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                                 min_dist = dist
                     return min_dist if has_exams else 999
 
+                # Filter: Hard cap at maximum 2 exams per day
                 valid_dates = [d for d in allowed_dates if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < 2]
 
+                # Shuffle valid dates to destroy chronological bias on empty days
+                rng = random.Random(unit['id'])
+                valid_dates_shuffled = list(valid_dates)
+                rng.shuffle(valid_dates_shuffled)
+
                 # SORTING PRIORITY: 
-                # 1. Zero exams today.
-                # 2. Maximum possible gap from other scheduled exams for this program (-get_min_distance).
-                # 3. Lowest overall university load.
-                sorted_dates = sorted(valid_dates, key=lambda d: (
+                # 1. Zero exams today (spread across days before double-booking a single day).
+                # 2. Maximum possible gap from other scheduled exams for this program.
+                # 3. Lowest overall university load (balances load across all days).
+                sorted_dates = sorted(valid_dates_shuffled, key=lambda d: (
                     get_cohort_daily_max(d.strftime("%d-%m-%Y")),
                     -get_min_distance(d.strftime("%d-%m-%Y"), unit['branch_sems']),
                     date_load_tracker[d.strftime("%d-%m-%Y")]
@@ -1484,7 +1498,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             final_df, unsched = execute_pass(enforce_cap=True)
             st.error(f"❌ Could not schedule {len(unsched)} subject groups due to strict capacity limits.")
             return final_df
-
 
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
