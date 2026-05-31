@@ -2368,12 +2368,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     for _, row in combined.iterrows():
                         d_str = row['Exam Date'].strftime("%A, %d %B, %Y")
                         sn = int(row.get('ExamSlotNumber', 1))
+                        
+                        # Fix: 'Subject' column already contains the module code from `read_timetable`.
                         subj = str(row.get('Subject', '')).strip()
                         if not subj or subj in ('nan', ''): continue
-                        
-                        mod_code = str(row.get('ModuleCode', row.get('Module Abbreviation', ''))).strip()
-                        if mod_code and mod_code.lower() != 'nan':
-                            subj = f"{subj} ({mod_code})"
 
                         try:
                             duration = float(row.get('Exam Duration', row.get('Duration', 2.0)))
