@@ -2789,10 +2789,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     # Initialize new columns with standard object dtype to prevent strict string enforcement errors
     verification_df["Exam Date"] = ""
-    verification_df["Exam Slot Number"] = ""
-    verification_df["Time Slot"] = ""
-    verification_df["Configured Slot"] = ""
     verification_df["Exam Time"] = ""
+    verification_df["Exam Slot Number"] = ""
+    verification_df["Time Slot"] = ""  # Kept internally for stat tracking, removed before export
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
     verification_df["Capacity Exceeded Limit"] = "No" 
@@ -2876,7 +2875,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     
                     # FIX: Cast to string to prevent Strict Pandas TypeErrors
                     verification_df.at[idx, "Exam Slot Number"] = str(exam_slot_number)
-                    verification_df.at[idx, "Configured Slot"] = str(get_time_slot_from_number(exam_slot_number, time_slots_dict))
                     verification_df.at[idx, "Time Slot"] = str(assigned_time_slot) if assigned_time_slot else "TBD"
                     
                     if assigned_time_slot and " - " in str(assigned_time_slot):
@@ -2910,10 +2908,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 
             else:
                 verification_df.at[idx, "Exam Date"] = "Not Scheduled"
+                verification_df.at[idx, "Exam Time"] = "Not Scheduled"
                 verification_df.at[idx, "Exam Slot Number"] = ""
                 verification_df.at[idx, "Time Slot"] = "Not Scheduled"
-                verification_df.at[idx, "Configured Slot"] = ""
-                verification_df.at[idx, "Exam Time"] = "Not Scheduled"
                 verification_df.at[idx, "Is Common Status"] = "N/A"
                 verification_df.at[idx, "Subject Type"] = "Unscheduled"
                 unmatched_count += 1
@@ -3043,172 +3040,16 @@ def save_verification_excel(original_df, semester_wise_timetable):
     # ---------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        
+        # 1. Redefined base_cols to place Exam Date and Exam Time side-by-side, removing Configured Slot
         base_cols = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
-                     'Exam Date', 'Exam Slot Number', 'Configured Slot', 'Exam Time',
+                     'Exam Date', 'Exam Time', 'Exam Slot Number',
                      'Student count', 'Campus', 'Scheduling Status', 'Capacity Exceeded Limit', 'Subject Type', 'Is Common Status']
         
+        # 2. Exclude 'Time Slot' and 'Configured Slot' completely from final export
         remaining_cols = [col for col in verification_df.columns 
                          if col not in base_cols 
-                         and col not in ['Student Count Clean', 'Exam Date Parsed']]
-        
-        final_cols = [c for c in base_cols if c in verification_df.columns] + remaining_cols
-        verification_df[final_cols].to_excel(writer, sheet_name="Verification", index=False)
-        
-        if not daily_stats_df.empty:
-            daily_stats_df.to_excel(writer, sheet_name="Daily_Statistics", index=False)
-            
-        if not utilization_df.empty:
-            utilization_df.to_excel(writer, sheet_name="Utilization_Analysis", index=False)
-            
-        if not overload_analysis_df.empty:
-            overload_analysis_df.to_excel(writer, sheet_name="Overload_Analysis", index=False)
-            
-        if not detailed_schedule_df.empty:
-            detailed_schedule_df.to_excel(writer, sheet_name="Detailed_Schedule", index=False)
-        
-        summary_data = {
-            "Metric": ["Total Instances", "Scheduled", "Unscheduled", "Success Rate (%)"],
-            "Value": [
-                matched_count + unmatched_count, 
-                matched_count, 
-                unmatched_count, 
-                round(matched_count/(matched_count+unmatched_count)*100, 1) if (matched_count+unmatched_count) > 0 else 0
-            ]
-        }
-        pd.DataFrame(summary_data).to_excel(writer, sheet_name="Summary", index=False)
-        
-        unmatched_subjects = verification_df[verification_df["Scheduling Status"] == "Not Scheduled"]
-        if not unmatched_subjects.empty:
-            unmatched_export = unmatched_subjects[final_cols].copy()
-            unmatched_export.to_excel(writer, sheet_name="Unmatched_Subjects", index=False)
-
-    output.seek(0)
-    st.success(f"📊 **Enhanced verification Excel generated** (Includes Overload Analysis)")
-    return output
-
-    # ---------------------------------------------------------
-    # STATISTICS & ANALYSIS GENERATION
-    # ---------------------------------------------------------
-    
-    scheduled_subjects = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
-    
-    # 1. Clean Student Count
-    if 'Student count' in scheduled_subjects.columns:
-        scheduled_subjects['Student Count Clean'] = pd.to_numeric(
-            scheduled_subjects['Student count'], 
-            errors='coerce'
-        ).fillna(0).astype(int)
-    else:
-        scheduled_subjects['Student Count Clean'] = 0
-    
-    # 2. Daily Statistics
-    daily_stats = []
-    if not scheduled_subjects.empty:
-        campuses = scheduled_subjects['Campus'].unique()
-        for exam_date, day_group in scheduled_subjects.groupby('Exam Date'):
-            if pd.isna(exam_date) or str(exam_date).strip() == "": continue
-                
-            unique_subjects_count = len(day_group['Module Abbreviation'].unique())
-            total_students = int(day_group['Student Count Clean'].sum())
-            time_slots_display = ' | '.join([str(slot) for slot in day_group['Time Slot'].unique() if pd.notna(slot) and str(slot) != "TBD"])
-            
-            row_data = {
-                'Exam Date': exam_date,
-                'Total Unique Subjects': unique_subjects_count,
-                'Total Students': total_students,
-                'Time Slots Used': time_slots_display
-            }
-            daily_stats.append(row_data)
-    
-    daily_stats_df = pd.DataFrame(daily_stats).sort_values('Exam Date') if daily_stats else pd.DataFrame()
-
-    # 3. Enhanced Utilization, Detailed Breakdown & Overload Analysis
-    utilization_df = pd.DataFrame()
-    detailed_schedule_df = pd.DataFrame()
-    overload_analysis_df = pd.DataFrame()
-    
-    if not scheduled_subjects.empty:
-        detailed_schedule_df = scheduled_subjects[[
-            'Exam Date', 'Exam Slot Number', 'Time Slot', 'Campus', 
-            'Module Abbreviation', 'Module Description', 'Program', 'Stream', 
-            'Student Count Clean', 'Is Common Status'
-        ]].copy()
-        detailed_schedule_df.rename(columns={'Student Count Clean': 'Student Count'}, inplace=True)
-        detailed_schedule_df = detailed_schedule_df.sort_values(['Exam Date', 'Exam Slot Number', 'Campus', 'Module Abbreviation'])
-
-        max_capacity = st.session_state.get('capacity_slider', 1250)
-        
-        utilization_data = []
-        overload_data = []
-        
-        grp = scheduled_subjects.groupby(['Exam Date', 'Exam Slot Number', 'Time Slot', 'Campus'])
-        for (date, slot_num, time, campus), inner_df in grp:
-            total_studs = int(inner_df['Student Count Clean'].sum())
-            subj_count = len(inner_df)
-            
-            is_mumbai = "MUMBAI" in str(campus).upper()
-            util_pct = (total_studs / max_capacity) * 100 if is_mumbai else (total_studs / max_capacity) * 100
-            is_overload = is_mumbai and (total_studs > max_capacity)
-            
-            subj_summary = []
-            for _, r in inner_df.iterrows():
-                s_name = str(r.get('Module Description', r.get('Module Abbreviation', '')))
-                s_cnt = str(int(r.get('Student Count Clean', 0)))
-                subj_summary.append(f"{s_name} ({s_cnt})")
-            
-            subjects_str = "; ".join(subj_summary)
-            if len(subjects_str) > 3000: subjects_str = subjects_str[:2997] + "..."
-
-            utilization_data.append({
-                'Exam Date': date,
-                'Slot': slot_num,
-                'Time': time,
-                'Campus': campus,
-                'Total Students': total_studs,
-                'Max Capacity': max_capacity if is_mumbai else 'N/A',
-                'Utilization %': round(util_pct, 2) if is_mumbai else 'N/A',
-                'Status': '⚠️ OVERLOAD' if is_overload else '✅ OK',
-                'Subject Count': subj_count,
-                'Contributing Subjects': subjects_str
-            })
-            
-            if is_overload:
-                for _, r in inner_df.iterrows():
-                    overload_data.append({
-                        'Exam Date': date,
-                        'Slot': slot_num,
-                        'Time': time,
-                        'Campus': campus,
-                        'Total Slot Load': total_studs,
-                        'Max Capacity': max_capacity,
-                        'Excess Students': total_studs - max_capacity,
-                        'Subject Name': r.get('Module Description', ''),
-                        'Module Code': r.get('Module Abbreviation', ''),
-                        'Program': r.get('Program', ''),
-                        'Stream': r.get('Stream', ''),
-                        'Subject Student Count': int(r.get('Student Count Clean', 0))
-                    })
-            
-        utilization_df = pd.DataFrame(utilization_data)
-        if not utilization_df.empty:
-            utilization_df = utilization_df.sort_values(['Exam Date', 'Slot', 'Campus'])
-            
-        overload_analysis_df = pd.DataFrame(overload_data)
-        if not overload_analysis_df.empty:
-            overload_analysis_df = overload_analysis_df.sort_values(['Exam Date', 'Slot', 'Campus', 'Subject Student Count'], ascending=[True, True, True, False])
-
-    # ---------------------------------------------------------
-    # EXCEL EXPORT
-    # ---------------------------------------------------------
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        base_cols = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
-                     'Exam Date', 'Exam Slot Number', 'Configured Slot', 'Exam Time',
-                     'Student count', 'Campus', 'Scheduling Status', 'Capacity Exceeded Limit', 'Subject Type', 'Is Common Status']
-        
-        remaining_cols = [col for col in verification_df.columns 
-                         if col not in base_cols 
-                         and col not in ['Student Count Clean', 'Exam Date Parsed']]
+                         and col not in ['Student Count Clean', 'Exam Date Parsed', 'Time Slot', 'Configured Slot']]
         
         final_cols = [c for c in base_cols if c in verification_df.columns] + remaining_cols
         verification_df[final_cols].to_excel(writer, sheet_name="Verification", index=False)
