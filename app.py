@@ -1340,10 +1340,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 # Pass 1: Max 1 exam/day, Slots 1 & 2 only (Primary Rule)
                 # Pass 2: Max 2 exams/day, Slots 1 & 2 only (Fallback 1)
                 # Pass 3: Max 2 exams/day, Slots 1, 2, & 3 (Exception - Third Slot)
+                # Pass 4: Max 3 exams/day, Slots 1, 2, & 3 (Failsafe - Guarantees 3rd slot is utilized if dates are too small)
+                # Pass 5: Infinite exams/day (Absolute Emergency Fallback to prevent unassigned subjects)
                 constraint_passes = [
                     {"max_exams": 1, "allowed_slots": [1, 2]},
                     {"max_exams": 2, "allowed_slots": [1, 2]},
-                    {"max_exams": 2, "allowed_slots": [1, 2, 3]}
+                    {"max_exams": 2, "allowed_slots": [1, 2, 3]},
+                    {"max_exams": 3, "allowed_slots": [1, 2, 3]},
+                    {"max_exams": 99, "allowed_slots": [1, 2, 3]}
                 ]
 
                 for p in constraint_passes:
