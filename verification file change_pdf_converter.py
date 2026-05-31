@@ -1005,9 +1005,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
 
         # For SBM/PDSE use the exact required label format with a.m./p.m. and en-dash
         _SBM_LABELS = {
-            1: "11:30 a.m. – 1:30 p.m.",
-            2: "3:00 p.m. – 5:00 p.m.",
-            3: "8:30 a.m. – 10:30 a.m.",
+            1: "11:30 AM to 1:30 PM",
+            2: "3:00 PM to 5:00 PM",
+            3: "8:30 AM to 10:30 AM",
         }
         if IS_BUSINESS_SCH:
             slot_labels = {sn: _SBM_LABELS.get(sn, f"{scfg['start']} to {scfg['end']}")
