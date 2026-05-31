@@ -174,36 +174,83 @@ def process_verification_file(uploaded_file):
 
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
 
-        # ── Derive ExamSlotNumber from Exam Time for SBM/Pravin Dalal ──────
-        current_college = st.session_state.get('selected_college', '')
-        IS_BUSINESS_SCH = ("School of Business Management" in current_college
-                           or "Pravin Dalal" in current_college)
-        if IS_BUSINESS_SCH:
-            time_slots_dict = st.session_state.get('time_slots', {
-                1: {"start": "10:00 AM", "end": "1:00 PM"},
-                2: {"start": "2:00 PM",  "end": "5:00 PM"}
-            })
-            # Build normalised time → slot lookup
+        # ── Assign ExamSlotNumber: prefer the column already in the Excel ───
+        # The new verification Excel from save_verification_excel always has
+        # "Exam Slot Number" pre-populated correctly (1 or 2).  Only fall back
+        # to time-string derivation when that column is absent or all-zero.
+        _esn_col = None
+        for _c in ('Exam Slot Number', 'ExamSlotNumber', 'Exam_Slot_Number'):
+            if _c in df.columns:
+                _esn_col = _c
+                break
+
+        if _esn_col:
+            _parsed_sn = pd.to_numeric(df[_esn_col], errors='coerce').fillna(0).astype(int)
+            if _parsed_sn.gt(0).any():
+                df['ExamSlotNumber'] = _parsed_sn.where(_parsed_sn.gt(0), 1)
+            else:
+                df['ExamSlotNumber'] = 1
+        else:
+            # Fallback: derive from Exam Time start-time prefix
             def _norm_t(s):
                 s = str(s).strip().upper()
                 for i in range(1, 10): s = s.replace(f"0{i}:", f"{i}:")
                 return s
-            _t2slot = {}
-            for _sn, _scfg in time_slots_dict.items():
-                _t2slot[_norm_t(f"{_scfg['start']} - {_scfg['end']}")] = _sn
-                _t2slot[_norm_t(_scfg['start'])] = _sn  # match on start time alone
+            # Build slot lookup from actual Configured Slot column if available,
+            # otherwise use session-state time_slots_dict
+            _cs_col = 'Configured Slot' if 'Configured Slot' in df.columns else None
+            if _cs_col:
+                _t2slot = {}
+                for _sn_val in sorted(df['Exam Slot Number'].dropna().unique() if 'Exam Slot Number' in df.columns else [1]):
+                    _rows = df[df.get('Exam Slot Number', pd.Series(dtype=int)) == _sn_val]
+                    if not _rows.empty:
+                        _sample = str(_rows[_cs_col].iloc[0]).strip()
+                        _t2slot[_norm_t(_sample)] = int(_sn_val)
+                        _t2slot[_norm_t(_sample.split(' - ')[0])] = int(_sn_val)
+            else:
+                _tsd = st.session_state.get('time_slots', {
+                    1: {"start": "11:30 AM", "end": "1:30 PM"},
+                    2: {"start": "3:00 PM",  "end": "5:00 PM"}
+                })
+                _t2slot = {}
+                for _sn2, _scfg2 in _tsd.items():
+                    _t2slot[_norm_t(f"{_scfg2['start']} - {_scfg2['end']}")] = _sn2
+                    _t2slot[_norm_t(_scfg2['start'])] = _sn2
 
             def _derive_slot(exam_time):
                 t = _norm_t(str(exam_time))
-                # try full range match first, then start-time prefix
                 for key, sn in _t2slot.items():
                     if key in t or t.startswith(key.split(' - ')[0]):
                         return sn
-                return 1  # default to slot 1
+                return 1
 
             df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot)
-        else:
-            df['ExamSlotNumber'] = 1
+
+        # Also build time_slots_dict for this file from actual Exam Time / Exam Slot Number
+        # so that slot_labels in the PDF header show the real configured times
+        current_college = st.session_state.get('selected_college', '')
+        IS_BUSINESS_SCH = ("School of Business Management" in current_college
+                           or "Pravin Dalal" in current_college)
+        if IS_BUSINESS_SCH:
+            _slot_times = {}
+            for _sn_val2 in sorted(df['ExamSlotNumber'].unique()):
+                _sn_int = int(_sn_val2)
+                _slot_rows = df[df['ExamSlotNumber'] == _sn_int]
+                # Use Configured Slot if present (full 2hr window), else use Exam Time of a 2hr row
+                if 'Configured Slot' in df.columns:
+                    _times = _slot_rows['Configured Slot'].dropna()
+                    _times = _times[~_times.astype(str).isin(['nan','','TBD','Not Scheduled'])]
+                else:
+                    _dur2 = _slot_rows[_slot_rows.get('ExamDuration', pd.Series(dtype=float)) == 2.0] if 'ExamDuration' in df.columns else _slot_rows
+                    _times = (_dur2['Exam Time'] if not _dur2.empty else _slot_rows['Exam Time']).dropna()
+                    _times = _times[~_times.astype(str).isin(['nan','','TBD','Not Scheduled'])]
+                if not _times.empty:
+                    _sample = str(_times.iloc[0]).strip()
+                    _parts = _sample.split(' - ')
+                    if len(_parts) == 2:
+                        _slot_times[_sn_int] = {"start": _parts[0].strip(), "end": _parts[1].strip()}
+            if _slot_times:
+                st.session_state['time_slots'] = _slot_times
 
         timetable = {}
         for sem in sorted(df['Semester'].unique()):
@@ -1183,31 +1230,22 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
                         code  = str(row.get('ModuleCode', '')).strip()
                         if code and code.lower() != 'nan': subj = f"{subj} ({code})"
 
-                        # Duration=1 time suffix: format actual exam time beside subject name
+                        # Duration=1 time suffix — ditto scheduler logic
                         try:
                             duration = float(row.get('ExamDuration', 2.0))
                         except:
                             duration = 2.0
                         if duration == 1.0:
-                            # Verification Excel has the actual 1hr slot in 'Exam Time' column
-                            actual_time = str(row.get('Exam Time', '')).strip()
-                            if actual_time and actual_time.lower() not in ('nan', ''):
-                                # Parse and reformat to match scheduler style: "11:30 a.m. to 12:30 p.m."
-                                try:
-                                    _m = re.match(
-                                        r'(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)',
-                                        actual_time.strip(), re.IGNORECASE)
-                                    if _m:
-                                        from datetime import datetime as _dt
-                                        _st = _dt.strptime(_m.group(1).strip(), "%I:%M %p")
-                                        _en = _dt.strptime(_m.group(2).strip(), "%I:%M %p")
-                                        def _fmt_t(dt):
-                                            return dt.strftime('%I:%M').lstrip('0') + " " + dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
-                                        subj = f"{subj} ({_fmt_t(_st)} to {_fmt_t(_en)})"
-                                    else:
-                                        subj = f"{subj} ({actual_time})"
-                                except:
-                                    subj = f"{subj} ({actual_time})"
+                            slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
+                            try:
+                                from datetime import datetime as _dt2, timedelta as _td
+                                _start_dt = _dt2.strptime(slot_cfg['start'].strip(), "%I:%M %p")
+                                _end_dt   = _start_dt + _td(hours=1)
+                                def _fmt_t(dt):
+                                    return dt.strftime('%I:%M').lstrip('0') + " " + dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
+                                subj = f"{subj} ({_fmt_t(_start_dt)} to {_fmt_t(_end_dt)})"
+                            except:
+                                pass
 
                         oe = str(row.get('OE', '')).strip()
                         if oe and oe not in ('nan', 'none', 'None', ''): subj = f"{subj} [{oe}]"
