@@ -2181,7 +2181,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(cy)
             pdf_obj.set_font("Times", 'B', 9)
             pdf_obj.set_x(pdf_obj.l_margin)
-            pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
+            #pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
             pdf_obj.set_x(pdf_obj.l_margin)
             pdf_obj.cell(0, 4, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
             pdf_obj.set_y(cy + 8)
