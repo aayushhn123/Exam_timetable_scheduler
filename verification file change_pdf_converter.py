@@ -174,83 +174,44 @@ def process_verification_file(uploaded_file):
 
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
 
-        # ── Assign ExamSlotNumber: prefer the column already in the Excel ───
-        # The new verification Excel from save_verification_excel always has
-        # "Exam Slot Number" pre-populated correctly (1 or 2).  Only fall back
-        # to time-string derivation when that column is absent or all-zero.
-        _esn_col = None
-        for _c in ('Exam Slot Number', 'ExamSlotNumber', 'Exam_Slot_Number'):
-            if _c in df.columns:
-                _esn_col = _c
-                break
-
-        if _esn_col:
-            _parsed_sn = pd.to_numeric(df[_esn_col], errors='coerce').fillna(0).astype(int)
-            if _parsed_sn.gt(0).any():
-                df['ExamSlotNumber'] = _parsed_sn.where(_parsed_sn.gt(0), 1)
-            else:
-                df['ExamSlotNumber'] = 1
-        else:
-            # Fallback: derive from Exam Time start-time prefix
-            def _norm_t(s):
-                s = str(s).strip().upper()
-                for i in range(1, 10): s = s.replace(f"0{i}:", f"{i}:")
-                return s
-            # Build slot lookup from actual Configured Slot column if available,
-            # otherwise use session-state time_slots_dict
-            _cs_col = 'Configured Slot' if 'Configured Slot' in df.columns else None
-            if _cs_col:
-                _t2slot = {}
-                for _sn_val in sorted(df['Exam Slot Number'].dropna().unique() if 'Exam Slot Number' in df.columns else [1]):
-                    _rows = df[df.get('Exam Slot Number', pd.Series(dtype=int)) == _sn_val]
-                    if not _rows.empty:
-                        _sample = str(_rows[_cs_col].iloc[0]).strip()
-                        _t2slot[_norm_t(_sample)] = int(_sn_val)
-                        _t2slot[_norm_t(_sample.split(' - ')[0])] = int(_sn_val)
-            else:
-                _tsd = st.session_state.get('time_slots', {
-                    1: {"start": "11:30 AM", "end": "1:30 PM"},
-                    2: {"start": "3:00 PM",  "end": "5:00 PM"}
-                })
-                _t2slot = {}
-                for _sn2, _scfg2 in _tsd.items():
-                    _t2slot[_norm_t(f"{_scfg2['start']} - {_scfg2['end']}")] = _sn2
-                    _t2slot[_norm_t(_scfg2['start'])] = _sn2
-
-            def _derive_slot(exam_time):
-                t = _norm_t(str(exam_time))
-                for key, sn in _t2slot.items():
-                    if key in t or t.startswith(key.split(' - ')[0]):
-                        return sn
-                return 1
-
-            df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot)
-
-        # Also build time_slots_dict for this file from actual Exam Time / Exam Slot Number
-        # so that slot_labels in the PDF header show the real configured times
+        # ── Derive ExamSlotNumber from Exam Time only (Exam Slot Number col ignored) ──
+        # Fixed SBM slot map keyed on start-time prefix (zero-padded or not):
+        #   Slot 1 → 11:30 AM start  → 11:30 a.m. – 1:30 p.m.
+        #   Slot 2 →  3:00 PM start  →  3:00 p.m. – 5:00 p.m.
+        #   Slot 3 →  8:30 AM start  →  8:30 a.m. – 10:30 a.m.
         current_college = st.session_state.get('selected_college', '')
         IS_BUSINESS_SCH = ("School of Business Management" in current_college
                            or "Pravin Dalal" in current_college)
+
+        SBM_SLOT_MAP = {
+            1: {"start": "11:30 AM", "end": "01:30 PM"},
+            2: {"start": "03:00 PM", "end": "05:00 PM"},
+            3: {"start": "08:30 AM", "end": "10:30 AM"},
+        }
+        # Normalise to uppercase, strip leading zero from hour for matching
+        def _norm_t(s):
+            s = str(s).strip().upper()
+            for i in range(1, 10): s = s.replace(f"0{i}:", f"{i}:")
+            return s
+
+        # Build start-time → slot lookup from the fixed SBM map
+        _sbm_t2slot = {}
+        for _sn, _cfg in SBM_SLOT_MAP.items():
+            _sbm_t2slot[_norm_t(_cfg["start"])] = _sn
+
+        def _derive_slot_sbm(exam_time):
+            t = _norm_t(str(exam_time))
+            for _start_key, _sn in _sbm_t2slot.items():
+                if t.startswith(_start_key):
+                    return _sn
+            return 1   # fallback
+
         if IS_BUSINESS_SCH:
-            _slot_times = {}
-            for _sn_val2 in sorted(df['ExamSlotNumber'].unique()):
-                _sn_int = int(_sn_val2)
-                _slot_rows = df[df['ExamSlotNumber'] == _sn_int]
-                # Use Configured Slot if present (full 2hr window), else use Exam Time of a 2hr row
-                if 'Configured Slot' in df.columns:
-                    _times = _slot_rows['Configured Slot'].dropna()
-                    _times = _times[~_times.astype(str).isin(['nan','','TBD','Not Scheduled'])]
-                else:
-                    _dur2 = _slot_rows[_slot_rows.get('ExamDuration', pd.Series(dtype=float)) == 2.0] if 'ExamDuration' in df.columns else _slot_rows
-                    _times = (_dur2['Exam Time'] if not _dur2.empty else _slot_rows['Exam Time']).dropna()
-                    _times = _times[~_times.astype(str).isin(['nan','','TBD','Not Scheduled'])]
-                if not _times.empty:
-                    _sample = str(_times.iloc[0]).strip()
-                    _parts = _sample.split(' - ')
-                    if len(_parts) == 2:
-                        _slot_times[_sn_int] = {"start": _parts[0].strip(), "end": _parts[1].strip()}
-            if _slot_times:
-                st.session_state['time_slots'] = _slot_times
+            df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_sbm)
+            # Push the fixed SBM time_slots into session state so slot_labels are correct
+            st.session_state['time_slots'] = SBM_SLOT_MAP
+        else:
+            df['ExamSlotNumber'] = 1
 
         timetable = {}
         for sem in sorted(df['Semester'].unique()):
@@ -904,17 +865,26 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
     IS_BUSINESS_SCH = ("School of Business Management" in current_college_context
                        or "Pravin Dalal" in current_college_context)
 
-    time_slots_dict = st.session_state.get('time_slots', {
-        1: {"start": "10:00 AM", "end": "1:00 PM"},
-        2: {"start": "2:00 PM",  "end": "5:00 PM"}
-    })
-
-    # SOL Fix 2: Override default time slots for School of Law
-    if IS_LAW_SCHOOL:
+    # For SBM/PDSE always use the fixed 3-slot map (Exam Slot Number col is ignored;
+    # slots are derived purely from Exam Time start-time in process_verification_file)
+    if IS_BUSINESS_SCH:
+        time_slots_dict = {
+            1: {"start": "11:30 AM", "end": "01:30 PM"},
+            2: {"start": "03:00 PM", "end": "05:00 PM"},
+            3: {"start": "08:30 AM", "end": "10:30 AM"},
+        }
+    elif IS_LAW_SCHOOL:
         time_slots_dict = {
             1: {"start": "11:00 AM", "end": "1:00 PM"},
             2: {"start": "2:30 PM",  "end": "4:30 PM"}
         }
+    else:
+        time_slots_dict = st.session_state.get('time_slots', {
+            1: {"start": "10:00 AM", "end": "1:00 PM"},
+            2: {"start": "2:00 PM",  "end": "5:00 PM"}
+        })
+
+    # SOL Fix 2: Override default time slots for School of Law (kept for clarity above)
 
     try:
         df_dict = pd.read_excel(excel_path, sheet_name=None)
@@ -1032,8 +1002,19 @@ def convert_excel_to_pdf(excel_path, pdf_path, sub_branch_cols_per_page=6, decla
             pdf_obj.set_y(cy + 8)
 
         num_slots  = len(time_slots_dict)
-        slot_labels = {sn: f"{scfg['start']} to {scfg['end']}"
-                       for sn, scfg in sorted(time_slots_dict.items())}
+
+        # For SBM/PDSE use the exact required label format with a.m./p.m. and en-dash
+        _SBM_LABELS = {
+            1: "11:30 a.m. – 1:30 p.m.",
+            2: "3:00 p.m. – 5:00 p.m.",
+            3: "8:30 a.m. – 10:30 a.m.",
+        }
+        if IS_BUSINESS_SCH:
+            slot_labels = {sn: _SBM_LABELS.get(sn, f"{scfg['start']} to {scfg['end']}")
+                           for sn, scfg in sorted(time_slots_dict.items())}
+        else:
+            slot_labels = {sn: f"{scfg['start']} to {scfg['end']}"
+                           for sn, scfg in sorted(time_slots_dict.items())}
 
         def render_footer_sbm(pdf_obj):
             # CHANGE: Removed static signature block from bottom. Now only prints page numbers.
