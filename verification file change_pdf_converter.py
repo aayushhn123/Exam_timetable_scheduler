@@ -128,7 +128,6 @@ def process_verification_file(uploaded_file):
             df = df[df['Exam Date'].notna()].copy()
             df['_date_str'] = df['Exam Date'].astype(str).str.strip().str.upper()
             df = df[~df['_date_str'].isin(['NOT SCHEDULED', 'NAN', 'NAT', 'NONE', ''])].drop(columns=['_date_str'])
-            # Force dayfirst=True so DD-MM-YYYY strings like "06-03-2026" parse as 6th March not 3rd June
             parsed_dates = pd.to_datetime(df['Exam Date'], dayfirst=True, errors='coerce')
             df = df[parsed_dates.notna()].copy()
             parsed_dates = parsed_dates[parsed_dates.notna()]
@@ -143,13 +142,11 @@ def process_verification_file(uploaded_file):
         df['Subject']    = df.get('Module Description',  pd.Series(dtype=str)).fillna("").astype(str).str.strip()
         df['ModuleCode'] = df.get('Module Abbreviation', pd.Series(dtype=str)).fillna("").astype(str).str.strip()
 
-        # Capture Exam Duration (1hr vs 2hr) for use in SBM PDF time-suffix rendering
         if 'Exam Duration' in df.columns:
             df['ExamDuration'] = pd.to_numeric(df['Exam Duration'], errors='coerce').fillna(2.0)
         else:
             df['ExamDuration'] = 2.0
 
-        # Rule 2 Tagging Setup: Capture the actual OE string dynamically if it contains "OE"
         if 'Subject Type' in df.columns:
             def extract_oe(x):
                 if pd.isna(x): return None
@@ -174,7 +171,6 @@ def process_verification_file(uploaded_file):
 
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
 
-        # ── Derive ExamSlotNumber from Exam Time only (Exam Slot Number col ignored) ──
         current_college = st.session_state.get('selected_college', '')
         IS_BUSINESS_SCH = ("School of Business Management" in current_college
                            or "Pravin Dalal" in current_college)
@@ -184,13 +180,12 @@ def process_verification_file(uploaded_file):
             2: {"start": "03:00 PM", "end": "05:00 PM"},
             3: {"start": "08:30 AM", "end": "10:30 AM"},
         }
-        # Normalise to uppercase, strip leading zero from hour for matching
+
         def _norm_t(s):
             s = str(s).strip().upper()
             for i in range(1, 10): s = s.replace(f"0{i}:", f"{i}:")
             return s
 
-        # Build start-time → slot lookup from the fixed SBM map
         _sbm_t2slot = {}
         for _sn, _cfg in SBM_SLOT_MAP.items():
             _sbm_t2slot[_norm_t(_cfg["start"])] = _sn
@@ -200,7 +195,7 @@ def process_verification_file(uploaded_file):
             for _start_key, _sn in _sbm_t2slot.items():
                 if t.startswith(_start_key):
                     return _sn
-            return 1   # fallback
+            return 1
 
         if IS_BUSINESS_SCH:
             df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_sbm)
@@ -277,7 +272,6 @@ def save_to_excel(semester_wise_timetable):
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
 
-    # SOL Fix 2: Override default time slots for School of Law
     if IS_LAW_SCHOOL:
         time_slots_dict = {
             1: {"start": "11:00 AM", "end": "1:00 PM"},
@@ -286,10 +280,7 @@ def save_to_excel(semester_wise_timetable):
 
     output = io.BytesIO()
 
-    # Rule 1: B.A. / B.B.A. Side-by-Side Merging Pre-Processing
     if IS_LAW_SCHOOL:
-
-        # SOL Fix 1: Canonical program name normaliser — enforces exact spacing & capitalisation
         def _sol_normalise_program_name(raw):
             s = str(raw).strip()
             su = s.upper().replace(" ", "")
@@ -352,7 +343,6 @@ def save_to_excel(semester_wise_timetable):
                 core_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}"[:31])
                 elec_sheet = unique_sheet(f"{prog_key}_|_Sem {roman_sem}_Ele"[:31])
 
-                # Rule 2: Inline Open Electives execution - Do not split OE for SOL BA/BBA
                 if IS_LAW_SCHOOL and main_branch == "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)":
                     df_core = df_mb.copy()
                     df_elec = pd.DataFrame()
@@ -376,18 +366,15 @@ def save_to_excel(semester_wise_timetable):
                             elif normalize_time(actual_time) != header_norm:
                                 time_suffix = f" [{actual_time}]"
 
-                        # Rule 2: Tagging OE subjects visually inside the core dataframe cell
                         prefix = ""
                         if IS_LAW_SCHOOL and main_branch == "B.A., LL.B.(Hons.) / B.B.A., LL.B.(Hons.)" and pd.notna(oe_type) and str(oe_type).strip() != '':
                             prefix = f"[OE: {oe_type}] "
 
-                        # Rule 4: Subject String Formatting (No hyphen before module code)
                         txt = f"{prefix}{subj}"
                         if code and str(code).lower() != 'nan': txt += f" ({code})"
                         txt += time_suffix
                         displays.append(txt)
 
-                        # Parse time for chronological sorting within partitioned cells
                         parse_time_str = actual_time if (actual_time and actual_time.lower() not in ['tbd', 'nan', '']) else header_norm
                         m = re.search(r'(\d{1,2}):(\d{2})\s*([AP]M)', str(parse_time_str).upper())
                         if m:
@@ -1126,8 +1113,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         display_sem = display_sem[len(pfx):].strip(); break
 
                 header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-
-                # ── Build slot_pivot from session-state timetable_data ────────
                 timetable_data = st.session_state.get('processed_tt', {})
 
                 def _strip_sem_prefix(s):
@@ -1231,7 +1216,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                                                errors='coerce').strftime("%A, %d %B, %Y")
                         except: pass
                         if d not in slot_pivot:
-                            slot_pivot[d] = {sn: [] for sn in time_slots_dict}
+                            slot_pivot[d] = {sn in time_slots_dict}
                         for sc in _sub_cols:
                             val = str(row.get(sc, '')).strip()
                             for raw_subj in val.split('<hr>'):
@@ -1246,10 +1231,19 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                 if not slot_pivot: continue
 
+                # ── Detect active slots & CHRONOLOGICALLY SORT columns by start-time ──
                 all_slots_sorted = sorted(time_slots_dict.keys())
                 active_slots = [sn for sn in all_slots_sorted
                                 if any(slot_pivot[d].get(sn) for d in slot_pivot)]
                 if not active_slots: active_slots = all_slots_sorted
+
+                # MATCH EXTRACTED LOGIC: Chronological time comparison sort for column alignment
+                def get_slot_start_time(slot_no):
+                    try:
+                        return datetime.strptime(time_slots_dict[slot_no]['start'].strip(), "%I:%M %p").time()
+                    except:
+                        return datetime.min.time()
+                active_slots = sorted(active_slots, key=get_slot_start_time)
 
                 n_active       = len(active_slots)
                 pdf            = FPDF(orientation='P', unit='mm', format='A4')
