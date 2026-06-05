@@ -2178,8 +2178,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_y(cy)
             pdf_obj.set_font("Times", 'B', 9)
             pdf_obj.set_x(pdf_obj.l_margin)
-            pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
-            pdf_obj.set_x(pdf_obj.l_margin)
             pdf_obj.cell(0, 4, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
             pdf_obj.set_y(cy + 8)
 
@@ -2214,7 +2212,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_xy(10, text_y)
             pdf_obj.cell(pdf_obj.w - 20, cell_h, college_name, 0, 1, 'C')
             
-            # FIX: Realignment of declaration date to align horizontally with the school name line
+            # FIX: Realignment of declaration date to align horizontally with the main School Name line
             if declaration_date:
                 day = declaration_date.day
                 suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
@@ -2269,45 +2267,36 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             text_y += cell_h + LINE_GAP
             pdf_obj.set_xy(pdf_obj.l_margin, text_y + 3)
 
-        # FIX: Updated wrapping engine to seamlessly map mixed custom font styles (bold/regular)
-        def _wrap_cell(pdf_obj, cell_input, avail_w, font_style='', font_size=9):
-            if isinstance(cell_input, str):
-                blocks = [(cell_input, 'B' in font_style)]
-            else:
-                blocks = cell_input
-                
+        def _wrap_cell(pdf_obj, text, avail_w, font_style='', font_size=9):
+            pdf_obj.set_font("Times", font_style, font_size)
+            paragraphs = str(text).split('\n')
             wrapped_lines = []
-            for text, is_bold in blocks:
-                current_style = 'B' if is_bold else font_style.replace('B', '')
-                pdf_obj.set_font("Times", current_style, font_size)
-                
-                paragraphs = str(text).split('\n')
-                for p in paragraphs:
-                    words = p.split()
-                    if not words:
-                        wrapped_lines.append(("", is_bold))
-                        continue
-                    cur = ""
-                    for w in words:
-                        test = (cur + " " + w).strip()
-                        if pdf_obj.get_string_width(test) <= avail_w: cur = test
-                        else:
-                            if cur: wrapped_lines.append((cur, is_bold))
-                            cur = w
-                    if cur: wrapped_lines.append((cur, is_bold))
-            return wrapped_lines if wrapped_lines else [("", False)]
+            for p in paragraphs:
+                words = p.split()
+                if not words:
+                    wrapped_lines.append("")
+                    continue
+                cur = ""
+                for w in words:
+                    test = (cur + " " + w).strip()
+                    if pdf_obj.get_string_width(test) <= avail_w: cur = test
+                    else:
+                        if cur: wrapped_lines.append(cur)
+                        cur = w
+                if cur: wrapped_lines.append(cur)
+            return wrapped_lines if wrapped_lines else [""]
 
         LINE_H, PAD = 5, 1.5
 
-        # FIX: Updated drawer to selectively output bold styling line-by-line within a table cell
+        # FIX: Updated drawer block to look up 1-hour time formats and selectively format them in bold
         def _draw_row(pdf_obj, cells, col_widths, font_style='', font_size=9, fill_color=None, text_color=(0,0,0)):
             if fill_color: pdf_obj.set_fill_color(*fill_color)
             pdf_obj.set_text_color(*text_color)
 
             wrapped = []
-            for i, cell_input in enumerate(cells):
+            for i, txt in enumerate(cells):
                 avail = col_widths[i] - 2 * PAD
-                wrapped.append(_wrap_cell(pdf_obj, cell_input, avail, font_style, font_size))
+                wrapped.append(_wrap_cell(pdf_obj, txt, avail, font_style, font_size))
 
             max_lines = max(len(lns) for lns in wrapped)
             row_h     = LINE_H * max_lines
@@ -2315,16 +2304,45 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
             if fill_color: pdf_obj.rect(x0, y0, sum(col_widths), row_h, 'F')
 
+            # Regex pattern tailored to trap SBM 1-hour exam brackets safely
+            time_pattern = re.compile(r'(\(\d{1,2}:\d{2}\s*[ap]\.m\.\s+to\s+\d{1,2}:\d{2}\s*[ap]\.m\.\))', re.IGNORECASE)
+
             cx = x0
             for i, lines in enumerate(wrapped):
                 total_text_h = len(lines) * LINE_H * 0.85
                 pad_v = (row_h - total_text_h) / 2
-                for j, (ln, is_bold) in enumerate(lines):
-                    current_style = 'B' if is_bold else font_style.replace('B', '')
-                    pdf_obj.set_font("Times", current_style, font_size)
+                for j, ln in enumerate(lines):
+                    parts = time_pattern.split(ln)
                     
-                    pdf_obj.set_xy(cx + PAD, y0 + pad_v + j * LINE_H * 0.85)
-                    pdf_obj.cell(col_widths[i] - 2 * PAD, LINE_H * 0.85, ln, border=0, align='C')
+                    if len(parts) == 1:
+                        pdf_obj.set_font("Times", font_style, font_size)
+                        pdf_obj.set_xy(cx + PAD, y0 + pad_v + j * LINE_H * 0.85)
+                        pdf_obj.cell(col_widths[i] - 2 * PAD, LINE_H * 0.85, ln, border=0, align='C')
+                    else:
+                        total_w = 0
+                        for k, p in enumerate(parts):
+                            if not p: continue
+                            if k % 2 == 1:
+                                pdf_obj.set_font("Times", 'B', font_size)
+                            else:
+                                pdf_obj.set_font("Times", font_style.replace('B', ''), font_size)
+                            total_w += pdf_obj.get_string_width(p)
+                        
+                        start_x = cx + max(PAD, (col_widths[i] - total_w) / 2)
+                        current_x = start_x
+                        
+                        for k, p in enumerate(parts):
+                            if not p: continue
+                            if k % 2 == 1:
+                                pdf_obj.set_font("Times", 'B', font_size)
+                            else:
+                                pdf_obj.set_font("Times", font_style.replace('B', ''), font_size)
+                            
+                            w = pdf_obj.get_string_width(p)
+                            pdf_obj.set_xy(current_x - pdf_obj.c_margin, y0 + pad_v + j * LINE_H * 0.85)
+                            pdf_obj.cell(w + 2 * pdf_obj.c_margin, LINE_H * 0.85, p, border=0, align='L')
+                            current_x += w
+                            
                 pdf_obj.rect(cx, y0, col_widths[i], row_h)
                 cx += col_widths[i]
 
@@ -2397,9 +2415,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         except:
                             duration = 2.0
 
-                        # Check if this row represents a 1-hour session to assign bold markers
-                        is_bold_subject = (duration == 1.0)
-                        if is_bold_subject:
+                        if duration == 1.0:
                             slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
                             try:
                                 start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
@@ -2416,7 +2432,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         if oe and oe.lower() != 'nan': subj = f"{subj} [{oe}]"
                         
                         if d_str not in slot_pivot: slot_pivot[d_str] = {sn2: [] for sn2 in time_slots_dict}
-                        slot_pivot[d_str].setdefault(sn, []).append((subj, is_bold_subject))
+                        slot_pivot[d_str].setdefault(sn, []).append(subj)
 
                 if not slot_pivot: continue
 
@@ -2450,7 +2466,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     row_cells = [d_str]
                     for sn in active_slots:
                         subj_list = slots.get(sn, [])
-                        row_cells.append(subj_list if subj_list else [("-------------------", False)])
+                        row_cells.append("\n".join(subj_list) if subj_list else "-------------------")
 
                     max_lines_est = max(len(_wrap_cell(pdf, txt, act_col_widths[i] - 2 * PAD, '', 9.5)) for i, txt in enumerate(row_cells))
                     if pdf.get_y() + (LINE_H * max_lines_est) > _table_bottom:
