@@ -2139,14 +2139,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 total += len(lines) * line_h + (1 if is_heading else 0.5)
             return total
 
-        # CHANGE: Merged instructions and signature block so they print immediately together
         def render_instructions_and_signature_sbm(pdf_obj, y_start):
             usable_w  = pdf_obj.w - 2 * pdf_obj.l_margin
             available = pdf_obj.h - footer_height - 2 - y_start
             chosen_size = 6.5
             chosen_lh   = 4.0
             
-            # Ensure we account for the +28 height of the signature block in size selection
             for fs in [8.5, 8.0, 7.5, 7.0, 6.5]:
                 lh = fs * 0.55
                 if _measure_instructions(pdf_obj, fs, lh, usable_w) + 28 <= available:
@@ -2176,12 +2174,11 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     cy += chosen_lh
                 cy += 0.5 if not is_heading else 1.0
             
-            # CHANGE 1 & 2: Increased padding significantly for a physical signature space
             cy += 18 
             pdf_obj.set_y(cy)
             pdf_obj.set_font("Times", 'B', 9)
             pdf_obj.set_x(pdf_obj.l_margin)
-            #pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
+            pdf_obj.cell(0, 4, "ASHISH APTE", 0, 1, 'L')
             pdf_obj.set_x(pdf_obj.l_margin)
             pdf_obj.cell(0, 4, "CONTROLLER OF EXAMINATIONS", 0, 1, 'L')
             pdf_obj.set_y(cy + 8)
@@ -2192,7 +2189,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             slot_labels[sn] = f"{scfg['start']} to {scfg['end']}"
 
         def render_footer_sbm(pdf_obj):
-            # CHANGE: Removed static signature block from bottom. Now only prints page numbers.
             pdf_obj.set_font("Times", '', 8)
             page_text = f"{pdf_obj.page_no()} of {{nb}}"
             tw = pdf_obj.get_string_width(page_text.replace("{nb}", "99"))
@@ -2201,15 +2197,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
         def render_header_sbm(pdf_obj, header_content, declaration_date):
             pdf_obj.set_y(0)
-            if declaration_date:
-                day = declaration_date.day
-                suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
-                decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
-                pdf_obj.set_font("Times", 'B', 11)
-                pdf_obj.set_text_color(0, 0, 0)
-                pdf_obj.set_xy(pdf_obj.w - 80, 8)
-                pdf_obj.cell(70, 8, decl_str, 0, 0, 'R')
-
             logo_w    = 45
             logo_y    = 3
             sbm_logo  = "logo_sbm.png"
@@ -2226,9 +2213,19 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             cell_h = F_COLLEGE * 0.40
             pdf_obj.set_xy(10, text_y)
             pdf_obj.cell(pdf_obj.w - 20, cell_h, college_name, 0, 1, 'C')
+            
+            # FIX: Realignment of declaration date to align horizontally with the school name line
+            if declaration_date:
+                day = declaration_date.day
+                suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
+                decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
+                pdf_obj.set_font("Times", 'B', 11)
+                pdf_obj.set_text_color(0, 0, 0)
+                pdf_obj.set_xy(pdf_obj.w - 80, text_y)
+                pdf_obj.cell(70, cell_h, decl_str, 0, 0, 'R')
+
             text_y += cell_h + LINE_GAP
             
-            # CHANGE 3: Append PDSE SBM INITIATIVE tag under College Name if PDSE is selected
             if "PRAVIN DALAL" in college_name:
                 pdf_obj.set_font("Times", 'B', F_COLLEGE - 1.5)
                 cell_h_init = (F_COLLEGE - 1.5) * 0.40
@@ -2272,29 +2269,45 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             text_y += cell_h + LINE_GAP
             pdf_obj.set_xy(pdf_obj.l_margin, text_y + 3)
 
-        def _wrap_cell(pdf_obj, text, avail_w, font_style='', font_size=9):
-            pdf_obj.set_font("Times", font_style, font_size)
-            words, lines, cur = str(text).split(), [], ""
-            for w in words:
-                test = (cur + " " + w).strip()
-                if pdf_obj.get_string_width(test) <= avail_w: cur = test
-                else:
-                    if cur: lines.append(cur)
-                    cur = w
-            if cur: lines.append(cur)
-            return lines if lines else [""]
+        # FIX: Updated wrapping engine to seamlessly map mixed custom font styles (bold/regular)
+        def _wrap_cell(pdf_obj, cell_input, avail_w, font_style='', font_size=9):
+            if isinstance(cell_input, str):
+                blocks = [(cell_input, 'B' in font_style)]
+            else:
+                blocks = cell_input
+                
+            wrapped_lines = []
+            for text, is_bold in blocks:
+                current_style = 'B' if is_bold else font_style.replace('B', '')
+                pdf_obj.set_font("Times", current_style, font_size)
+                
+                paragraphs = str(text).split('\n')
+                for p in paragraphs:
+                    words = p.split()
+                    if not words:
+                        wrapped_lines.append(("", is_bold))
+                        continue
+                    cur = ""
+                    for w in words:
+                        test = (cur + " " + w).strip()
+                        if pdf_obj.get_string_width(test) <= avail_w: cur = test
+                        else:
+                            if cur: wrapped_lines.append((cur, is_bold))
+                            cur = w
+                    if cur: wrapped_lines.append((cur, is_bold))
+            return wrapped_lines if wrapped_lines else [("", False)]
 
         LINE_H, PAD = 5, 1.5
 
+        # FIX: Updated drawer to selectively output bold styling line-by-line within a table cell
         def _draw_row(pdf_obj, cells, col_widths, font_style='', font_size=9, fill_color=None, text_color=(0,0,0)):
             if fill_color: pdf_obj.set_fill_color(*fill_color)
             pdf_obj.set_text_color(*text_color)
-            pdf_obj.set_font("Times", font_style, font_size)
 
             wrapped = []
-            for i, txt in enumerate(cells):
+            for i, cell_input in enumerate(cells):
                 avail = col_widths[i] - 2 * PAD
-                wrapped.append(_wrap_cell(pdf_obj, txt, avail, font_style, font_size))
+                wrapped.append(_wrap_cell(pdf_obj, cell_input, avail, font_style, font_size))
 
             max_lines = max(len(lns) for lns in wrapped)
             row_h     = LINE_H * max_lines
@@ -2306,7 +2319,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             for i, lines in enumerate(wrapped):
                 total_text_h = len(lines) * LINE_H * 0.85
                 pad_v = (row_h - total_text_h) / 2
-                for j, ln in enumerate(lines):
+                for j, (ln, is_bold) in enumerate(lines):
+                    current_style = 'B' if is_bold else font_style.replace('B', '')
+                    pdf_obj.set_font("Times", current_style, font_size)
+                    
                     pdf_obj.set_xy(cx + PAD, y0 + pad_v + j * LINE_H * 0.85)
                     pdf_obj.cell(col_widths[i] - 2 * PAD, LINE_H * 0.85, ln, border=0, align='C')
                 pdf_obj.rect(cx, y0, col_widths[i], row_h)
@@ -2373,7 +2389,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         d_str = row['Exam Date'].strftime("%A, %d %B, %Y")
                         sn = int(row.get('ExamSlotNumber', 1))
                         
-                        # Fix: 'Subject' column already contains the module code from `read_timetable`.
                         subj = str(row.get('Subject', '')).strip()
                         if not subj or subj in ('nan', ''): continue
 
@@ -2382,7 +2397,9 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         except:
                             duration = 2.0
 
-                        if duration == 1.0:
+                        # Check if this row represents a 1-hour session to assign bold markers
+                        is_bold_subject = (duration == 1.0)
+                        if is_bold_subject:
                             slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
                             try:
                                 start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
@@ -2399,7 +2416,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         if oe and oe.lower() != 'nan': subj = f"{subj} [{oe}]"
                         
                         if d_str not in slot_pivot: slot_pivot[d_str] = {sn2: [] for sn2 in time_slots_dict}
-                        slot_pivot[d_str].setdefault(sn, []).append(subj)
+                        slot_pivot[d_str].setdefault(sn, []).append((subj, is_bold_subject))
 
                 if not slot_pivot: continue
 
@@ -2425,7 +2442,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 _draw_row(pdf, act_header_cells, act_col_widths, font_style='B', font_size=9.5)
                 _draw_row(pdf, act_time_cells, act_col_widths, font_style='B', font_size=9)
 
-                # Added 28 buffer to account for the new signature block combined with instructions and extra padding
                 _instr_h = _measure_instructions(pdf, 7.5, 7.5 * 0.55, pdf.w - 2 * pdf.l_margin) + 28
                 _table_bottom = pdf.h - footer_height - _instr_h - 4
 
@@ -2434,7 +2450,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     row_cells = [d_str]
                     for sn in active_slots:
                         subj_list = slots.get(sn, [])
-                        row_cells.append("\n".join(subj_list) if subj_list else "-------------------")
+                        row_cells.append(subj_list if subj_list else [("-------------------", False)])
 
                     max_lines_est = max(len(_wrap_cell(pdf, txt, act_col_widths[i] - 2 * PAD, '', 9.5)) for i, txt in enumerate(row_cells))
                     if pdf.get_y() + (LINE_H * max_lines_est) > _table_bottom:
@@ -2447,7 +2463,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                     _draw_row(pdf, row_cells, act_col_widths, '', 9.5)
 
-                # Will trigger the instructions and signature immediately after table completion
                 render_instructions_and_signature_sbm(pdf, pdf.get_y() + 2)
 
                 clean_branch = re.sub(r'[^A-Za-z0-9_\- ]', '', main_branch_full).strip().replace(" ", "_")
