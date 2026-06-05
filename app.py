@@ -1280,8 +1280,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             individual_units.append(unit)
 
     df['Capacity_Exceeded_Flag'] = "No"
-
-    # Reference pool for total requested calculation
     all_units = common_units_priority + common_units_normal + individual_units
 
     def execute_pass(enforce_cap):
@@ -1329,18 +1327,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 def get_cohort_daily_max(date_str):
                     if not unit['branch_sems']: return 0
                     return max(daily_branch_count[date_str][bs] for bs in unit['branch_sems'])
-                
-                def get_min_distance(date_str, branch_sems):
-                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-                    min_dist = 999
-                    has_exams = False
-                    for scheduled_d_str, b_set in daily_schedule_map.items():
-                        if not set(branch_sems).isdisjoint(b_set):
-                            has_exams = True
-                            dist = abs((date_obj - datetime.strptime(scheduled_d_str, "%d-%m-%Y")).days)
-                            if dist < min_dist:
-                                min_dist = dist
-                    return min_dist if has_exams else 999
 
                 current_exam_index = 0
                 if unit['branch_sems']:
@@ -1381,11 +1367,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 if target_day_idx >= num_days:
                     target_day_idx = num_days - 1
 
-                # Absolute Pass Isolation — Decouples Slot 1, Slot 2, and Slot 3 into discrete sequences
                 constraint_passes = [
-                    {"max_exams": 1, "allowed_slots": [1], "mode": "consecutive"}, # Pass 1: Slot 1 consecutive base
-                    {"max_exams": 2, "allowed_slots": [2], "mode": "spread"},      # Pass 2: Slot 2 isolated even-spreading
-                    {"max_exams": 2, "allowed_slots": [3], "mode": "spread"},      # Pass 3: Slot 3 isolated exception-spreading
+                    {"max_exams": 1, "allowed_slots": [1], "mode": "consecutive"}, 
+                    {"max_exams": 2, "allowed_slots": [2], "mode": "spread"},      
+                    {"max_exams": 2, "allowed_slots": [3], "mode": "spread"},      
                     {"max_exams": 3, "allowed_slots": [1, 2, 3], "mode": "fallback"},
                     {"max_exams": 99, "allowed_slots": [1, 2, 3], "mode": "emergency"}
                 ]
@@ -1399,6 +1384,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     if not valid_dates:
                         continue
 
+                    # FIX: Integrated abs(d_idx - target_day_idx) directly as primary sort criteria 
+                    # for 'spread' mode to force strict compliance to the interval grid map.
                     def get_spread_score(date_obj):
                         d_str = date_obj.strftime("%d-%m-%Y")
                         d_idx = core_valid_dates.index(date_obj)
@@ -1406,8 +1393,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         if pass_mode == "consecutive":
                             return (get_cohort_daily_max(d_str), d_idx, date_load_tracker[d_str])
                         elif pass_mode == "spread":
-                            # Prioritizes least loaded days first, then targets the maximum linear gap distance
-                            return (get_cohort_daily_max(d_str), -get_min_distance(d_str, unit['branch_sems']), date_load_tracker[d_str])
+                            return (get_cohort_daily_max(d_str), abs(d_idx - target_day_idx), date_load_tracker[d_str])
                         else:
                             return (date_load_tracker[d_str], d_idx)
 
@@ -1446,7 +1432,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 return False
 
             # ══════════════════════════════════════════════════════════════════
-            # STANDARD COLLEGE GENERATION PARADIGM
+            # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
             # ══════════════════════════════════════════════════════════════════
             else:
                 slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
@@ -1558,7 +1544,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             final_df, unsched = execute_pass(enforce_cap=True)
             st.error(f"❌ Could not schedule {len(unsched)} subject groups due to strict capacity limits.")
             return final_df
-
+            
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
     Validates that the number of students per session for the MUMBAI campus does not exceed max_capacity.
