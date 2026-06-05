@@ -2212,7 +2212,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_xy(10, text_y)
             pdf_obj.cell(pdf_obj.w - 20, cell_h, college_name, 0, 1, 'C')
             
-            # FIX: Realignment of declaration date to align horizontally with the main School Name line
             if declaration_date:
                 day = declaration_date.day
                 suffix = ('th' if 11 <= (day % 100) <= 13 else {1:'st',2:'nd',3:'rd'}.get(day % 10, 'th'))
@@ -2288,7 +2287,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
         LINE_H, PAD = 5, 1.5
 
-        # FIX: Updated drawer block to look up 1-hour time formats and selectively format them in bold
         def _draw_row(pdf_obj, cells, col_widths, font_style='', font_size=9, fill_color=None, text_color=(0,0,0)):
             if fill_color: pdf_obj.set_fill_color(*fill_color)
             pdf_obj.set_text_color(*text_color)
@@ -2304,7 +2302,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
             if fill_color: pdf_obj.rect(x0, y0, sum(col_widths), row_h, 'F')
 
-            # Regex pattern tailored to trap SBM 1-hour exam brackets safely
             time_pattern = re.compile(r'(\(\d{1,2}:\d{2}\s*[ap]\.m\.\s+to\s+\d{1,2}:\d{2}\s*[ap]\.m\.\))', re.IGNORECASE)
 
             cx = x0
@@ -2445,6 +2442,14 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 all_slots_sorted = sorted(time_slots_dict.keys())
                 active_slots = [sn for sn in all_slots_sorted if any(slot_pivot[d].get(sn) for d in slot_pivot)]
                 if not active_slots: active_slots = all_slots_sorted   
+
+                # FIX: Sort active slot columns chronologically according to the clock
+                def get_slot_start_time(slot_no):
+                    try:
+                        return datetime.strptime(time_slots_dict[slot_no]['start'].strip(), "%I:%M %p").time()
+                    except:
+                        return datetime.min.time()
+                active_slots = sorted(active_slots, key=get_slot_start_time)
 
                 n_active   = len(active_slots)
                 act_slot_w = (page_w - date_w) / n_active
