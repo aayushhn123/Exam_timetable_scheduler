@@ -2298,7 +2298,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 decl_str = f"{day}{suffix} {declaration_date.strftime('%B %Y')}"
                 pdf_obj.set_font("Times", 'B', 11)
                 pdf_obj.set_text_color(0, 0, 0)
-                pdf_obj.set_xy(pdf_obj.w - 80, text_y)
+                pdf_obj.set_xy(pdf_obj.w - 80, text_y - 6)
                 pdf_obj.cell(70, cell_h, decl_str, 0, 0, 'R')
 
             text_y += cell_h + LINE_GAP
