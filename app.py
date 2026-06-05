@@ -1127,7 +1127,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     if is_business_school:
-        st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Multi-Pass Strict Constraints (Max 1/day -> Max 2/day -> Slot 3 Exception)")
+        st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Mathematical Sequence Spreading & Load Balancing Active")
         time_slots_dict = {
             1: {"start": "11:30 AM", "end": "01:30 PM"},
             2: {"start": "03:00 PM", "end": "05:00 PM"},
@@ -1319,89 +1319,128 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             is_two_credit = unit.get('is_two_credit', False)
 
+            # ══════════════════════════════════════════════════════════════════
+            # BUSINESS SCHOOL ALLOCATION PARADIGM
+            # ══════════════════════════════════════════════════════════════════
             if is_business_school:
                 def get_cohort_daily_max(date_str):
                     if not unit['branch_sems']: return 0
                     return max(daily_branch_count[date_str][bs] for bs in unit['branch_sems'])
+
+                # Find the chronological sequence index for this unit
+                current_exam_index = 0
+                if unit['branch_sems']:
+                    current_exam_index = max(len([d for d, b_set in daily_schedule_map.items() if bs in b_set]) for bs in unit['branch_sems'])
                 
-                def get_min_distance(date_str, branch_sems):
-                    date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-                    min_dist = 999
-                    has_exams = False
-                    for scheduled_d_str, b_set in daily_schedule_map.items():
-                        if not set(branch_sems).isdisjoint(b_set):
-                            has_exams = True
-                            dist = abs((date_obj - datetime.strptime(scheduled_d_str, "%d-%m-%Y")).days)
-                            if dist < min_dist:
-                                min_dist = dist
-                    return min_dist if has_exams else 999
+                num_days = len(core_valid_dates)
+                
+                # Determine total subjects requested for the primary cohort inside this unit
+                max_total_subjects = 1
+                for bs in unit['branch_sems']:
+                    cohort_total = sum(1 for u in all_units if bs in u['branch_sems'])
+                    if cohort_total > max_total_subjects:
+                        max_total_subjects = cohort_total
 
-                # --- MULTI-PASS CONSTRAINT RELAXATION ---
-                # Pass 1: Max 1 exam/day, Slots 1 & 2 only (Primary Rule)
-                # Pass 2: Max 2 exams/day, Slots 1 & 2 only (Fallback 1)
-                # Pass 3: Max 2 exams/day, Slots 1, 2, & 3 (Exception - Third Slot)
-                # Pass 4: Max 3 exams/day, Slots 1, 2, & 3 (Failsafe - Guarantees 3rd slot is utilized if dates are too small)
-                # Pass 5: Infinite exams/day (Absolute Emergency Fallback to prevent unassigned subjects)
-                constraint_passes = [
-                    {"max_exams": 1, "allowed_slots": [1, 2]},
-                    {"max_exams": 2, "allowed_slots": [1, 2]},
-                    {"max_exams": 2, "allowed_slots": [1, 2, 3]},
-                    {"max_exams": 3, "allowed_slots": [1, 2, 3]},
-                    {"max_exams": 99, "allowed_slots": [1, 2, 3]}
-                ]
+                # Calculate mathematically ideal Day and Slot targets based on rule bounds
+                if max_total_subjects <= num_days:
+                    # Rule 1: Plentiful days -> Continuous packing sequentially in Slot 1
+                    target_day_idx = current_exam_index
+                    target_slot = 1
+                else:
+                    # Rule 2 & 3: Limited days -> Layered distribution logic
+                    if current_exam_index < num_days:
+                        target_day_idx = current_exam_index
+                        target_slot = 1
+                    elif current_exam_index < 2 * num_days:
+                        remainder_count = max_total_subjects - num_days
+                        r_idx = current_exam_index - num_days
+                        # If left over items are less than available days, spread them evenly
+                        if remainder_count > 0 and remainder_count < num_days:
+                            target_day_idx = int(r_idx * num_days / remainder_count)
+                        else:
+                            target_day_idx = r_idx
+                        target_slot = 2
+                    else:
+                        remainder_count = max_total_subjects - 2 * num_days
+                        r_idx = current_exam_index - 2 * num_days
+                        if remainder_count > 0 and remainder_count < num_days:
+                            target_day_idx = int(r_idx * num_days / remainder_count)
+                        else:
+                            target_day_idx = r_idx
+                        target_slot = 3
 
-                for p in constraint_passes:
-                    pass_max_exams = p["max_exams"]
-                    pass_allowed_slots = p["allowed_slots"]
+                if target_day_idx >= num_days:
+                    target_day_idx = num_days - 1
 
-                    valid_dates = [d for d in allowed_dates if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < pass_max_exams]
+                # Strict sequential passes matching operational workflows
+                for pass_idx in range(1, 6):
+                    candidates = []
+                    
+                    if pass_idx == 1:
+                        # Pass 1: Try the exact optimal target date & slot combination
+                        candidates.append((core_valid_dates[target_day_idx], target_slot))
+                    
+                    elif pass_idx == 2:
+                        # Pass 2: Fallback to any empty day to secure Max 1 exam/day (Slots 1 & 2 only)
+                        for d in core_valid_dates:
+                            if get_cohort_daily_max(d.strftime("%d-%m-%Y")) == 0:
+                                candidates.append((d, 1))
+                                candidates.append((d, 2))
+                    
+                    elif pass_idx == 3:
+                        # Pass 3: Allow up to 2 exams per day (Slots 1 & 2 only)
+                        for d in core_valid_dates:
+                            if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < 2:
+                                candidates.append((d, 1))
+                                candidates.append((d, 2))
+                                
+                    elif pass_idx == 4:
+                        # Pass 4: Open Slot 3 as exception rule (Max 2 exams/day)
+                        for d in core_valid_dates:
+                            if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < 2:
+                                candidates.append((d, 1))
+                                candidates.append((d, 2))
+                                candidates.append((d, 3))
+                                
+                    elif pass_idx == 5:
+                        # Pass 5: Absolute structural emergency backup loop
+                        for d in core_valid_dates:
+                            candidates.append((d, 1))
+                            candidates.append((d, 2))
+                            candidates.append((d, 3))
 
-                    # Shuffle to destroy chronological bias
-                    rng = random.Random(unit['id'] + str(pass_max_exams))
-                    valid_dates_shuffled = list(valid_dates)
-                    rng.shuffle(valid_dates_shuffled)
+                    # Process assignments
+                    for date_obj, slot_num in candidates:
+                        date_str = date_obj.strftime("%d-%m-%Y")
 
-                    # Sort to spread perfectly across the date range
-                    sorted_dates = sorted(valid_dates_shuffled, key=lambda d: (
-                        get_cohort_daily_max(d.strftime("%d-%m-%Y")),
-                        -get_min_distance(d.strftime("%d-%m-%Y"), unit['branch_sems']),
-                        date_load_tracker[d.strftime("%d-%m-%Y")]
-                    ))
+                        if not set(unit['branch_sems']).isdisjoint(slot_schedule_map.get(date_str, {}).get(slot_num, set())):
+                            continue
 
-                    for slot_num in pass_allowed_slots:
-                        if slot_num not in time_slots_dict: continue
+                        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
 
-                        for date_obj in sorted_dates:
-                            date_str = date_obj.strftime("%d-%m-%Y")
+                        if allowed:
+                            for row_idx in unit['indices']:
+                                work_df.loc[row_idx, 'Exam Date'] = date_str
+                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
 
-                            # Overlap check
-                            if not set(unit['branch_sems']).isdisjoint(slot_schedule_map.get(date_str, {}).get(slot_num, set())):
-                                continue
+                            daily_schedule_map[date_str].update(unit['branch_sems'])
+                            if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
+                                slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
 
-                            # Capacity check
-                            time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                            allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-
-                            if allowed:
-                                for row_idx in unit['indices']:
-                                    work_df.loc[row_idx, 'Exam Date'] = date_str
-                                    work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                    work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                    if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
-
-                                daily_schedule_map[date_str].update(unit['branch_sems'])
-                                if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
-                                    slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-
-                                date_load_tracker[date_str] += 1
-                                for bs in unit['branch_sems']:
-                                    daily_branch_count[date_str][bs] += 1
-                                add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                                return True
+                            date_load_tracker[date_str] += 1
+                            for bs in unit['branch_sems']:
+                                daily_branch_count[date_str][bs] += 1
+                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                            return True
                 return False
 
+            # ══════════════════════════════════════════════════════════════════
+            # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
+            # ══════════════════════════════════════════════════════════════════
             else:
-                # Regular College Logic
                 slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
                 
                 for date_obj in allowed_dates:
