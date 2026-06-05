@@ -1280,7 +1280,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             individual_units.append(unit)
 
     df['Capacity_Exceeded_Flag'] = "No"
-    all_units = common_units_priority + common_units_normal + individual_units
 
     def execute_pass(enforce_cap):
         work_df = df.copy()
@@ -1316,147 +1315,55 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
-        def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
-            preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
-            is_two_credit = unit.get('is_two_credit', False)
-
-            # ══════════════════════════════════════════════════════════════════
-            # BUSINESS SCHOOL ALLOCATION PARADIGM
-            # ══════════════════════════════════════════════════════════════════
-            if is_business_school:
-                def get_cohort_daily_max(date_str):
-                    if not unit['branch_sems']: return 0
-                    return max(daily_branch_count[date_str][bs] for bs in unit['branch_sems'])
-
-                current_exam_index = 0
-                if unit['branch_sems']:
-                    current_exam_index = max(len([d for d, b_set in daily_schedule_map.items() if bs in b_set]) for bs in unit['branch_sems'])
-                
-                num_days = len(core_valid_dates)
-                
-                max_total_subjects = 1
+        # ══════════════════════════════════════════════════════════════════
+        # CRITICAL REFACTOR: GLOBAL ARRAYS FOR BUSINESS SCHOOL PHASES
+        # ══════════════════════════════════════════════════════════════════
+        if is_business_school:
+            branch_sem_map = {}
+            all_units = common_units_priority + common_units_normal + individual_units
+            
+            for unit in all_units:
                 for bs in unit['branch_sems']:
-                    cohort_total = sum(1 for u in all_units if bs in u['branch_sems'])
-                    if cohort_total > max_total_subjects:
-                        max_total_subjects = cohort_total
-
-                if max_total_subjects <= num_days:
-                    target_day_idx = current_exam_index
-                    target_slot = 1
-                else:
-                    if current_exam_index < num_days:
-                        target_day_idx = current_exam_index
-                        target_slot = 1
-                    elif current_exam_index < 2 * num_days:
-                        remainder_count = max_total_subjects - num_days
-                        r_idx = current_exam_index - num_days
-                        if remainder_count > 0 and remainder_count < num_days:
-                            target_day_idx = int(r_idx * num_days / remainder_count)
-                        else:
-                            target_day_idx = r_idx
-                        target_slot = 2
+                    if bs not in branch_sem_map:
+                        branch_sem_map[bs] = {'score': 0, 'common': [], 'individual': []}
+                    if unit['type'] == 'COMMON':
+                        if unit not in branch_sem_map[bs]['common']: branch_sem_map[bs]['common'].append(unit)
                     else:
-                        remainder_count = max_total_subjects - 2 * num_days
-                        r_idx = current_exam_index - 2 * num_days
-                        if remainder_count > 0 and remainder_count < num_days:
-                            target_day_idx = int(r_idx * num_days / remainder_count)
-                        else:
-                            target_day_idx = r_idx
-                        target_slot = 3
+                        if unit not in branch_sem_map[bs]['individual']: branch_sem_map[bs]['individual'].append(unit)
+                    branch_sem_map[bs]['score'] += unit['student_count']
+            
+            sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
+            priority_ids = set(u['id'] for u in common_units_priority)
+            
+            bs_units = []
+            registered_ids = set()
+            for bs in sorted_bsems:
+                branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
+                for unit in branch_sem_map[bs]['common']:
+                    if unit['id'] not in registered_ids:
+                        bs_units.append(unit)
+                        registered_ids.add(unit['id'])
+            for bs in sorted_bsems:
+                branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
+                for unit in branch_sem_map[bs]['individual']:
+                    if unit['id'] not in registered_ids:
+                        bs_units.append(unit)
+                        registered_ids.add(unit['id'])
 
-                if target_day_idx >= num_days:
-                    target_day_idx = num_days - 1
+            cohort_exam_count = defaultdict(int)
+            num_days = len(core_valid_dates)
 
-                constraint_passes = [
-                    {"max_exams": 1, "allowed_slots": [1], "mode": "consecutive"}, 
-                    {"max_exams": 2, "allowed_slots": [2], "mode": "spread"},      
-                    {"max_exams": 2, "allowed_slots": [3], "mode": "spread"},      
-                    {"max_exams": 3, "allowed_slots": [1, 2, 3], "mode": "fallback"},
-                    {"max_exams": 99, "allowed_slots": [1, 2, 3], "mode": "emergency"}
-                ]
-
-                for p in constraint_passes:
-                    pass_max_exams = p["max_exams"]
-                    pass_allowed_slots = p["allowed_slots"]
-                    pass_mode = p["mode"]
-
-                    valid_dates = [d for d in allowed_dates if get_cohort_daily_max(d.strftime("%d-%m-%Y")) < pass_max_exams]
-                    if not valid_dates:
-                        continue
-
-                    # FIX: Integrated abs(d_idx - target_day_idx) directly as primary sort criteria 
-                    # for 'spread' mode to force strict compliance to the interval grid map.
-                    def get_spread_score(date_obj):
-                        d_str = date_obj.strftime("%d-%m-%Y")
-                        d_idx = core_valid_dates.index(date_obj)
-                        
-                        if pass_mode == "consecutive":
-                            return (get_cohort_daily_max(d_str), d_idx, date_load_tracker[d_str])
-                        elif pass_mode == "spread":
-                            return (get_cohort_daily_max(d_str), abs(d_idx - target_day_idx), date_load_tracker[d_str])
-                        else:
-                            return (date_load_tracker[d_str], d_idx)
-
-                    sorted_dates = sorted(valid_dates, key=get_spread_score)
-                    slot_priority = [target_slot] + [s for s in pass_allowed_slots if s != target_slot]
-                    
-                    for slot_num in slot_priority:
-                        if slot_num not in pass_allowed_slots:
-                            continue
-
-                        for date_obj in sorted_dates:
-                            date_str = date_obj.strftime("%d-%m-%Y")
-
-                            if not set(unit['branch_sems']).isdisjoint(slot_schedule_map.get(date_str, {}).get(slot_num, set())):
-                                continue
-
-                            time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                            allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-
-                            if allowed:
-                                for row_idx in unit['indices']:
-                                    work_df.loc[row_idx, 'Exam Date'] = date_str
-                                    work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                    work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                    if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
-
-                                daily_schedule_map[date_str].update(unit['branch_sems'])
-                                if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
-                                    slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-
-                                date_load_tracker[date_str] += 1
-                                for bs in unit['branch_sems']:
-                                    daily_branch_count[date_str][bs] += 1
-                                add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                                return True
-                return False
-
-            # ══════════════════════════════════════════════════════════════════
-            # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
-            # ══════════════════════════════════════════════════════════════════
-            else:
-                slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
-                
-                for date_obj in allowed_dates:
+            # ──── Pass 1: Slot 1 Consecutive Packing ────
+            for unit in bs_units:
+                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
+                if current_exam_idx < num_days:
+                    date_obj = core_valid_dates[current_exam_idx]
                     date_str = date_obj.strftime("%d-%m-%Y")
+                    slot_num = 1
+                    time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                     
-                    if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): 
-                        continue
-                    
-                    apply_gap = (IS_LAW_SCHOOL or require_1_day_gap) and not is_two_credit
-                    if apply_gap:
-                        prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
-                        next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
-                        
-                        if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]):
-                            continue 
-                        if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]):
-                            continue
-                    
-                    for slot_num in slots_to_try:
-                        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
                         allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-                        
                         if allowed:
                             for row_idx in unit['indices']:
                                 work_df.loc[row_idx, 'Exam Date'] = date_str
@@ -1464,59 +1371,200 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                                 work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
                                 if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
                             
+                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
                             daily_schedule_map[date_str].update(unit['branch_sems'])
-                            if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
-                                slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-                                
                             date_load_tracker[date_str] += 1
                             for bs in unit['branch_sems']:
                                 daily_branch_count[date_str][bs] += 1
+                                cohort_exam_count[bs] += 1
                             add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                            return True
-                return False
+                            unit['scheduled'] = True
+
+            # ──── Pass 2: Slot 2 Isolated Spreading ────
+            for unit in bs_units:
+                if unit.get('scheduled'): continue
+                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
+                
+                max_total_subjects = 1
+                for bs in unit['branch_sems']:
+                    cohort_total = sum(1 for u in bs_units if bs in u['branch_sems'])
+                    if cohort_total > max_total_subjects: max_total_subjects = cohort_total
+                
+                remainder_count = max_total_subjects - num_days
+                r_idx = current_exam_idx - num_days
+                target_day_idx = int(r_idx * num_days / remainder_count) if remainder_count > 0 else 0
+                if target_day_idx >= num_days: target_day_idx = num_days - 1
+
+                valid_dates = [d for d in core_valid_dates if max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']) < 2]
+                sorted_dates = sorted(valid_dates, key=lambda d: (
+                    max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']),
+                    abs(core_valid_dates.index(d) - target_day_idx),
+                    date_load_tracker[d.strftime("%d-%m-%Y")]
+                ))
+
+                slot_num = 2
+                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                for date_obj in sorted_dates:
+                    date_str = date_obj.strftime("%d-%m-%Y")
+                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
+                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
+                        if allowed:
+                            for row_idx in unit['indices']:
+                                work_df.loc[row_idx, 'Exam Date'] = date_str
+                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
+                            
+                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                            daily_schedule_map[date_str].update(unit['branch_sems'])
+                            date_load_tracker[date_str] += 1
+                            for bs in unit['branch_sems']:
+                                daily_branch_count[date_str][bs] += 1
+                                cohort_exam_count[bs] += 1
+                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                            unit['scheduled'] = True
+                            break
+
+            # ──── Pass 3: Slot 3 Isolated Exception Spreading ────
+            for unit in bs_units:
+                if unit.get('scheduled'): continue
+                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
+                
+                max_total_subjects = 1
+                for bs in unit['branch_sems']:
+                    cohort_total = sum(1 for u in bs_units if bs in u['branch_sems'])
+                    if cohort_total > max_total_subjects: max_total_subjects = cohort_total
+                
+                remainder_count = max_total_subjects - 2 * num_days
+                r_idx = current_exam_idx - 2 * num_days
+                target_day_idx = int(r_idx * num_days / remainder_count) if remainder_count > 0 else 0
+                if target_day_idx >= num_days: target_day_idx = num_days - 1
+
+                valid_dates = [d for d in core_valid_dates if max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']) < 3]
+                sorted_dates = sorted(valid_dates, key=lambda d: (
+                    max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']),
+                    abs(core_valid_dates.index(d) - target_day_idx),
+                    date_load_tracker[d.strftime("%d-%m-%Y")]
+                ))
+
+                slot_num = 3
+                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                for date_obj in sorted_dates:
+                    date_str = date_obj.strftime("%d-%m-%Y")
+                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
+                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
+                        if allowed:
+                            for row_idx in unit['indices']:
+                                work_df.loc[row_idx, 'Exam Date'] = date_str
+                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
+                            
+                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                            daily_schedule_map[date_str].update(unit['branch_sems'])
+                            date_load_tracker[date_str] += 1
+                            for bs in unit['branch_sems']:
+                                daily_branch_count[date_str][bs] += 1
+                                cohort_exam_count[bs] += 1
+                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                            unit['scheduled'] = True
+                            break
+
+            # ──── Pass 4 & 5: Emergency Fallback Triggers ────
+            for unit in bs_units:
+                if unit.get('scheduled'): continue
+                for pass_max in [3, 99]:
+                    for slot_num in [1, 2, 3]:
+                        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                        for date_obj in core_valid_dates:
+                            date_str = date_obj.strftime("%d-%m-%Y")
+                            if get_cohort_daily_max(date_str) < pass_max:
+                                if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
+                                    allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
+                                    if allowed:
+                                        for row_idx in unit['indices']:
+                                            work_df.loc[row_idx, 'Exam Date'] = date_str
+                                            work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                                            work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                                        slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                                        daily_schedule_map[date_str].update(unit['branch_sems'])
+                                        unit['scheduled'] = True
+                                        break
+                        if unit.get('scheduled'): break
+                    if unit.get('scheduled'): break
+
+            unscheduled_groups = [u for u in bs_units if not u.get('scheduled')]
+            return work_df, unscheduled_groups
+
+        # ══════════════════════════════════════════════════════════════════
+        # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
+        # ══════════════════════════════════════════════════════════════════
+        def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
+            preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
+            is_two_credit = unit.get('is_two_credit', False)
+            slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
+            
+            for date_obj in allowed_dates:
+                date_str = date_obj.strftime("%d-%m-%Y")
+                if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): continue
+                
+                apply_gap = (IS_LAW_SCHOOL or require_1_day_gap) and not is_two_credit
+                if apply_gap:
+                    prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
+                    next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
+                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): continue 
+                    if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]): continue
+                
+                for slot_num in slots_to_try:
+                    time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                    allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
+                    if allowed:
+                        for row_idx in unit['indices']:
+                            work_df.loc[row_idx, 'Exam Date'] = date_str
+                            work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                            work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                            if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
+                        daily_schedule_map[date_str].update(unit['branch_sems'])
+                        if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
+                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                        date_load_tracker[date_str] += 1
+                        for bs in unit['branch_sems']: daily_branch_count[date_str][bs] += 1
+                        add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                        return True
+            return False
 
         unscheduled_groups = []
         scheduled_ids = set()
-        
         branch_sem_map = {}
+        all_units = common_units_priority + common_units_normal + individual_units
         
         for unit in all_units:
             for bs in unit['branch_sems']:
                 if bs not in branch_sem_map:
                     score = 0
-                    if "MBA TECH" in bs.upper() and ("VIII" in bs.upper() or " 8" in bs or "X" in bs.upper() or " 10" in bs):
-                        score = 1000000
+                    if "MBA TECH" in bs.upper() and ("VIII" in bs.upper() or " 8" in bs or "X" in bs.upper() or " 10" in bs): score = 1000000
                     branch_sem_map[bs] = {'score': score, 'common': [], 'individual': []}
-                
                 if unit['type'] == 'COMMON':
-                    if unit not in branch_sem_map[bs]['common']:
-                        branch_sem_map[bs]['common'].append(unit)
+                    if unit not in branch_sem_map[bs]['common']: branch_sem_map[bs]['common'].append(unit)
                 else:
-                    if unit not in branch_sem_map[bs]['individual']:
-                        branch_sem_map[bs]['individual'].append(unit)
-                
+                    if unit not in branch_sem_map[bs]['individual']: branch_sem_map[bs]['individual'].append(unit)
                 branch_sem_map[bs]['score'] += unit['student_count']
                 
         sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
         priority_ids = set(u['id'] for u in common_units_priority)
         
         for bs in sorted_bsems:
-            branch_sem_map[bs]['common'].sort(
-                key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), 
-                reverse=True
-            )
+            branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
             for unit in branch_sem_map[bs]['common']:
                 if unit['id'] not in scheduled_ids:
-                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True):
-                        unscheduled_groups.append(unit)
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True): unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
                     
         for bs in sorted_bsems:
             branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
             for unit in branch_sem_map[bs]['individual']:
                 if unit['id'] not in scheduled_ids:
-                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False):
-                        unscheduled_groups.append(unit)
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False): unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
 
         return work_df, unscheduled_groups
