@@ -2302,9 +2302,17 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
             if fill_color: pdf_obj.rect(x0, y0, sum(col_widths), row_h, 'F')
 
-            # ENHANCED FIX: Robust pattern to safely capture ANY format of bracketed time ranges 
-            # (handles combinations of text 'to' or symbols '-', and cases like a.m./p.m./AM/PM)
-            time_pattern = re.compile(r'(\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\))', re.IGNORECASE)
+            # FIX: Fragment-aware regex pattern. It checks for full time brackets first,
+            # then safely fallbacks to catching broken left-brackets and right-brackets independently.
+            time_pattern = re.compile(
+                r'('
+                r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\)'
+                r'|'
+                r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)?'
+                r'|'
+                r'(?:to|-)?\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\)'
+                r')', re.IGNORECASE
+            )
 
             cx = x0
             for i, lines in enumerate(wrapped):
