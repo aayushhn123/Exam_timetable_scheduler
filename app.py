@@ -1122,7 +1122,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college
     IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
-    is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
+    is_business_school = any(kw in current_college for kw in [
+        "School of Business Management", "Pravin Dalal", "Economics", 
+        "Liberal Arts", "Branding and Advertising", "School of Science", 
+        "Commerce", "Diploma in Textile technology of MPSTME"
+    ])
     
     st.info(f"🚀 SCHEDULING STRATEGY: Stream-by-Stream -> Common (Alternate Day) -> Individual (Gap Fill)")
     if IS_LAW_SCHOOL:
@@ -3570,7 +3574,11 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     
     current_college = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college
-    is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
+    is_business_school = any(kw in current_college for kw in [
+        "School of Business Management", "Pravin Dalal", "Economics", 
+        "Liberal Arts", "Branding and Advertising", "School of Science", 
+        "Commerce", "Diploma in Textile technology of MPSTME"
+    ])
     
     # SBM requested an even spread across the entire date range.
     # Gap-filling moves exams backwards to compress the schedule, which completely undoes the even spread.
@@ -3879,7 +3887,11 @@ def main():
         # Initialize session state for time slots with College Specific Defaults
         current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
         IS_LAW_SCHOOL = "Law" in current_college
-        is_business_school = "School of Business Management" in current_college or "Pravin Dalal" in current_college
+        is_business_school = any(kw in current_college for kw in [
+        "School of Business Management", "Pravin Dalal", "Economics", 
+        "Liberal Arts", "Branding and Advertising", "School of Science", 
+        "Commerce", "Diploma in Textile technology of MPSTME"
+    ])
         
         # If the user switches colleges, reset the slots to the new defaults automatically
         if st.session_state.get('prev_college') != current_college:
