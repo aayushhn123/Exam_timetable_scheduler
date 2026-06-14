@@ -31,6 +31,7 @@ else:
 # ==========================================
 COLLEGES = [
     {"name": "Mukesh Patel School of Technology Management & Engineering / School of Technology Management & Engineering", "icon": "🖥️"},
+    {"name": "Diploma in Textile Technology - MPSTME", "icon": "🧵"},
     {"name": "School of Business Management", "icon": "💼"},
     {"name": "Pravin Dalal School of Entrepreneurship & Family Business Management", "icon": "🚀"},
     {"name": "Anil Surendra Modi School of Commerce / School of Commerce", "icon": "📊"},
@@ -172,8 +173,16 @@ def process_verification_file(uploaded_file):
         df['Semester'] = df.get('Current Session', pd.Series([1]*len(df))).apply(get_sem_int)
 
         current_college = st.session_state.get('selected_college', '')
-        IS_BUSINESS_SCH = ("School of Business Management" in current_college
-                           or "Pravin Dalal" in current_college)
+        IS_BUSINESS_SCH = (
+            "School of Business Management" in current_college
+            or "Pravin Dalal" in current_college
+            or "School of Economics" in current_college
+            or "School of Liberal Arts" in current_college
+            or "School of Branding and Advertising" in current_college
+            or "School of Science" in current_college
+            or "School of Commerce" in current_college
+            or "Diploma in Textile Technology" in current_college
+        )
 
         SBM_SLOT_MAP = {
             1: {"start": "11:30 AM", "end": "01:30 PM"},
@@ -799,8 +808,16 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
     import uuid
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL   = "Law" in current_college_context
-    IS_BUSINESS_SCH = ("School of Business Management" in current_college_context
-                       or "Pravin Dalal" in current_college_context)
+    IS_BUSINESS_SCH = (
+            "School of Business Management" in current_college
+            or "Pravin Dalal" in current_college
+            or "School of Economics" in current_college
+            or "School of Liberal Arts" in current_college
+            or "School of Branding and Advertising" in current_college
+            or "School of Science" in current_college
+            or "School of Commerce" in current_college
+            or "Diploma in Textile Technology" in current_college
+        )
 
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
 
@@ -1584,8 +1601,16 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
         return
 
     current_college = st.session_state.get('selected_college', '')
-    IS_BUSINESS_SCH = ("School of Business Management" in current_college
-                       or "Pravin Dalal" in current_college)
+    IS_BUSINESS_SCH = (
+            "School of Business Management" in current_college
+            or "Pravin Dalal" in current_college
+            or "School of Economics" in current_college
+            or "School of Liberal Arts" in current_college
+            or "School of Branding and Advertising" in current_college
+            or "School of Science" in current_college
+            or "School of Commerce" in current_college
+            or "Diploma in Textile Technology" in current_college
+        )
 
     try:
         page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
@@ -1717,8 +1742,16 @@ def main():
                 )
 
                 _current_college = st.session_state.get('selected_college', '')
-                _is_sbm = ("School of Business Management" in _current_college
-                           or "Pravin Dalal" in _current_college)
+                _is_sbm = (
+                    "School of Business Management" in _current_college
+                    or "Pravin Dalal" in _current_college
+                    or "School of Economics" in _current_college
+                    or "School of Liberal Arts" in _current_college
+                    or "School of Branding and Advertising" in _current_college
+                    or "School of Science" in _current_college
+                    or "School of Commerce" in _current_college
+                    or "Diploma in Textile Technology" in _current_college
+                )
                 if not _is_sbm and os.path.exists(pdf_filename):
                     st.balloons()
                     with open(pdf_filename, "rb") as f:
