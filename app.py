@@ -172,8 +172,8 @@ def show_span_breakdown(df, holidays_set):
 
 # Set page configuration
 st.set_page_config(
-    page_title="SVKM's NMIMS Exam Timetable Scheduler",
-    page_icon="📅",
+    page_title="Exam Timetable Generator - College Selector",
+    page_icon="calendar",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -401,8 +401,7 @@ st.markdown("""
         }
 
         .metric-card {
-            background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
-            box-shadow: 0 4px 16px rgba(149, 28, 28, 0.35);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
         .footer {
@@ -410,8 +409,6 @@ st.markdown("""
             color: #666;
             padding: 2rem;
             font-size: 0.95rem;
-            border-top: 3px solid #951C1C;
-            margin-top: 1rem;
         }
         
         .stButton>button {
@@ -511,8 +508,7 @@ st.markdown("""
         }
 
         .metric-card {
-            background: linear-gradient(135deg, #7A1515 0%, #A23217 100%);
-            box-shadow: 0 4px 16px rgba(162, 50, 23, 0.4);
+            background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
         }
 
         .footer {
@@ -520,8 +516,6 @@ st.markdown("""
             color: #ccc;
             padding: 2rem;
             font-size: 0.95rem;
-            border-top: 3px solid #A23217;
-            margin-top: 1rem;
         }
         
         .stButton>button {
@@ -631,9 +625,9 @@ def show_college_selector():
     """Display the college selector landing page"""
     st.markdown("""
     <div class="main-header">
-        <h1>📅 SVKM's NMIMS Exam Timetable Scheduler</h1>
-        <p>Narsee Monjee Institute of Management Studies (Deemed-to-be University)</p>
-        <p style="font-size: 1rem; margin-top: 0.5rem; opacity: 0.85; font-weight: 400;">Select Your School / College to Get Started</p>
+        <h1>Exam Timetable Generator</h1>
+        <p>SVKM's NMIMS University</p>
+        <p style="font-size: 1rem; margin-top: 1rem;">Select Your School/College</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -706,7 +700,7 @@ def show_college_selector():
 
 # Set page configuration
 st.set_page_config(
-    page_title="SVKM's NMIMS Exam Timetable Scheduler",
+    page_title="Exam Timetable Generator",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -872,16 +866,13 @@ st.markdown("""
         }
 
         .metric-card {
-            background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
-            box-shadow: 0 4px 16px rgba(149, 28, 28, 0.35);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
         .footer {
             text-align: center;
-            color: #555;
+            color: #666;
             padding: 2rem;
-            border-top: 3px solid #951C1C;
-            margin-top: 1rem;
         }
     }
 
@@ -946,16 +937,13 @@ st.markdown("""
         }
 
         .metric-card {
-            background: linear-gradient(135deg, #7A1515 0%, #A23217 100%);
-            box-shadow: 0 4px 16px rgba(162, 50, 23, 0.4);
+            background: linear-gradient(135deg, #4a5db0 0%, #5a3e8a 100%);
         }
 
         .footer {
             text-align: center;
             color: #ccc;
             padding: 2rem;
-            border-top: 3px solid #A23217;
-            margin-top: 1rem;
         }
     }
 </style>
@@ -3881,9 +3869,8 @@ def main():
         
     st.markdown(f"""
     <div class="main-header">
-        <h1>📅 SVKM's NMIMS Exam Timetable Scheduler</h1>
-        <p>Narsee Monjee Institute of Management Studies (Deemed-to-be University)</p>
-        <p style="font-size: 1rem; margin-top: 0.3rem; opacity: 0.85; font-weight: 400;">{current_college}</p>
+        <h1>📅 Exam Timetable Generator</h1>
+        <p>{current_college}</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -4524,15 +4511,15 @@ def main():
                 height: auto;
                 min-height: 120px;
                 border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.15);
-                background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
+                border: 1px solid rgba(255,255,255,0.1);
+                background: linear-gradient(135deg, #4a5db0 0%, #764ba2 100%);
                 color: white;
                 text-align: center;
                 transition: transform 0.2s;
             }
             div.row-widget.stButton > button:hover {
                 transform: translateY(-4px);
-                box-shadow: 0 6px 18px rgba(149, 28, 28, 0.5);
+                box-shadow: 0 6px 12px rgba(0,0,0,0.2);
                 border-color: rgba(255,255,255,0.5);
                 color: white !important;
             }
@@ -4806,11 +4793,12 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div class="footer">
-        <p>🎓 <strong>SVKM's NMIMS — Three-Phase Exam Timetable Scheduler</strong></p>
-        <p>Narsee Monjee Institute of Management Studies (Deemed-to-be University) | SVKM's Group of Colleges</p>
+        <p>🎓 <strong>Three-Phase Timetable Generator with Date Range Control & Gap-Filling</strong></p>
+        <p>Developed for SVKM's Group of Colleges</p>
         <p style="font-size: 0.9em;">Common across semesters first • Common within semester • Gap-filling optimization • One exam per day per branch • OE optimization • Date range enforcement • Maximum efficiency • Verification export</p>
     </div>
     """, unsafe_allow_html=True)
     
 if __name__ == "__main__":
     main()
+
