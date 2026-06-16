@@ -807,17 +807,16 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, declaration_date=None):
     import uuid
     current_college_context = st.session_state.get('selected_college', '')
-    IS_LAW_SCHOOL   = "Law" in current_college_context
     IS_BUSINESS_SCH = (
-            "School of Business Management" in current_college
-            or "Pravin Dalal" in current_college
-            or "School of Economics" in current_college
-            or "School of Liberal Arts" in current_college
-            or "School of Branding and Advertising" in current_college
-            or "School of Science" in current_college
-            or "School of Commerce" in current_college
-            or "Diploma in Textile Technology" in current_college
-        )
+    "School of Business Management" in current_college_context
+    or "Pravin Dalal" in current_college_context
+    or "School of Economics" in current_college_context
+    or "School of Liberal Arts" in current_college_context
+    or "School of Branding and Advertising" in current_college_context
+    or "School of Science" in current_college_context
+    or "School of Commerce" in current_college_context
+    or "Diploma in Textile Technology" in current_college_context
+)
 
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
 
