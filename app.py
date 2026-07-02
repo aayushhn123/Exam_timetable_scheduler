@@ -3487,7 +3487,7 @@ def save_to_excel(semester_wise_timetable):
                         df_processed = df_processed.sort_values(by="Exam Date", ascending=True)
                         
                         grouped = df_processed.groupby(['Exam Date', 'SubBranch']).agg({
-                            'SubjectDisplay': lambda x: " <hr> ".join(str(i) for i in x)
+                            'SubjectDisplay': lambda x: " <hr> ".join(dict.fromkeys(str(i) for i in x))
                         }).reset_index()
                         
                         try:
