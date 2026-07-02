@@ -1142,12 +1142,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
     if is_business_school:
         st.info("💼 BUSINESS SCHOOL MODE ACTIVE: Strict Multi-Pass Slot Isolation & Even Spreading Enforced")
-        time_slots_dict = {
+        time_slots_dict = st.session_state.get('time_slots', {
             1: {"start": "11:30 AM", "end": "01:30 PM"},
             2: {"start": "03:00 PM", "end": "05:00 PM"},
             3: {"start": "08:30 AM", "end": "10:30 AM"}
-        }
-        st.session_state['time_slots'] = time_slots_dict 
+        })
     else:
         time_slots_dict = st.session_state.get('time_slots', {
             1: {"start": "10:00 AM", "end": "1:00 PM"},
@@ -2368,7 +2367,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_font("Times", 'B', F_YEAR)
             cell_h = F_YEAR * 0.40
             pdf_obj.set_xy(10, text_y)
-            pdf_obj.cell(pdf_obj.w - 20, cell_h, f"YEAR: {_to_roman(year_int)}, TRIMESTER: {sem_roman}", 0, 1, 'C')
+            _period_label = st.session_state.get('period_label', 'Trimester').upper()
+            pdf_obj.cell(pdf_obj.w - 20, cell_h, f"YEAR: {_to_roman(year_int)}, {_period_label}: {sem_roman}", 0, 1, 'C')
             text_y += cell_h + LINE_GAP
             pdf_obj.set_xy(pdf_obj.l_margin, text_y + 3)
 
@@ -2528,15 +2528,26 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         except:
                             duration = 2.0
 
-                        if duration == 1.0:
-                            slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
+                        slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
+                        slot_duration_hours = None
+                        try:
+                            _slot_start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
+                            _slot_end_dt = datetime.strptime(slot_cfg['end'].strip(), "%I:%M %p")
+                            slot_duration_hours = (_slot_end_dt - _slot_start_dt).total_seconds() / 3600.0
+                        except:
+                            pass
+
+                        # If the subject's own Exam Duration differs from the slot's configured
+                        # width, show the subject's actual start-to-end time inline instead of
+                        # silently inheriting the full (wider/narrower) slot header.
+                        if slot_duration_hours is not None and abs(duration - slot_duration_hours) > 0.01:
                             try:
                                 start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
-                                end_dt = start_dt + timedelta(hours=1)
-                                
+                                end_dt = start_dt + timedelta(hours=duration)
+
                                 st_fmt = start_dt.strftime('%I:%M').lstrip('0') + " " + start_dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
                                 en_fmt = end_dt.strftime('%I:%M').lstrip('0') + " " + end_dt.strftime('%p').lower().replace('am', 'a.m.').replace('pm', 'p.m.')
-                                
+
                                 subj = f"{subj} ({st_fmt} to {en_fmt})"
                             except:
                                 pass
@@ -3938,6 +3949,28 @@ def main():
                 del st.session_state['time_slots']
             st.session_state['prev_college'] = current_college
 
+        # Semester / Trimester period label — only relevant for business-tagged colleges.
+        # Defaults to Trimester for SBM / Pravin Dalal, Semester for the rest (e.g. Liberal Arts).
+        if is_business_school:
+            _is_trimester_college = (
+                "School of Business Management" in current_college
+                or "Pravin Dalal" in current_college
+            )
+            _default_period = "Trimester" if _is_trimester_college else "Semester"
+            if st.session_state.get('period_label_college') != current_college:
+                st.session_state['period_label'] = _default_period
+                st.session_state['period_label_college'] = current_college
+
+            period_choice = st.radio(
+                "Period Label (shown on timetable header)",
+                options=["Semester", "Trimester"],
+                index=0 if st.session_state.get('period_label', _default_period) == "Semester" else 1,
+                key="period_label_radio",
+                horizontal=True,
+                help="Choose whether the timetable header shows 'SEMESTER' or 'TRIMESTER'"
+            )
+            st.session_state['period_label'] = period_choice
+
         # Initialize session state for time slots with College Specific Defaults
         if 'time_slots' not in st.session_state:
             if IS_LAW_SCHOOL:
@@ -4801,4 +4834,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-
