@@ -2083,7 +2083,17 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     render_footer()
     render_header()
 
-    upper_columns = [str(c).upper() for c in columns]
+    current_college_ctx = st.session_state.get('selected_college', '')
+    _is_law_school_ctx = "Law" in current_college_ctx
+
+    def _header_case(c):
+        s = str(c).upper()
+        if _is_law_school_ctx:
+            # Preserve "Hons." casing (e.g. "B.A., LL.B. (Hons.)") instead of "(HONS.)"
+            s = re.sub(r'HONS\.', 'Hons.', s, flags=re.IGNORECASE)
+        return s
+
+    upper_columns = [_header_case(c) for c in columns]
 
     # Table Headers — Size 9.5, Bold
     pdf.set_font("Times", 'B', 9.5)
@@ -3295,11 +3305,15 @@ def save_to_excel(semester_wise_timetable):
             return False
         return bool(_sol_ba_bba_re.match(s))
 
-    def _apply_sol_merge(df_input):
+    def _apply_sol_merge(df_input, sem_num=None):
         """
         Runs once per semester-df BEFORE the main_branch grouping loop.
         - Matched rows (B.A./B.B.A. LL.B only, never LL.M) get:
             SubBranch  <- prefixed with original MainBranch so pivot creates 2 columns
+                          (EXCEPT for Year V / Sem IX & X, where all subjects are
+                          common across B.A. and B.B.A., so SubBranch is left as just
+                          the specialization name — no program prefix — so the pivot
+                          collapses both programs into a single shared column.)
             MainBranch <- overwritten to SOL_MERGED_BRANCH
         - OE rows are kept in the dataframe (not separated) so they fold into the
           same pivot as core subjects; their Subject string gets an [OE:...] tag.
@@ -3312,11 +3326,17 @@ def save_to_excel(semester_wise_timetable):
         if not mask.any():
             return df_out
 
+        # Year V (Sem IX & X): subjects are common across B.A. and B.B.A., so the
+        # specialization column should be shown only once (no program prefix).
+        is_year_5 = sem_num in (9, 10)
+
         def _build_sub(row):
             orig_prog = str(row['MainBranch']).strip()
             orig_sub  = str(row['SubBranch']).strip()
             if orig_sub in ('', 'nan', orig_prog):
                 return orig_prog
+            if is_year_5:
+                return orig_sub
             if orig_sub.startswith(orig_prog):
                 return orig_sub
             return f"{orig_prog} - {orig_sub}"
@@ -3405,7 +3425,7 @@ def save_to_excel(semester_wise_timetable):
                 primary_slot_norm = normalize_time(primary_slot_str)
 
                 # ── SOL MERGE: run before iterating main_branch ──────────────
-                df_sem_working = _apply_sol_merge(df_sem) if IS_LAW_SCHOOL else df_sem
+                df_sem_working = _apply_sol_merge(df_sem, sem_num=sem_num) if IS_LAW_SCHOOL else df_sem
 
                 for main_branch in df_sem_working["MainBranch"].unique():
                     df_mb = df_sem_working[df_sem_working["MainBranch"] == main_branch].copy()
