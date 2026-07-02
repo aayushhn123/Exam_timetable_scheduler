@@ -807,6 +807,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, declaration_date=None):
     import uuid
     current_college_context = st.session_state.get('selected_college', '')
+    IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
     IS_BUSINESS_SCH = (
     "School of Business Management" in current_college_context
     or "Pravin Dalal" in current_college_context
