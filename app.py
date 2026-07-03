@@ -1484,6 +1484,14 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             break
 
             # ──── Pass 4 & 5: Emergency Fallback Triggers ────
+            def get_cohort_daily_max(date_str):
+                """Returns the highest exam count already scheduled on date_str
+                across any single branch-sem cohort (0 if none scheduled yet)."""
+                counts = daily_branch_count.get(date_str)
+                if not counts:
+                    return 0
+                return max(counts.values())
+
             for unit in bs_units:
                 if unit.get('scheduled'): continue
                 for pass_max in [3, 99]:
@@ -1724,6 +1732,11 @@ def read_timetable(uploaded_file):
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
         for col in numeric_columns:
             if col in df.columns:
+                if col == "Exam Duration":
+                    # Preserve whether the value was genuinely provided before the
+                    # fallback fill below overwrites blanks. Additive column only —
+                    # does not change existing fillna behavior for any college.
+                    df["Exam Duration_WasProvided"] = pd.to_numeric(df[col], errors='coerce').notna()
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0 if col != "Exam Duration" else 3)
         
         # 6. Branch Creation
@@ -2537,6 +2550,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                             duration = float(row.get('Exam Duration', row.get('Duration', 2.0)))
                         except:
                             duration = 2.0
+                        duration_was_provided = bool(row.get('Exam Duration_WasProvided', False))
 
                         slot_cfg = time_slots_dict.get(sn, time_slots_dict.get(1))
                         slot_duration_hours = None
@@ -2547,10 +2561,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         except:
                             pass
 
-                        # If the subject's own Exam Duration differs from the slot's configured
-                        # width, show the subject's actual start-to-end time inline instead of
-                        # silently inheriting the full (wider/narrower) slot header.
-                        if slot_duration_hours is not None and abs(duration - slot_duration_hours) > 0.01:
+                        # Only show the subject's own start-to-end time inline when an
+                        # Exam Duration was actually provided for that subject in the
+                        # input AND it differs from the slot's configured width. If no
+                        # duration was provided, always fall back to the configured
+                        # slot's time (no bracket annotation).
+                        if duration_was_provided and slot_duration_hours is not None and abs(duration - slot_duration_hours) > 0.01:
                             try:
                                 start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
                                 end_dt = start_dt + timedelta(hours=duration)
