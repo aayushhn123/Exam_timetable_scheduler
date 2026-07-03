@@ -3306,6 +3306,20 @@ def save_to_excel(semester_wise_timetable):
     # SOL detection
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college_context
+    is_business_school = (
+        "School of Business Management" in current_college_context
+        or "Pravin Dalal" in current_college_context
+        or "School of Economics" in current_college_context
+        or "Sarla Anil Modi" in current_college_context
+        or "School of Liberal Arts" in current_college_context
+        or "Jyoti Dalal" in current_college_context
+        or "School of Branding and Advertising" in current_college_context
+        or "School of Science" in current_college_context
+        or "Sunandan Divatia" in current_college_context
+        or "School of Commerce" in current_college_context
+        or "Anil Surendra Modi" in current_college_context
+        or "Diploma in Textile Technology" in current_college_context
+    )
 
     # The combined header string that replaces both individual program headers
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
@@ -3479,11 +3493,37 @@ def save_to_excel(semester_wise_timetable):
                             row = df_processed.iloc[idx]
                             base_subject = str(row.get('Subject', ''))
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
-                            duration = float(row.get('Exam Duration', 3.0))
-                            
+
+                            if is_business_school:
+                                # Only treat duration as "real" when it was actually
+                                # provided for this subject. If blank, fall back to the
+                                # assigned slot's own width (no artificial mismatch,
+                                # so no bracket gets shown for subjects with no
+                                # explicit Exam Duration in the input).
+                                _raw_duration = row.get('Exam Duration', None)
+                                duration_provided = pd.notna(_raw_duration) and str(_raw_duration).strip() not in ('', 'nan')
+                                if duration_provided:
+                                    try:
+                                        duration = float(_raw_duration)
+                                    except:
+                                        duration_provided = False
+                                        duration = None
+                                if not duration_provided:
+                                    duration = None
+                                    try:
+                                        if assigned_slot_str and " - " in assigned_slot_str:
+                                            _s, _e = assigned_slot_str.split(" - ")
+                                            _sd = datetime.strptime(_s.strip(), "%I:%M %p")
+                                            _ed = datetime.strptime(_e.strip(), "%I:%M %p")
+                                            duration = (_ed - _sd).total_seconds() / 3600.0
+                                    except:
+                                        pass
+                            else:
+                                duration = float(row.get('Exam Duration', 3.0))
+
                             calculated_time_str = assigned_slot_str
                             try:
-                                if assigned_slot_str and " - " in assigned_slot_str:
+                                if assigned_slot_str and " - " in assigned_slot_str and duration is not None:
                                     start_time_part = assigned_slot_str.split(" - ")[0].strip()
                                     end_time_calc = calculate_end_time(start_time_part, duration)
                                     calculated_time_str = f"{start_time_part} - {end_time_calc}"
