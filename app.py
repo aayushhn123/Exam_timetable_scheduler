@@ -1808,7 +1808,7 @@ def read_timetable(uploaded_file):
                 d.loc[(d["SubBranch"] == "") | (d["SubBranch"].isna()) | (d["SubBranch"] == "nan"), "SubBranch"] = d["MainBranch"]
 
         cols = ["MainBranch", "SubBranch", "Branch", "Semester", "Subject", "Category", "OE", 
-                "Exam Date", "Time Slot", "Exam Duration", "StudentCount", "ModuleCode", 
+                "Exam Date", "Time Slot", "Exam Duration", "Exam Duration_WasProvided", "StudentCount", "ModuleCode", 
                 "CMGroup", "ExamSlotNumber", "Program", "CommonAcrossSems", "IsCommon", "Campus", "Difficulty"]
         
         for c in cols:
