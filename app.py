@@ -2432,14 +2432,19 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             if fill_color: pdf_obj.rect(x0, y0, sum(col_widths), row_h, 'F')
 
             # FIX: Fragment-aware regex pattern. It checks for full time brackets first,
-            # then safely fallbacks to catching broken left-brackets and right-brackets independently.
+            # then safely fallbacks to catching broken left-brackets and right-brackets
+            # independently -- including lines that wrap mid-number (e.g. ending in
+            # "...to 1:30" with no trailing paren yet) or that are just the leftover
+            # "p.m.)" / "a.m.)" suffix with no digits on that line at all.
             time_pattern = re.compile(
                 r'('
                 r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\)'
                 r'|'
-                r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)?'
+                r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)?\s*\d{0,2}:?\d{0,2}\s*'
                 r'|'
-                r'(?:to|-)?\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\)'
+                r'(?:to|-)?\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})?\)?'
+                r'|'
+                r'^\s*(?:[ap]\.m\.|[AMP]{2})\s*\)'
                 r')', re.IGNORECASE
             )
 
