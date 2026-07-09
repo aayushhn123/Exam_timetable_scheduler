@@ -2042,7 +2042,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Times", 'B', 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
 
         current_y = 38
 
@@ -2361,7 +2361,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_font("Times", 'B', F_TITLE)
             cell_h = F_TITLE * 0.40
             pdf_obj.set_xy(10, text_y)
-            pdf_obj.cell(pdf_obj.w - 20, cell_h, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
+            _academic_year_str = st.session_state.get('academic_year_str', '2025-26')
+            pdf_obj.cell(pdf_obj.w - 20, cell_h, f"FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: {_academic_year_str})", 0, 1, 'C')
             text_y += cell_h + LINE_GAP
 
             prog_name = str(header_content.get('main_branch_full', '')).upper()
@@ -4051,6 +4052,31 @@ def main():
                 help="Choose whether the timetable header shows 'SEMESTER' or 'TRIMESTER'"
             )
             st.session_state['period_label'] = period_choice
+
+            # Academic Year selector — shown on timetable header, Excel, and PDF.
+            _current_year = datetime.today().year
+            ay_col1, ay_col2 = st.columns(2)
+            with ay_col1:
+                ay_start = st.number_input(
+                    "Academic Year Start",
+                    min_value=2000, max_value=2100,
+                    value=st.session_state.get('academic_year_start', _current_year),
+                    step=1,
+                    key="academic_year_start_input",
+                    help="Start year of the academic year (e.g. 2025 for AY 2025-26)"
+                )
+            with ay_col2:
+                ay_end = st.number_input(
+                    "Academic Year End",
+                    min_value=2000, max_value=2100,
+                    value=st.session_state.get('academic_year_end', _current_year + 1),
+                    step=1,
+                    key="academic_year_end_input",
+                    help="End year of the academic year (e.g. 2026 for AY 2025-26)"
+                )
+            st.session_state['academic_year_start'] = ay_start
+            st.session_state['academic_year_end'] = ay_end
+            st.session_state['academic_year_str'] = f"{ay_start}-{str(ay_end)[-2:]}"
 
         # Initialize session state for time slots with College Specific Defaults
         if 'time_slots' not in st.session_state:
