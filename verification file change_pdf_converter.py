@@ -692,7 +692,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
         
         current_y = 38
         
@@ -988,7 +988,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_font("Times", 'B', F_TITLE)
             cell_h = F_TITLE * 0.40
             pdf_obj.set_xy(10, text_y)
-            pdf_obj.cell(pdf_obj.w - 20, cell_h, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+            pdf_obj.cell(pdf_obj.w - 20, cell_h, "FINAL EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
             text_y += cell_h + LINE_GAP
 
             prog_name = str(header_content.get('main_branch_full', '')).upper()
