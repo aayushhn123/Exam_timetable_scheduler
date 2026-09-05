@@ -216,7 +216,7 @@ st.markdown("""
     }
     
     .main-header {
-        padding: 2.5rem;
+        padding: 2rem 3rem;
         border-radius: 16px;
         margin-bottom: 2rem;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -225,41 +225,48 @@ st.markdown("""
     .main-header-inner {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: center;
         gap: 2rem;
         flex-wrap: wrap;
     }
 
     .main-header-logo {
-        height: 130px;
+        height: 100px;
         width: auto;
         border-radius: 10px;
         background: #ffffff;
-        padding: 10px 14px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        padding: 8px 12px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        flex-shrink: 0;
+    }
+
+    .main-header-divider {
+        width: 2px;
+        align-self: stretch;
+        background: rgba(255, 255, 255, 0.25);
         flex-shrink: 0;
     }
 
     .main-header-text {
-        text-align: right;
-        flex: 1;
+        text-align: left;
     }
 
     .main-header h1 {
         color: white;
-        text-align: right;
+        text-align: left;
         margin: 0;
-        font-size: 2.5rem;
+        font-size: 2.3rem;
         font-weight: 700;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         letter-spacing: -0.5px;
+        white-space: nowrap;
     }
 
     .main-header p {
         color: #FFF;
-        text-align: right;
-        margin: 0.5rem 0 0 0;
-        font-size: 1.1rem;
+        text-align: left;
+        margin: 0.4rem 0 0 0;
+        font-size: 1.05rem;
         opacity: 0.95;
         font-weight: 500;
     }
@@ -669,10 +676,12 @@ def show_college_selector():
     """Display the college selector landing page"""
     _logo_uri = _get_logo_data_uri()
     _logo_html = f'<img src="{_logo_uri}" class="main-header-logo" alt="NMIMS Logo">' if _logo_uri else ""
+    _divider_html = '<div class="main-header-divider"></div>' if _logo_uri else ""
     st.markdown(f"""
     <div class="main-header">
         <div class="main-header-inner">
             {_logo_html}
+            {_divider_html}
             <div class="main-header-text">
                 <h1>Exam Timetable Generator</h1>
                 <p>SVKM's NMIMS University</p>
@@ -778,7 +787,7 @@ st.markdown("""
 <style>
     /* Base styles */
     .main-header {
-        padding: 2rem;
+        padding: 2rem 3rem;
         border-radius: 10px;
         margin-bottom: 2rem;
     }
@@ -786,39 +795,46 @@ st.markdown("""
     .main-header-inner {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: center;
         gap: 2rem;
         flex-wrap: wrap;
     }
 
     .main-header-logo {
-        height: 130px;
+        height: 100px;
         width: auto;
         border-radius: 10px;
         background: #ffffff;
-        padding: 10px 14px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        padding: 8px 12px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        flex-shrink: 0;
+    }
+
+    .main-header-divider {
+        width: 2px;
+        align-self: stretch;
+        background: rgba(255, 255, 255, 0.25);
         flex-shrink: 0;
     }
 
     .main-header-text {
-        text-align: right;
-        flex: 1;
+        text-align: left;
     }
 
     .main-header h1 {
         color: white;
-        text-align: right;
+        text-align: left;
         margin: 0;
-        font-size: 2.5rem;
+        font-size: 2.3rem;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        white-space: nowrap;
     }
 
     .main-header p {
         color: #FFF;
-        text-align: right;
-        margin: 0.5rem 0 0 0;
-        font-size: 1.2rem;
+        text-align: left;
+        margin: 0.4rem 0 0 0;
+        font-size: 1.05rem;
         opacity: 0.9;
     }
 
@@ -4052,10 +4068,12 @@ def main():
         
     _logo_uri = _get_logo_data_uri()
     _logo_html = f'<img src="{_logo_uri}" class="main-header-logo" alt="NMIMS Logo">' if _logo_uri else ""
+    _divider_html = '<div class="main-header-divider"></div>' if _logo_uri else ""
     st.markdown(f"""
     <div class="main-header">
         <div class="main-header-inner">
             {_logo_html}
+            {_divider_html}
             <div class="main-header-text">
                 <h1>Exam Timetable Generator</h1>
                 <p>{current_college}</p>
