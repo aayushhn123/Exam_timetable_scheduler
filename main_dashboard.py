@@ -117,6 +117,8 @@ components.html(f"""
     --scrollbar-track: {_theme['scrollbar_track']};
     --scrollbar-thumb: {_theme['scrollbar_thumb']};
     --scrollbar-thumb-hover: {_theme['scrollbar_thumb_hover']};
+    --accent-1: #C73E1D;
+    --accent-2: #951C1C;
   }}
 
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -141,38 +143,45 @@ components.html(f"""
     justify-content: center;
     gap: 1.5rem;
     flex-wrap: wrap;
-    margin-bottom: 1rem;
+    max-width: 1000px;
+    margin: 0 auto;
     animation: fadeInDown 0.6s ease;
   }}
 
   .header-logo {{
-    height: 72px;
+    height: 90px;
     width: auto;
     border-radius: 10px;
     background: #ffffff;
-    padding: 6px 10px;
+    padding: 8px 12px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
     flex-shrink: 0;
   }}
 
   .header-divider {{
     width: 2px;
-    height: 50px;
+    height: 70px;
     background: var(--card-border);
     flex-shrink: 0;
   }}
 
+  .header-text {{
+    text-align: left;
+    min-width: 0;
+    flex: 1 1 auto;
+  }}
+
   .hero {{
-    text-align: center;
-    padding: 1rem 1rem 1.5rem 1rem;
+    text-align: left;
+    padding: 0;
     animation: fadeInDown 0.7s ease;
   }}
 
   .badge {{
     display: inline-block;
-    background: rgba(167,139,250,0.15);
-    color: #a78bfa;
-    border: 1px solid rgba(167,139,250,0.35);
+    background: rgba(151,28,28,0.12);
+    color: #C73E1D;
+    border: 1px solid rgba(151,28,28,0.35);
     border-radius: 50px;
     padding: 0.35rem 1.2rem;
     font-size: 0.7rem;
@@ -185,7 +194,7 @@ components.html(f"""
   .hero-title {{
     font-size: 3rem;
     font-weight: 800;
-    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+    background: linear-gradient(90deg, #951C1C, #C73E1D, #E85D3F);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -205,8 +214,8 @@ components.html(f"""
   .hero-line {{
     width: 70px;
     height: 3px;
-    background: linear-gradient(90deg, #a78bfa, #60a5fa);
-    margin: 1.2rem auto 0 auto;
+    background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+    margin: 1.2rem 0 0 0;
     border-radius: 2px;
   }}
 
@@ -251,37 +260,37 @@ components.html(f"""
   }}
   .card:hover::before {{ opacity: 1; }}
 
-  /* Purple */
-  .c-purple::before {{ background: linear-gradient(90deg,#a78bfa,#818cf8); }}
-  .c-purple:hover   {{ border-color: rgba(167,139,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(167,139,250,0.15); }}
-  .c-purple .icon   {{ background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.25); }}
-  .c-purple .lbl    {{ color: #a78bfa; }}
-  .c-purple .btn    {{ color: #a78bfa; border-color: rgba(167,139,250,0.35); background: rgba(167,139,250,0.08); }}
-  .c-purple:hover .btn {{ background: rgba(167,139,250,0.20); }}
+  /* Card 1 — Deep Red */
+  .c-purple::before {{ background: linear-gradient(90deg,#951C1C,#C73E1D); }}
+  .c-purple:hover   {{ border-color: rgba(151,28,28,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(151,28,28,0.15); }}
+  .c-purple .icon   {{ background: rgba(151,28,28,0.15); border: 1px solid rgba(151,28,28,0.25); }}
+  .c-purple .lbl    {{ color: #C73E1D; }}
+  .c-purple .btn    {{ color: #C73E1D; border-color: rgba(151,28,28,0.35); background: rgba(151,28,28,0.08); }}
+  .c-purple:hover .btn {{ background: rgba(151,28,28,0.20); }}
 
-  /* Blue */
-  .c-blue::before {{ background: linear-gradient(90deg,#60a5fa,#38bdf8); }}
-  .c-blue:hover   {{ border-color: rgba(96,165,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(96,165,250,0.15); }}
-  .c-blue .icon   {{ background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.25); }}
-  .c-blue .lbl    {{ color: #60a5fa; }}
-  .c-blue .btn    {{ color: #60a5fa; border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.08); }}
-  .c-blue:hover .btn {{ background: rgba(96,165,250,0.20); }}
+  /* Card 2 — Bright Red / Orange-red */
+  .c-blue::before {{ background: linear-gradient(90deg,#C73E1D,#E85D3F); }}
+  .c-blue:hover   {{ border-color: rgba(199,62,29,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(199,62,29,0.15); }}
+  .c-blue .icon   {{ background: rgba(199,62,29,0.15); border: 1px solid rgba(199,62,29,0.25); }}
+  .c-blue .lbl    {{ color: #E85D3F; }}
+  .c-blue .btn    {{ color: #E85D3F; border-color: rgba(199,62,29,0.35); background: rgba(199,62,29,0.08); }}
+  .c-blue:hover .btn {{ background: rgba(199,62,29,0.20); }}
 
-  /* Green */
-  .c-green::before {{ background: linear-gradient(90deg,#34d399,#10b981); }}
-  .c-green:hover   {{ border-color: rgba(52,211,153,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(52,211,153,0.15); }}
-  .c-green .icon   {{ background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.25); }}
-  .c-green .lbl    {{ color: #34d399; }}
-  .c-green .btn    {{ color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.08); }}
-  .c-green:hover .btn {{ background: rgba(52,211,153,0.20); }}
+  /* Card 3 — Maroon */
+  .c-green::before {{ background: linear-gradient(90deg,#7A1515,#A23217); }}
+  .c-green:hover   {{ border-color: rgba(122,21,21,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(122,21,21,0.15); }}
+  .c-green .icon   {{ background: rgba(122,21,21,0.15); border: 1px solid rgba(122,21,21,0.25); }}
+  .c-green .lbl    {{ color: #A23217; }}
+  .c-green .btn    {{ color: #A23217; border-color: rgba(122,21,21,0.35); background: rgba(122,21,21,0.08); }}
+  .c-green:hover .btn {{ background: rgba(122,21,21,0.20); }}
 
-  /* Orange */
-  .c-orange::before {{ background: linear-gradient(90deg,#fb923c,#f97316); }}
-  .c-orange:hover   {{ border-color: rgba(251,146,60,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(251,146,60,0.15); }}
-  .c-orange .icon   {{ background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.25); }}
-  .c-orange .lbl    {{ color: #fb923c; }}
-  .c-orange .btn    {{ color: #fb923c; border-color: rgba(251,146,60,0.35); background: rgba(251,146,60,0.08); }}
-  .c-orange:hover .btn {{ background: rgba(251,146,60,0.20); }}
+  /* Card 4 — Warm Ember */
+  .c-orange::before {{ background: linear-gradient(90deg,#D9481F,#F2673D); }}
+  .c-orange:hover   {{ border-color: rgba(217,72,31,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(217,72,31,0.15); }}
+  .c-orange .icon   {{ background: rgba(217,72,31,0.15); border: 1px solid rgba(217,72,31,0.25); }}
+  .c-orange .lbl    {{ color: #F2673D; }}
+  .c-orange .btn    {{ color: #F2673D; border-color: rgba(217,72,31,0.35); background: rgba(217,72,31,0.08); }}
+  .c-orange:hover .btn {{ background: rgba(217,72,31,0.20); }}
 
   .icon {{
     width: 54px;
@@ -385,8 +394,19 @@ components.html(f"""
     .header-logo {{
         height: 56px;
     }}
+    .header-bar {{
+        justify-content: center;
+        text-align: center;
+    }}
+    .header-text {{
+        text-align: center;
+    }}
+    .hero-line {{
+        margin: 1.2rem auto 0 auto;
+    }}
     .hero {{
-        padding: 1.5rem 0.5rem 1rem 0.5rem;
+        text-align: center;
+        padding: 1rem 0.5rem 0 0.5rem;
     }}
     .hero-title {{
         font-size: 2.2rem;
@@ -418,13 +438,12 @@ components.html(f"""
 <div class="header-bar">
   {_logo_html}
   {_divider_html}
-</div>
-
-<div class="hero">
-  <div class="badge">📚 &nbsp; Exam Management Suite</div>
-  <div class="hero-title">Timetable Tools</div>
-  <div class="hero-sub">All your exam scheduling and conversion tools — in one place.</div>
-  <div class="hero-line"></div>
+  <div class="header-text">
+    <div class="badge">📚 &nbsp; Exam Management Suite</div>
+    <div class="hero-title">Timetable Tools</div>
+    <div class="hero-sub">All your exam scheduling and conversion tools — in one place.</div>
+    <div class="hero-line"></div>
+  </div>
 </div>
 
 <div class="grid">
