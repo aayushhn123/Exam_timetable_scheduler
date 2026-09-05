@@ -348,11 +348,72 @@ def process_verification_file(uploaded_file):
                     return _sn
             return 1
 
+        def _parse_time_range(raw):
+            """
+            Parse an 'Exam Time' cell like '11:30 AM - 01:30 PM' into
+            (start_str, end_str, sort_key) using the exact same start/end
+            string format the app already expects in time_slots_dict
+            (e.g. {"start": "11:30 AM", "end": "01:30 PM"}). Returns None if
+            the value can't be parsed as a time range.
+            """
+            s = str(raw).strip()
+            if not s or s.lower() in ('nan', 'none', 'tbd', ''):
+                return None
+            m = re.search(
+                r'(\d{1,2}:\d{2}\s*[AP]M)\s*(?:-|to)\s*(\d{1,2}:\d{2}\s*[AP]M)',
+                s, re.IGNORECASE)
+            if not m:
+                return None
+            start_raw, end_raw = m.group(1).upper(), m.group(2).upper()
+            try:
+                start_dt = datetime.strptime(start_raw, "%I:%M %p")
+            except Exception:
+                return None
+            return (start_raw, end_raw, start_dt.time())
+
         if IS_SBM_ONLY_SLOT_ENFORCEMENT:
             df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_sbm)
             st.session_state['time_slots'] = SBM_SLOT_MAP
         else:
-            df['ExamSlotNumber'] = 1
+            # Build the time-slot map from whatever distinct exam times are
+            # actually present in the uploaded verification file, instead of
+            # forcing the generic hardcoded 2-slot default. This produces the
+            # same {slot_number: {"start":..., "end":...}} shape the scheduler
+            # itself uses, so the existing multi-column PDF layout (Branch A)
+            # picks it up unmodified and renders the real times/columns.
+            parsed = df['Exam Time'].apply(_parse_time_range)
+
+            distinct = {}
+            for p in parsed:
+                if p is not None:
+                    key = (p[0], p[1])
+                    if key not in distinct:
+                        distinct[key] = p[2]
+
+            if distinct:
+                ordered_keys = sorted(distinct.keys(), key=lambda k: distinct[k])
+                dynamic_slot_map = {
+                    i + 1: {"start": start, "end": end}
+                    for i, (start, end) in enumerate(ordered_keys)
+                }
+                key_to_slot = {key: i + 1 for i, key in enumerate(ordered_keys)}
+
+                def _derive_slot_dynamic(exam_time):
+                    p = _parse_time_range(exam_time)
+                    if p is None:
+                        return 1
+                    return key_to_slot.get((p[0], p[1]), 1)
+
+                df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_dynamic)
+                st.session_state['time_slots'] = dynamic_slot_map
+            else:
+                # No parseable time ranges found anywhere in the file — fall
+                # back to the original generic default so the app still runs.
+                df['ExamSlotNumber'] = 1
+                st.session_state['time_slots'] = {
+                    1: {"start": "10:00 AM", "end": "1:00 PM"},
+                    2: {"start": "2:00 PM",  "end": "5:00 PM"}
+                }
 
         timetable = {}
         for sem in sorted(df['Semester'].unique()):
@@ -1399,7 +1460,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                                                errors='coerce').strftime("%A, %d %B, %Y")
                         except: pass
                         if d not in slot_pivot:
-                            slot_pivot[d] = {sn in time_slots_dict}
+                            slot_pivot[d] = {sn2: [] for sn2 in time_slots_dict}
                         for sc in _sub_cols:
                             val = str(row.get(sc, '')).strip()
                             for raw_subj in val.split('<hr>'):
