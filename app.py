@@ -231,11 +231,11 @@ st.markdown("""
     }
 
     .main-header-logo {
-        height: 100px;
+        height: 140px;
         width: auto;
         border-radius: 10px;
         background: #ffffff;
-        padding: 8px 12px;
+        padding: 10px 14px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         flex-shrink: 0;
     }
@@ -249,6 +249,8 @@ st.markdown("""
 
     .main-header-text {
         text-align: left;
+        min-width: 0;
+        flex: 1 1 auto;
     }
 
     .main-header h1 {
@@ -259,7 +261,9 @@ st.markdown("""
         font-weight: 700;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         letter-spacing: -0.5px;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
     }
 
     .main-header p {
@@ -269,6 +273,10 @@ st.markdown("""
         font-size: 1.05rem;
         opacity: 0.95;
         font-weight: 500;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        line-height: 1.4;
     }
 
     .stats-section {
@@ -801,11 +809,11 @@ st.markdown("""
     }
 
     .main-header-logo {
-        height: 100px;
+        height: 140px;
         width: auto;
         border-radius: 10px;
         background: #ffffff;
-        padding: 8px 12px;
+        padding: 10px 14px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         flex-shrink: 0;
     }
@@ -819,6 +827,8 @@ st.markdown("""
 
     .main-header-text {
         text-align: left;
+        min-width: 0;
+        flex: 1 1 auto;
     }
 
     .main-header h1 {
@@ -827,7 +837,9 @@ st.markdown("""
         margin: 0;
         font-size: 2.3rem;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
     }
 
     .main-header p {
@@ -836,6 +848,10 @@ st.markdown("""
         margin: 0.4rem 0 0 0;
         font-size: 1.05rem;
         opacity: 0.9;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        line-height: 1.4;
     }
 
     .stats-section {
@@ -1051,6 +1067,35 @@ st.markdown("""
             color: #ccc;
             padding: 2rem;
         }
+    }
+
+    /* Theme-aware overrides: follow Streamlit's actual active theme (light/dark
+       toggle) instead of the OS-level prefers-color-scheme, and stop relying on
+       hardcoded hex colors that go unreadable when the theme flips. Mirrors the
+       var(--secondary-background-color)/var(--text-color) approach already used
+       for the college-selector tiles. */
+    .upload-section,
+    .feature-card,
+    .results-section,
+    .stats-section {
+        background: var(--secondary-background-color) !important;
+        color: var(--text-color) !important;
+        border-color: rgba(128, 128, 128, 0.35) !important;
+    }
+
+    .upload-section *,
+    .feature-card *,
+    .results-section *,
+    .stats-section * {
+        color: var(--text-color) !important;
+    }
+
+    /* Sidebar "Selected School" info box: wrap long college names cleanly */
+    [data-testid="stSidebar"] [data-testid="stAlert"] p {
+        white-space: normal !important;
+        overflow-wrap: break-word !important;
+        word-break: break-word !important;
+        line-height: 1.4 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -4565,7 +4610,7 @@ def main():
         st.markdown("""
         <div class="upload-section">
             <h3 style="margin: 0 0 1rem 0; color: #951C1C;">📄 Upload Excel File</h3>
-            <p style="margin: 0; color: #666; font-size: 1rem;">Upload your timetable data file (.xlsx format)</p>
+            <p style="margin: 0; font-size: 1rem;">Upload your timetable data file (.xlsx format)</p>
         </div>
         """, unsafe_allow_html=True)
 
