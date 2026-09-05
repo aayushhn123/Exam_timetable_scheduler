@@ -1443,19 +1443,96 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
         priority_ids = set(u['id'] for u in common_units_priority)
 
-        for bs in sorted_bsems:
-            branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
-            for unit in branch_sem_map[bs]['common']:
-                if unit['id'] not in scheduled_ids:
-                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True): unscheduled_groups.append(unit)
-                    scheduled_ids.add(unit['id'])
+        if use_difficulty_gap:
+            # --- Alternating hard/easy schedule with a fixed gap, per branch-sem, independently. ---
+            # A unit can belong to multiple branch-sems (common units); once scheduled for one
+            # branch-sem it's scheduled for all of them, so we still track scheduled_ids globally
+            # to avoid double-scheduling a shared common unit.
+            def attempt_schedule_after(unit, allowed_dates, min_date):
+                # Same placement mechanics as the standard path, but only considers dates
+                # on/after min_date (the fixed gap floor), and never applies the old 1-day-gap
+                # logic on top — the fixed gap here replaces it for this branch-sem's own sequence.
+                preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
+                slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
 
-        for bs in sorted_bsems:
-            branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
-            for unit in branch_sem_map[bs]['individual']:
-                if unit['id'] not in scheduled_ids:
-                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False): unscheduled_groups.append(unit)
+                if is_business_school and slot_semester_map:
+                    unit_sem_str = str(unit['sem_raw']).strip()
+                    allowed_slots = [
+                        s for s in slots_to_try
+                        if not slot_semester_map.get(s) or unit_sem_str in slot_semester_map.get(s, [])
+                    ]
+                    if allowed_slots:
+                        slots_to_try = allowed_slots
+
+                for date_obj in allowed_dates:
+                    if date_obj < min_date: continue
+                    date_str = date_obj.strftime("%d-%m-%Y")
+                    if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): continue
+
+                    for slot_num in slots_to_try:
+                        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
+                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
+                        if allowed:
+                            for row_idx in unit['indices']:
+                                work_df.loc[row_idx, 'Exam Date'] = date_str
+                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
+                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
+                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
+                            daily_schedule_map[date_str].update(unit['branch_sems'])
+                            if date_str in slot_schedule_map and slot_num in slot_schedule_map[date_str]:
+                                slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
+                            date_load_tracker[date_str] += 1
+                            for bs in unit['branch_sems']: daily_branch_count[date_str][bs] += 1
+                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
+                            return date_obj
+                return None
+
+            for bs in sorted_bsems:
+                units_here = branch_sem_map[bs]['common'] + branch_sem_map[bs]['individual']
+                units_here = [u for u in units_here if u['id'] not in scheduled_ids]
+                if not units_here: continue
+
+                hard_units = [u for u in units_here if u.get('max_difficulty', 0) >= 1]
+                easy_units = [u for u in units_here if u.get('max_difficulty', 0) < 1]
+
+                sequence = []
+                hi, ei = 0, 0
+                turn_hard = True
+                while hi < len(hard_units) or ei < len(easy_units):
+                    if turn_hard and hi < len(hard_units):
+                        sequence.append(hard_units[hi]); hi += 1
+                    elif not turn_hard and ei < len(easy_units):
+                        sequence.append(easy_units[ei]); ei += 1
+                    elif hi < len(hard_units):
+                        sequence.append(hard_units[hi]); hi += 1
+                    elif ei < len(easy_units):
+                        sequence.append(easy_units[ei]); ei += 1
+                    turn_hard = not turn_hard
+
+                last_scheduled_date = None
+                for unit in sequence:
+                    if unit['id'] in scheduled_ids: continue
+                    min_date = core_valid_dates[0] if last_scheduled_date is None else last_scheduled_date + timedelta(days=difficulty_gap_days)
+                    placed_on = attempt_schedule_after(unit, core_valid_dates, min_date)
+                    if placed_on is None:
+                        unscheduled_groups.append(unit)
+                    else:
+                        last_scheduled_date = placed_on
                     scheduled_ids.add(unit['id'])
+        else:
+            for bs in sorted_bsems:
+                branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
+                for unit in branch_sem_map[bs]['common']:
+                    if unit['id'] not in scheduled_ids:
+                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True): unscheduled_groups.append(unit)
+                        scheduled_ids.add(unit['id'])
+
+            for bs in sorted_bsems:
+                branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
+                for unit in branch_sem_map[bs]['individual']:
+                    if unit['id'] not in scheduled_ids:
+                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False): unscheduled_groups.append(unit)
+                        scheduled_ids.add(unit['id'])
 
         return work_df, unscheduled_groups
 
@@ -4092,18 +4169,25 @@ def main():
             st.markdown("---")
             st.markdown("#### 🔁 Alternating Schedule (Difficulty-Based Gap)")
             use_difficulty_gap = st.checkbox(
-                "Use difficulty-based gap days between exams (per branch-semester)",
+                "Use difficulty-based alternating schedule (hard/easy subjects alternate, fixed gap between exams)",
                 value=st.session_state.get('use_difficulty_gap', False),
                 key="use_difficulty_gap_cb",
-                help="When off, scheduling behaves exactly as before."
+                help=(
+                    "When ON, exams for each branch-semester are reordered to strictly alternate between "
+                    "difficult and easy subjects (e.g. Hard, Easy, Hard, Easy...), with a fixed number of "
+                    "gap days inserted between every consecutive exam — set below. "
+                    "In your input file, the 'Difficulty Score' column must be filled as: "
+                    "0 = easy subject (fewer credits), 1 = difficult subject (more credits). "
+                    "When OFF, scheduling behaves exactly as before."
+                )
             )
             if use_difficulty_gap:
                 difficulty_gap_days = st.number_input(
-                    "Gap days per Difficulty Score point",
+                    "Gap days between consecutive exams",
                     min_value=1, max_value=10, step=1,
                     value=st.session_state.get('difficulty_gap_days', 1),
                     key="difficulty_gap_days_input",
-                    help="Each branch-semester's gap = its highest Difficulty Score × this number of days."
+                    help="Number of holiday/gap days to insert between every consecutive exam in the alternating sequence."
                 )
         st.session_state['use_difficulty_gap'] = use_difficulty_gap
         st.session_state['difficulty_gap_days'] = difficulty_gap_days
