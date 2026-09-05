@@ -319,6 +319,13 @@ def process_verification_file(uploaded_file):
             or "Diploma in Textile Technology" in current_college
         )
 
+        # Hardcoded 3-slot enforcement applies ONLY to School of Business
+        # Management. All other colleges (including the other IS_BUSINESS_SCH
+        # colleges above, which still use IS_BUSINESS_SCH for PDF branch /
+        # filename / UI purposes elsewhere) must use whatever Exam Time value
+        # is actually present in the uploaded verification file, unchanged.
+        IS_SBM_ONLY_SLOT_ENFORCEMENT = "School of Business Management" in current_college
+
         SBM_SLOT_MAP = {
             1: {"start": "11:30 AM", "end": "01:30 PM"},
             2: {"start": "03:00 PM", "end": "05:00 PM"},
@@ -341,7 +348,7 @@ def process_verification_file(uploaded_file):
                     return _sn
             return 1
 
-        if IS_BUSINESS_SCH:
+        if IS_SBM_ONLY_SLOT_ENFORCEMENT:
             df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_sbm)
             st.session_state['time_slots'] = SBM_SLOT_MAP
         else:
