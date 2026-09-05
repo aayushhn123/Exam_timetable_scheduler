@@ -1,3 +1,5 @@
+import base64
+import os
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -8,48 +10,165 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-st.markdown("""
+
+def _get_logo_data_uri():
+    """Load app_logo.png (NMIMS logo) once and return it as a base64 data URI."""
+    for candidate in (
+        os.path.join(os.path.dirname(__file__), "app_logo.png"),
+        os.path.join(os.path.dirname(__file__), "assets", "app_logo.png"),
+        "app_logo.png",
+        "assets/app_logo.png",
+    ):
+        if os.path.exists(candidate):
+            with open(candidate, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode()
+            return f"data:image/png;base64,{encoded}"
+    return None
+
+
+def _get_active_theme():
+    """
+    Read Streamlit's actual active theme (the same source of truth the
+    parent page's var(--text-color)/var(--secondary-background-color)
+    resolve to), so this iframe can match it exactly instead of guessing
+    via prefers-color-scheme. Falls back to dark (this page's original
+    look) if the option isn't available for some reason.
+    """
+    base = st.get_option("theme.base") or "dark"
+    bg = st.get_option("theme.backgroundColor")
+    secondary_bg = st.get_option("theme.secondaryBackgroundColor")
+    text = st.get_option("theme.textColor")
+
+    if base == "light":
+        return {
+            "base": "light",
+            "page_bg": bg or "#ffffff",
+            "card_bg": "rgba(15,12,41,0.04)",
+            "card_border": "rgba(15,12,41,0.10)",
+            "card_hover_bg": "rgba(15,12,41,0.07)",
+            "text_strong": text or "#1a1a2e",
+            "text_soft": "rgba(26,26,46,0.55)",
+            "text_faint": "rgba(26,26,46,0.38)",
+            "arrow": "rgba(26,26,46,0.25)",
+            "arrow_hover": "rgba(26,26,46,0.65)",
+            "footer": "rgba(26,26,46,0.35)",
+            "scrollbar_track": "rgba(0,0,0,0.05)",
+            "scrollbar_thumb": "rgba(0,0,0,0.15)",
+            "scrollbar_thumb_hover": "rgba(0,0,0,0.3)",
+            "app_gradient": f"linear-gradient(135deg, {secondary_bg or '#f0f2f6'}, {bg or '#ffffff'})",
+        }
+
+    # Dark (default / original design)
+    return {
+        "base": "dark",
+        "page_bg": "transparent",
+        "card_bg": "rgba(255,255,255,0.05)",
+        "card_border": "rgba(255,255,255,0.10)",
+        "card_hover_bg": "rgba(255,255,255,0.09)",
+        "text_strong": "rgba(255,255,255,0.93)",
+        "text_soft": "rgba(255,255,255,0.5)",
+        "text_faint": "rgba(255,255,255,0.42)",
+        "arrow": "rgba(255,255,255,0.18)",
+        "arrow_hover": "rgba(255,255,255,0.6)",
+        "footer": "rgba(255,255,255,0.2)",
+        "scrollbar_track": "transparent",
+        "scrollbar_thumb": "rgba(255,255,255,0.2)",
+        "scrollbar_thumb_hover": "rgba(255,255,255,0.4)",
+        "app_gradient": "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+    }
+
+
+_theme = _get_active_theme()
+_logo_uri = _get_logo_data_uri()
+
+st.markdown(f"""
 <style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-[data-testid="collapsedControl"] {display: none;}
-section[data-testid="stSidebar"] {display: none;}
-.block-container {padding: 0 !important; margin: 0 !important; max-width: 100% !important;}
-.stApp {background: linear-gradient(135deg, #0f0c29, #302b63, #24243e) !important;}
+#MainMenu {{visibility: hidden;}}
+footer {{visibility: hidden;}}
+header {{visibility: hidden;}}
+[data-testid="collapsedControl"] {{display: none;}}
+section[data-testid="stSidebar"] {{display: none;}}
+.block-container {{padding: 0 !important; margin: 0 !important; max-width: 100% !important;}}
+.stApp {{background: {_theme['app_gradient']} !important;}}
 </style>
 """, unsafe_allow_html=True)
 
-components.html("""
+_logo_html = f'<img src="{_logo_uri}" class="header-logo" alt="NMIMS Logo">' if _logo_uri else ""
+_divider_html = '<div class="header-divider"></div>' if _logo_uri else ""
+
+components.html(f"""
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {{
+    --page-bg: {_theme['page_bg']};
+    --card-bg: {_theme['card_bg']};
+    --card-border: {_theme['card_border']};
+    --card-hover-bg: {_theme['card_hover_bg']};
+    --text-strong: {_theme['text_strong']};
+    --text-soft: {_theme['text_soft']};
+    --text-faint: {_theme['text_faint']};
+    --arrow: {_theme['arrow']};
+    --arrow-hover: {_theme['arrow_hover']};
+    --footer-color: {_theme['footer']};
+    --scrollbar-track: {_theme['scrollbar_track']};
+    --scrollbar-thumb: {_theme['scrollbar_thumb']};
+    --scrollbar-thumb-hover: {_theme['scrollbar_thumb_hover']};
+  }}
+
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 
   /* Custom sleek scrollbar for the iframe */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+  ::-webkit-scrollbar {{ width: 6px; }}
+  ::-webkit-scrollbar-track {{ background: var(--scrollbar-track); }}
+  ::-webkit-scrollbar-thumb {{ background: var(--scrollbar-thumb); border-radius: 10px; }}
+  ::-webkit-scrollbar-thumb:hover {{ background: var(--scrollbar-thumb-hover); }}
 
-  body {
+  body {{
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: transparent; /* Let the Streamlit background show through */
+    background: var(--page-bg); /* Let the Streamlit background show through */
     min-height: 100vh;
     padding: 2rem 1.5rem 3rem 1.5rem;
     overflow-x: hidden;
-  }
+  }}
 
-  .hero {
+  .header-bar {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    animation: fadeInDown 0.6s ease;
+  }}
+
+  .header-logo {{
+    height: 72px;
+    width: auto;
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 6px 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
+  }}
+
+  .header-divider {{
+    width: 2px;
+    height: 50px;
+    background: var(--card-border);
+    flex-shrink: 0;
+  }}
+
+  .hero {{
     text-align: center;
-    padding: 2.5rem 1rem 1.5rem 1rem;
+    padding: 1rem 1rem 1.5rem 1rem;
     animation: fadeInDown 0.7s ease;
-  }
+  }}
 
-  .badge {
+  .badge {{
     display: inline-block;
     background: rgba(167,139,250,0.15);
     color: #a78bfa;
@@ -61,9 +180,9 @@ components.html("""
     letter-spacing: 2.5px;
     text-transform: uppercase;
     margin-bottom: 1.2rem;
-  }
+  }}
 
-  .hero-title {
+  .hero-title {{
     font-size: 3rem;
     font-weight: 800;
     background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
@@ -73,35 +192,37 @@ components.html("""
     margin-bottom: 0.6rem;
     letter-spacing: -1.5px;
     line-height: 1.15;
-  }
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }}
 
-  .hero-sub {
+  .hero-sub {{
     font-size: 1.05rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-soft);
     margin-bottom: 0;
-  }
+  }}
 
-  .hero-line {
+  .hero-line {{
     width: 70px;
     height: 3px;
     background: linear-gradient(90deg, #a78bfa, #60a5fa);
     margin: 1.2rem auto 0 auto;
     border-radius: 2px;
-  }
+  }}
 
-  .grid {
+  .grid {{
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 1.4rem;
     max-width: 1000px;
     margin: 2.5rem auto 0 auto;
     animation: fadeInUp 0.8s ease;
-  }
+  }}
 
-  .card {
+  .card {{
     position: relative;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.10);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 20px;
     padding: 2rem 1.8rem 1.7rem 1.8rem;
     text-decoration: none;
@@ -111,9 +232,9 @@ components.html("""
                 box-shadow 0.28s ease,
                 border-color 0.28s ease,
                 background 0.28s ease;
-  }
+  }}
 
-  .card::before {
+  .card::before {{
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -121,48 +242,48 @@ components.html("""
     border-radius: 20px 20px 0 0;
     opacity: 0;
     transition: opacity 0.28s ease;
-  }
+  }}
 
-  .card:hover {
+  .card:hover {{
     transform: translateY(-8px) scale(1.015);
-    background: rgba(255,255,255,0.09);
+    background: var(--card-hover-bg);
     text-decoration: none;
-  }
-  .card:hover::before { opacity: 1; }
+  }}
+  .card:hover::before {{ opacity: 1; }}
 
   /* Purple */
-  .c-purple::before { background: linear-gradient(90deg,#a78bfa,#818cf8); }
-  .c-purple:hover   { border-color: rgba(167,139,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(167,139,250,0.15); }
-  .c-purple .icon   { background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.25); }
-  .c-purple .lbl    { color: #a78bfa; }
-  .c-purple .btn    { color: #a78bfa; border-color: rgba(167,139,250,0.35); background: rgba(167,139,250,0.08); }
-  .c-purple:hover .btn { background: rgba(167,139,250,0.20); }
+  .c-purple::before {{ background: linear-gradient(90deg,#a78bfa,#818cf8); }}
+  .c-purple:hover   {{ border-color: rgba(167,139,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(167,139,250,0.15); }}
+  .c-purple .icon   {{ background: rgba(167,139,250,0.15); border: 1px solid rgba(167,139,250,0.25); }}
+  .c-purple .lbl    {{ color: #a78bfa; }}
+  .c-purple .btn    {{ color: #a78bfa; border-color: rgba(167,139,250,0.35); background: rgba(167,139,250,0.08); }}
+  .c-purple:hover .btn {{ background: rgba(167,139,250,0.20); }}
 
   /* Blue */
-  .c-blue::before { background: linear-gradient(90deg,#60a5fa,#38bdf8); }
-  .c-blue:hover   { border-color: rgba(96,165,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(96,165,250,0.15); }
-  .c-blue .icon   { background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.25); }
-  .c-blue .lbl    { color: #60a5fa; }
-  .c-blue .btn    { color: #60a5fa; border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.08); }
-  .c-blue:hover .btn { background: rgba(96,165,250,0.20); }
+  .c-blue::before {{ background: linear-gradient(90deg,#60a5fa,#38bdf8); }}
+  .c-blue:hover   {{ border-color: rgba(96,165,250,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(96,165,250,0.15); }}
+  .c-blue .icon   {{ background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.25); }}
+  .c-blue .lbl    {{ color: #60a5fa; }}
+  .c-blue .btn    {{ color: #60a5fa; border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.08); }}
+  .c-blue:hover .btn {{ background: rgba(96,165,250,0.20); }}
 
   /* Green */
-  .c-green::before { background: linear-gradient(90deg,#34d399,#10b981); }
-  .c-green:hover   { border-color: rgba(52,211,153,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(52,211,153,0.15); }
-  .c-green .icon   { background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.25); }
-  .c-green .lbl    { color: #34d399; }
-  .c-green .btn    { color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.08); }
-  .c-green:hover .btn { background: rgba(52,211,153,0.20); }
+  .c-green::before {{ background: linear-gradient(90deg,#34d399,#10b981); }}
+  .c-green:hover   {{ border-color: rgba(52,211,153,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(52,211,153,0.15); }}
+  .c-green .icon   {{ background: rgba(52,211,153,0.15); border: 1px solid rgba(52,211,153,0.25); }}
+  .c-green .lbl    {{ color: #34d399; }}
+  .c-green .btn    {{ color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.08); }}
+  .c-green:hover .btn {{ background: rgba(52,211,153,0.20); }}
 
   /* Orange */
-  .c-orange::before { background: linear-gradient(90deg,#fb923c,#f97316); }
-  .c-orange:hover   { border-color: rgba(251,146,60,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(251,146,60,0.15); }
-  .c-orange .icon   { background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.25); }
-  .c-orange .lbl    { color: #fb923c; }
-  .c-orange .btn    { color: #fb923c; border-color: rgba(251,146,60,0.35); background: rgba(251,146,60,0.08); }
-  .c-orange:hover .btn { background: rgba(251,146,60,0.20); }
+  .c-orange::before {{ background: linear-gradient(90deg,#fb923c,#f97316); }}
+  .c-orange:hover   {{ border-color: rgba(251,146,60,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(251,146,60,0.15); }}
+  .c-orange .icon   {{ background: rgba(251,146,60,0.15); border: 1px solid rgba(251,146,60,0.25); }}
+  .c-orange .lbl    {{ color: #fb923c; }}
+  .c-orange .btn    {{ color: #fb923c; border-color: rgba(251,146,60,0.35); background: rgba(251,146,60,0.08); }}
+  .c-orange:hover .btn {{ background: rgba(251,146,60,0.20); }}
 
-  .icon {
+  .icon {{
     width: 54px;
     height: 54px;
     border-radius: 14px;
@@ -171,35 +292,37 @@ components.html("""
     justify-content: center;
     font-size: 1.6rem;
     margin-bottom: 1.1rem;
-  }
+  }}
 
-  .lbl {
+  .lbl {{
     font-size: 0.67rem;
     font-weight: 700;
     letter-spacing: 2.5px;
     text-transform: uppercase;
     margin-bottom: 0.45rem;
     display: block;
-  }
+  }}
 
-  .title {
+  .title {{
     font-size: 1.12rem;
     font-weight: 700;
-    color: rgba(255,255,255,0.93);
+    color: var(--text-strong);
     margin-bottom: 0.55rem;
     line-height: 1.35;
     display: block;
-  }
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }}
 
-  .desc {
+  .desc {{
     font-size: 0.83rem;
-    color: rgba(255,255,255,0.42);
+    color: var(--text-faint);
     line-height: 1.65;
     margin-bottom: 1.3rem;
     display: block;
-  }
+  }}
 
-  .btn {
+  .btn {{
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -210,84 +333,92 @@ components.html("""
     border: 1px solid;
     transition: background 0.2s;
     letter-spacing: 0.3px;
-  }
+  }}
 
-  .arrow {
+  .arrow {{
     position: absolute;
     top: 1.4rem;
     right: 1.5rem;
-    color: rgba(255,255,255,0.18);
+    color: var(--arrow);
     font-size: 1rem;
     transition: color 0.2s, transform 0.2s;
     font-style: normal;
     font-family: sans-serif;
-  }
-  .card:hover .arrow {
-    color: rgba(255,255,255,0.6);
+  }}
+  .card:hover .arrow {{
+    color: var(--arrow-hover);
     transform: translate(3px,-3px);
-  }
+  }}
 
-  .footer {
+  .footer {{
     text-align: center;
     margin-top: 2.5rem;
-    color: rgba(255,255,255,0.2);
+    color: var(--footer-color);
     font-size: 0.77rem;
     letter-spacing: 0.3px;
-  }
+  }}
 
-  @keyframes fadeInDown {
-    from { opacity:0; transform:translateY(-20px); }
-    to   { opacity:1; transform:translateY(0); }
-  }
-  @keyframes fadeInUp {
-    from { opacity:0; transform:translateY(20px); }
-    to   { opacity:1; transform:translateY(0); }
-  }
+  @keyframes fadeInDown {{
+    from {{ opacity:0; transform:translateY(-20px); }}
+    to   {{ opacity:1; transform:translateY(0); }}
+  }}
+  @keyframes fadeInUp {{
+    from {{ opacity:0; transform:translateY(20px); }}
+    to   {{ opacity:1; transform:translateY(0); }}
+  }}
 
   /* --- RESPONSIVE MEDIA QUERIES --- */
-  
+
   /* Tablets and smaller screens */
-  @media (max-width: 900px) {
-    .grid { 
-        gap: 1rem; 
+  @media (max-width: 900px) {{
+    .grid {{
+        gap: 1rem;
         padding: 0 0.5rem;
-    }
-  }
+    }}
+  }}
 
   /* Mobile screens */
-  @media (max-width: 650px) {
-    body {
+  @media (max-width: 650px) {{
+    body {{
         padding: 1rem 0.5rem 2rem 0.5rem;
-    }
-    .hero {
+    }}
+    .header-logo {{
+        height: 56px;
+    }}
+    .hero {{
         padding: 1.5rem 0.5rem 1rem 0.5rem;
-    }
-    .hero-title { 
-        font-size: 2.2rem; 
-    }
-    .hero-sub {
+    }}
+    .hero-title {{
+        font-size: 2.2rem;
+    }}
+    .hero-sub {{
         font-size: 0.95rem;
-    }
-    .grid { 
-        grid-template-columns: 1fr; 
+    }}
+    .grid {{
+        grid-template-columns: 1fr;
         margin-top: 1.5rem;
-    }
-    .card {
+    }}
+    .card {{
         padding: 1.5rem;
-    }
-    .icon {
+    }}
+    .icon {{
         width: 48px;
         height: 48px;
         font-size: 1.3rem;
         margin-bottom: 0.9rem;
-    }
-    .title {
+    }}
+    .title {{
         font-size: 1.05rem;
-    }
-  }
+    }}
+  }}
 </style>
 </head>
 <body>
+
+<div class="header-bar">
+  {_logo_html}
+  {_divider_html}
+</div>
 
 <div class="hero">
   <div class="badge">📚 &nbsp; Exam Management Suite</div>
@@ -342,4 +473,4 @@ components.html("""
 
 </body>
 </html>
-""", height=1400, scrolling=False)
+""", height=1480, scrolling=False)
