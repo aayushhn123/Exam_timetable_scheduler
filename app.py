@@ -225,23 +225,24 @@ st.markdown("""
     .main-header-inner {
         display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 1.5rem;
+        justify-content: space-between;
+        gap: 2rem;
         flex-wrap: wrap;
     }
 
     .main-header-logo {
-        height: 72px;
+        height: 130px;
         width: auto;
-        border-radius: 8px;
+        border-radius: 10px;
         background: #ffffff;
-        padding: 6px 10px;
+        padding: 10px 14px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         flex-shrink: 0;
     }
 
     .main-header-text {
-        text-align: center;
+        text-align: right;
+        flex: 1;
     }
 
     .main-header h1 {
@@ -785,23 +786,24 @@ st.markdown("""
     .main-header-inner {
         display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 1.5rem;
+        justify-content: space-between;
+        gap: 2rem;
         flex-wrap: wrap;
     }
 
     .main-header-logo {
-        height: 72px;
+        height: 130px;
         width: auto;
-        border-radius: 8px;
+        border-radius: 10px;
         background: #ffffff;
-        padding: 6px 10px;
+        padding: 10px 14px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         flex-shrink: 0;
     }
 
     .main-header-text {
-        text-align: center;
+        text-align: right;
+        flex: 1;
     }
 
     .main-header h1 {
@@ -4055,7 +4057,7 @@ def main():
         <div class="main-header-inner">
             {_logo_html}
             <div class="main-header-text">
-                <h1>📅 Exam Timetable Generator</h1>
+                <h1>Exam Timetable Generator</h1>
                 <p>{current_college}</p>
             </div>
         </div>
