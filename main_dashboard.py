@@ -26,59 +26,30 @@ def _get_logo_data_uri():
     return None
 
 
-def _get_active_theme():
+def _get_brand_theme():
     """
-    Read Streamlit's actual active theme (the same source of truth the
-    parent page's var(--text-color)/var(--secondary-background-color)
-    resolve to), so this iframe can match it exactly instead of guessing
-    via prefers-color-scheme. Falls back to dark (this page's original
-    look) if the option isn't available for some reason.
+    Fixed NMIMS brand look: white background with red/dark text, always —
+    intentionally not reactive to Streamlit's light/dark toggle.
     """
-    base = st.get_option("theme.base") or "dark"
-    bg = st.get_option("theme.backgroundColor")
-    secondary_bg = st.get_option("theme.secondaryBackgroundColor")
-    text = st.get_option("theme.textColor")
-
-    if base == "light":
-        return {
-            "base": "light",
-            "page_bg": bg or "#ffffff",
-            "card_bg": "rgba(15,12,41,0.04)",
-            "card_border": "rgba(15,12,41,0.10)",
-            "card_hover_bg": "rgba(15,12,41,0.07)",
-            "text_strong": text or "#1a1a2e",
-            "text_soft": "rgba(26,26,46,0.55)",
-            "text_faint": "rgba(26,26,46,0.38)",
-            "arrow": "rgba(26,26,46,0.25)",
-            "arrow_hover": "rgba(26,26,46,0.65)",
-            "footer": "rgba(26,26,46,0.35)",
-            "scrollbar_track": "rgba(0,0,0,0.05)",
-            "scrollbar_thumb": "rgba(0,0,0,0.15)",
-            "scrollbar_thumb_hover": "rgba(0,0,0,0.3)",
-            "app_gradient": f"linear-gradient(135deg, {secondary_bg or '#f0f2f6'}, {bg or '#ffffff'})",
-        }
-
-    # Dark (default / original design)
     return {
-        "base": "dark",
-        "page_bg": "transparent",
-        "card_bg": "rgba(255,255,255,0.05)",
-        "card_border": "rgba(255,255,255,0.10)",
-        "card_hover_bg": "rgba(255,255,255,0.09)",
-        "text_strong": "rgba(255,255,255,0.93)",
-        "text_soft": "rgba(255,255,255,0.5)",
-        "text_faint": "rgba(255,255,255,0.42)",
-        "arrow": "rgba(255,255,255,0.18)",
-        "arrow_hover": "rgba(255,255,255,0.6)",
-        "footer": "rgba(255,255,255,0.2)",
-        "scrollbar_track": "transparent",
-        "scrollbar_thumb": "rgba(255,255,255,0.2)",
-        "scrollbar_thumb_hover": "rgba(255,255,255,0.4)",
-        "app_gradient": "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+        "page_bg": "#ffffff",
+        "card_bg": "#f8f9fa",
+        "card_border": "rgba(21,21,21,0.10)",
+        "card_hover_bg": "#f1f1f3",
+        "text_strong": "#1a1a1a",
+        "text_soft": "rgba(26,26,26,0.62)",
+        "text_faint": "rgba(26,26,26,0.48)",
+        "arrow": "rgba(26,26,26,0.30)",
+        "arrow_hover": "rgba(151,28,28,0.75)",
+        "footer": "rgba(26,26,26,0.40)",
+        "scrollbar_track": "rgba(0,0,0,0.04)",
+        "scrollbar_thumb": "rgba(0,0,0,0.18)",
+        "scrollbar_thumb_hover": "rgba(0,0,0,0.32)",
+        "app_gradient": "linear-gradient(135deg, #ffffff 0%, #fdf3f0 100%)",
     }
 
 
-_theme = _get_active_theme()
+_theme = _get_brand_theme()
 _logo_uri = _get_logo_data_uri()
 
 st.markdown(f"""
@@ -262,7 +233,7 @@ components.html(f"""
 
   /* Card 1 — Deep Red */
   .c-purple::before {{ background: linear-gradient(90deg,#951C1C,#C73E1D); }}
-  .c-purple:hover   {{ border-color: rgba(151,28,28,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(151,28,28,0.15); }}
+  .c-purple:hover   {{ border-color: rgba(151,28,28,0.4); box-shadow: 0 16px 40px rgba(21,21,21,0.12), 0 0 60px rgba(151,28,28,0.15); }}
   .c-purple .icon   {{ background: rgba(151,28,28,0.15); border: 1px solid rgba(151,28,28,0.25); }}
   .c-purple .lbl    {{ color: #C73E1D; }}
   .c-purple .btn    {{ color: #C73E1D; border-color: rgba(151,28,28,0.35); background: rgba(151,28,28,0.08); }}
@@ -270,7 +241,7 @@ components.html(f"""
 
   /* Card 2 — Bright Red / Orange-red */
   .c-blue::before {{ background: linear-gradient(90deg,#C73E1D,#E85D3F); }}
-  .c-blue:hover   {{ border-color: rgba(199,62,29,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(199,62,29,0.15); }}
+  .c-blue:hover   {{ border-color: rgba(199,62,29,0.4); box-shadow: 0 16px 40px rgba(21,21,21,0.12), 0 0 60px rgba(199,62,29,0.15); }}
   .c-blue .icon   {{ background: rgba(199,62,29,0.15); border: 1px solid rgba(199,62,29,0.25); }}
   .c-blue .lbl    {{ color: #E85D3F; }}
   .c-blue .btn    {{ color: #E85D3F; border-color: rgba(199,62,29,0.35); background: rgba(199,62,29,0.08); }}
@@ -278,7 +249,7 @@ components.html(f"""
 
   /* Card 3 — Maroon */
   .c-green::before {{ background: linear-gradient(90deg,#7A1515,#A23217); }}
-  .c-green:hover   {{ border-color: rgba(122,21,21,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(122,21,21,0.15); }}
+  .c-green:hover   {{ border-color: rgba(122,21,21,0.4); box-shadow: 0 16px 40px rgba(21,21,21,0.12), 0 0 60px rgba(122,21,21,0.15); }}
   .c-green .icon   {{ background: rgba(122,21,21,0.15); border: 1px solid rgba(122,21,21,0.25); }}
   .c-green .lbl    {{ color: #A23217; }}
   .c-green .btn    {{ color: #A23217; border-color: rgba(122,21,21,0.35); background: rgba(122,21,21,0.08); }}
@@ -286,7 +257,7 @@ components.html(f"""
 
   /* Card 4 — Warm Ember */
   .c-orange::before {{ background: linear-gradient(90deg,#D9481F,#F2673D); }}
-  .c-orange:hover   {{ border-color: rgba(217,72,31,0.4); box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 60px rgba(217,72,31,0.15); }}
+  .c-orange:hover   {{ border-color: rgba(217,72,31,0.4); box-shadow: 0 16px 40px rgba(21,21,21,0.12), 0 0 60px rgba(217,72,31,0.15); }}
   .c-orange .icon   {{ background: rgba(217,72,31,0.15); border: 1px solid rgba(217,72,31,0.25); }}
   .c-orange .lbl    {{ color: #F2673D; }}
   .c-orange .btn    {{ color: #F2673D; border-color: rgba(217,72,31,0.35); background: rgba(217,72,31,0.08); }}
