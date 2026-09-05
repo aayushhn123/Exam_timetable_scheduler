@@ -1097,6 +1097,52 @@ st.markdown("""
         word-break: break-word !important;
         line-height: 1.4 !important;
     }
+
+    /* System-wide button fix: every st.button/st.download_button/st.link_button
+       ("Change School", "Add Another Holiday", etc.) follows Streamlit's actual
+       active theme via var(--*) instead of the OS-level prefers-color-scheme
+       rules above, which is what left some buttons unreadable when the app
+       theme didn't match the OS theme. Same var(--secondary-background-color)/
+       var(--text-color) pattern as the college-selector tiles. */
+    .stButton > button,
+    .stDownloadButton > button,
+    .stLinkButton > a {
+        background: var(--secondary-background-color) !important;
+        color: var(--text-color) !important;
+        border: 2px solid rgba(128, 128, 128, 0.35) !important;
+    }
+
+    .stButton > button *,
+    .stDownloadButton > button *,
+    .stLinkButton > a * {
+        color: var(--text-color) !important;
+    }
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover,
+    .stLinkButton > a:hover {
+        background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%) !important;
+        border: 2px solid #951C1C !important;
+        color: #ffffff !important;
+    }
+
+    .stButton > button:hover *,
+    .stDownloadButton > button:hover *,
+    .stLinkButton > a:hover * {
+        color: #ffffff !important;
+    }
+
+    /* Primary buttons (e.g. "Generate Timetable") keep a solid brand fill so
+       they still stand out from ordinary secondary buttons. */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%) !important;
+        color: #ffffff !important;
+        border: 2px solid #951C1C !important;
+    }
+
+    .stButton > button[kind="primary"] * {
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
