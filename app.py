@@ -1136,7 +1136,13 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         or "Anil Surendra Modi" in current_college
         or "Diploma in Textile Technology" in current_college
     )
-    
+
+    # Opt-in flags — no-ops for every non-business-school college
+    use_slotwise_capacity = is_business_school and st.session_state.get('use_slotwise_capacity', False)
+    use_difficulty_gap = is_business_school and st.session_state.get('use_difficulty_gap', False)
+    difficulty_gap_days = st.session_state.get('difficulty_gap_days', 1)
+    slot_semester_map = st.session_state.get('slot_semester_map', {}) if is_business_school else {}
+
     st.info(f"🚀 SCHEDULING STRATEGY: Stream-by-Stream -> Common (Alternate Day) -> Individual (Gap Fill)")
     if IS_LAW_SCHOOL:
         st.warning("⚖️ LAW SCHOOL MODE ACTIVE: Alternate Days & Specific Elective Logic Applied")
@@ -1152,7 +1158,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             1: {"start": "10:00 AM", "end": "1:00 PM"},
             2: {"start": "2:00 PM", "end": "5:00 PM"}
         })
-    
+
     # 1. Define Valid Dates
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     all_valid_dates = []
@@ -1168,7 +1174,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     has_oe = False
     if 'OE' in df.columns:
         has_oe = (df['OE'].notna() & (df['OE'].str.strip() != "")).any()
-        
+
     if len(all_valid_dates) < 3 or not has_oe:
         core_valid_dates = all_valid_dates
         if not has_oe:
@@ -1176,7 +1182,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     else:
         core_valid_dates = all_valid_dates[:-2]
         st.info("📅 Last 2 days reserved specifically for Open Electives.")
-        
+
     def extract_numeric_sem(sem_val):
         s = str(sem_val).strip().upper()
         romans = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10}
@@ -1221,9 +1227,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         pairing_pool = eligible_subjects[no_cm_mask & sol_mask].copy()
 
         if not pairing_pool.empty:
-            _ba_re  = _re.compile(r'^B\.A\.',   _re.IGNORECASE)
-            _bba_re = _re.compile(r'^B\.B\.A\.', _re.IGNORECASE)
-
             ba_rows  = pairing_pool[pairing_pool['Program'].str.match(r'^B\.A\.',   case=False, na=False)]
             bba_rows = pairing_pool[pairing_pool['Program'].str.match(r'^B\.B\.A\.', case=False, na=False)]
 
@@ -1232,7 +1235,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 if bba_sem_group.empty:
                     continue
 
-                ba_sorted  = ba_sem_group.sort_values('ModuleCode').reset_index()   
+                ba_sorted  = ba_sem_group.sort_values('ModuleCode').reset_index()
                 bba_sorted = bba_sem_group.sort_values('ModuleCode').reset_index()
 
                 pair_count = min(len(ba_sorted), len(bba_sorted))
@@ -1257,26 +1260,32 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     df_common    = eligible_subjects[eligible_subjects['CMGroup_Clean'] != ""]
     df_individual = eligible_subjects[eligible_subjects['CMGroup_Clean'] == ""]
-    
+
     def _all_two_credit(group_df):
         if 'Difficulty' not in group_df.columns:
             return False
         return bool((group_df['Difficulty'].fillna(-1) == 0).all())
+
+    def _max_difficulty(group_df):
+        if 'Difficulty' not in group_df.columns:
+            return 0
+        return float(group_df['Difficulty'].fillna(0).max())
 
     common_units_priority, common_units_normal = [], []
     if not df_common.empty:
         for cm_id, group in df_common.groupby('CMGroup_Clean'):
             unit = {
                 'type': 'COMMON', 'id': f"CM_{cm_id}", 'indices': group.index.tolist(),
-                'branch_sems': list(set([f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()])), 
+                'branch_sems': list(set([f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()])),
                 'fixed_slot': group['ExamSlotNumber'].iloc[0],
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum(),
-                'is_two_credit': _all_two_credit(group),   
+                'is_two_credit': _all_two_credit(group),
+                'max_difficulty': _max_difficulty(group),
             }
-            if cm_id in mba_tech_common_within_ids or "PRIORITY" in cm_id: 
+            if cm_id in mba_tech_common_within_ids or "PRIORITY" in cm_id:
                 common_units_priority.append(unit)
-            else: 
+            else:
                 common_units_normal.append(unit)
 
     individual_units = []
@@ -1284,11 +1293,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         for mod_code, group in df_individual.groupby('ModuleCode'):
             unit = {
                 'type': 'INDIVIDUAL', 'id': f"MOD_{mod_code}", 'indices': group.index.tolist(),
-                'branch_sems': list(set([f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()])), 
+                'branch_sems': list(set([f"{r['Branch']}_{r['Semester']}" for _, r in group.iterrows()])),
                 'fixed_slot': group['ExamSlotNumber'].iloc[0],
                 'sem_raw': group['Semester'].iloc[0],
                 'student_count': group['StudentCount'].sum(),
-                'is_two_credit': _all_two_credit(group),   
+                'is_two_credit': _all_two_credit(group),
+                'max_difficulty': _max_difficulty(group),
             }
             individual_units.append(unit)
 
@@ -1300,23 +1310,43 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         slot_schedule_map = {d.strftime("%d-%m-%Y"): {s: set() for s in time_slots_dict.keys()} for d in all_valid_dates}
         date_load_tracker = {d.strftime("%d-%m-%Y"): 0 for d in all_valid_dates}
         daily_branch_count = {d.strftime("%d-%m-%Y"): defaultdict(int) for d in all_valid_dates}
-        session_capacity = {} 
-        
+        session_capacity = {}
+
+        # Per-branch-sem max difficulty, computed once — used only when use_difficulty_gap is on.
+        branch_sem_max_difficulty = defaultdict(float)
+        if use_difficulty_gap:
+            for unit in common_units_priority + common_units_normal + individual_units:
+                for bs in unit['branch_sems']:
+                    branch_sem_max_difficulty[bs] = max(branch_sem_max_difficulty[bs], unit.get('max_difficulty', 0))
+
+        def _slot_capacity_limit(time_slot_str):
+            # MAX_STUDENTS_PER_SESSION is a dict {slot_num: capacity} only when slot-wise
+            # capacity is opted in for business school. Every other college keeps the
+            # original scalar behavior untouched.
+            if use_slotwise_capacity and isinstance(MAX_STUDENTS_PER_SESSION, dict):
+                for sn, cfg in time_slots_dict.items():
+                    slot_str = f"{cfg['start']} - {cfg['end']}"
+                    if slot_str == time_slot_str:
+                        return MAX_STUDENTS_PER_SESSION.get(sn, 1250)
+                return 1250
+            return MAX_STUDENTS_PER_SESSION
+
         def check_campus_capacity(date_str, time_slot, unit_row_indices):
             unit_impact = {}
             for idx in unit_row_indices:
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 unit_impact[campus] = unit_impact.get(campus, 0) + work_df.loc[idx, 'StudentCount']
-                
+
             current_slot_usage = session_capacity.get(date_str, {}).get(time_slot, {})
             is_overloaded = False
+            limit = _slot_capacity_limit(time_slot)
 
             for campus, required_count in unit_impact.items():
                 if "MUMBAI" in campus:
                     current_load = current_slot_usage.get(campus, 0)
-                    if (current_load + required_count) > MAX_STUDENTS_PER_SESSION:
-                        is_overloaded = True 
-                        
+                    if (current_load + required_count) > limit:
+                        is_overloaded = True
+
             if enforce_cap and is_overloaded:
                 return False, False
             return True, is_overloaded
@@ -1328,214 +1358,53 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
-        # ══════════════════════════════════════════════════════════════════
-        # CRITICAL REFACTOR: GLOBAL ARRAYS FOR BUSINESS SCHOOL PHASES
-        # ══════════════════════════════════════════════════════════════════
-        if is_business_school:
-            branch_sem_map = {}
-            all_units = common_units_priority + common_units_normal + individual_units
-            
-            for unit in all_units:
-                for bs in unit['branch_sems']:
-                    if bs not in branch_sem_map:
-                        branch_sem_map[bs] = {'score': 0, 'common': [], 'individual': []}
-                    if unit['type'] == 'COMMON':
-                        if unit not in branch_sem_map[bs]['common']: branch_sem_map[bs]['common'].append(unit)
-                    else:
-                        if unit not in branch_sem_map[bs]['individual']: branch_sem_map[bs]['individual'].append(unit)
-                    branch_sem_map[bs]['score'] += unit['student_count']
-            
-            sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
-            priority_ids = set(u['id'] for u in common_units_priority)
-            
-            bs_units = []
-            registered_ids = set()
-            for bs in sorted_bsems:
-                branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
-                for unit in branch_sem_map[bs]['common']:
-                    if unit['id'] not in registered_ids:
-                        bs_units.append(unit)
-                        registered_ids.add(unit['id'])
-            for bs in sorted_bsems:
-                branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
-                for unit in branch_sem_map[bs]['individual']:
-                    if unit['id'] not in registered_ids:
-                        bs_units.append(unit)
-                        registered_ids.add(unit['id'])
-
-            cohort_exam_count = defaultdict(int)
-            num_days = len(core_valid_dates)
-
-            # ──── Pass 1: Slot 1 Consecutive Packing ────
-            for unit in bs_units:
-                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
-                if current_exam_idx < num_days:
-                    date_obj = core_valid_dates[current_exam_idx]
-                    date_str = date_obj.strftime("%d-%m-%Y")
-                    slot_num = 1
-                    time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                    
-                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
-                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-                        if allowed:
-                            for row_idx in unit['indices']:
-                                work_df.loc[row_idx, 'Exam Date'] = date_str
-                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
-                            
-                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-                            daily_schedule_map[date_str].update(unit['branch_sems'])
-                            date_load_tracker[date_str] += 1
-                            for bs in unit['branch_sems']:
-                                daily_branch_count[date_str][bs] += 1
-                                cohort_exam_count[bs] += 1
-                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                            unit['scheduled'] = True
-
-            # ──── Pass 2: Slot 2 Isolated Spreading ────
-            for unit in bs_units:
-                if unit.get('scheduled'): continue
-                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
-                
-                max_total_subjects = 1
-                for bs in unit['branch_sems']:
-                    cohort_total = sum(1 for u in bs_units if bs in u['branch_sems'])
-                    if cohort_total > max_total_subjects: max_total_subjects = cohort_total
-                
-                remainder_count = max_total_subjects - num_days
-                r_idx = current_exam_idx - num_days
-                target_day_idx = int(r_idx * num_days / remainder_count) if remainder_count > 0 else 0
-                if target_day_idx >= num_days: target_day_idx = num_days - 1
-
-                valid_dates = [d for d in core_valid_dates if max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']) < 2]
-                sorted_dates = sorted(valid_dates, key=lambda d: (
-                    max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']),
-                    abs(core_valid_dates.index(d) - target_day_idx),
-                    date_load_tracker[d.strftime("%d-%m-%Y")]
-                ))
-
-                slot_num = 2
-                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                for date_obj in sorted_dates:
-                    date_str = date_obj.strftime("%d-%m-%Y")
-                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
-                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-                        if allowed:
-                            for row_idx in unit['indices']:
-                                work_df.loc[row_idx, 'Exam Date'] = date_str
-                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
-                            
-                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-                            daily_schedule_map[date_str].update(unit['branch_sems'])
-                            date_load_tracker[date_str] += 1
-                            for bs in unit['branch_sems']:
-                                daily_branch_count[date_str][bs] += 1
-                                cohort_exam_count[bs] += 1
-                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                            unit['scheduled'] = True
-                            break
-
-            # ──── Pass 3: Slot 3 Isolated Exception Spreading ────
-            for unit in bs_units:
-                if unit.get('scheduled'): continue
-                current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
-                
-                max_total_subjects = 1
-                for bs in unit['branch_sems']:
-                    cohort_total = sum(1 for u in bs_units if bs in u['branch_sems'])
-                    if cohort_total > max_total_subjects: max_total_subjects = cohort_total
-                
-                remainder_count = max_total_subjects - 2 * num_days
-                r_idx = current_exam_idx - 2 * num_days
-                target_day_idx = int(r_idx * num_days / remainder_count) if remainder_count > 0 else 0
-                if target_day_idx >= num_days: target_day_idx = num_days - 1
-
-                valid_dates = [d for d in core_valid_dates if max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']) < 3]
-                sorted_dates = sorted(valid_dates, key=lambda d: (
-                    max(daily_branch_count[d.strftime("%d-%m-%Y")][bs] for bs in unit['branch_sems']),
-                    abs(core_valid_dates.index(d) - target_day_idx),
-                    date_load_tracker[d.strftime("%d-%m-%Y")]
-                ))
-
-                slot_num = 3
-                time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                for date_obj in sorted_dates:
-                    date_str = date_obj.strftime("%d-%m-%Y")
-                    if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
-                        allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-                        if allowed:
-                            for row_idx in unit['indices']:
-                                work_df.loc[row_idx, 'Exam Date'] = date_str
-                                work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                if overloaded: work_df.loc[row_idx, 'Capacity_Exceeded_Flag'] = "Yes"
-                            
-                            slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-                            daily_schedule_map[date_str].update(unit['branch_sems'])
-                            date_load_tracker[date_str] += 1
-                            for bs in unit['branch_sems']:
-                                daily_branch_count[date_str][bs] += 1
-                                cohort_exam_count[bs] += 1
-                            add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
-                            unit['scheduled'] = True
-                            break
-
-            # ──── Pass 4 & 5: Emergency Fallback Triggers ────
-            def get_cohort_daily_max(date_str):
-                """Returns the highest exam count already scheduled on date_str
-                across any single branch-sem cohort (0 if none scheduled yet)."""
-                counts = daily_branch_count.get(date_str)
-                if not counts:
-                    return 0
-                return max(counts.values())
-
-            for unit in bs_units:
-                if unit.get('scheduled'): continue
-                for pass_max in [3, 99]:
-                    for slot_num in [1, 2, 3]:
-                        time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
-                        for date_obj in core_valid_dates:
-                            date_str = date_obj.strftime("%d-%m-%Y")
-                            if get_cohort_daily_max(date_str) < pass_max:
-                                if set(unit['branch_sems']).isdisjoint(slot_schedule_map[date_str][slot_num]):
-                                    allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
-                                    if allowed:
-                                        for row_idx in unit['indices']:
-                                            work_df.loc[row_idx, 'Exam Date'] = date_str
-                                            work_df.loc[row_idx, 'Time Slot'] = time_slot_str
-                                            work_df.loc[row_idx, 'ExamSlotNumber'] = slot_num
-                                        slot_schedule_map[date_str][slot_num].update(unit['branch_sems'])
-                                        daily_schedule_map[date_str].update(unit['branch_sems'])
-                                        unit['scheduled'] = True
-                                        break
-                        if unit.get('scheduled'): break
-                    if unit.get('scheduled'): break
-
-            unscheduled_groups = [u for u in bs_units if not u.get('scheduled')]
-            return work_df, unscheduled_groups
-
-        # ══════════════════════════════════════════════════════════════════
-        # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
-        # ══════════════════════════════════════════════════════════════════
         def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             is_two_credit = unit.get('is_two_credit', False)
+
             slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
-            
+
+            # Business-school opt-in: restrict slots to those whose ticked semesters include
+            # this unit's semester. A slot with an empty selection stays open to all semesters
+            # (identical to old behavior). No-op for every other college.
+            if is_business_school and slot_semester_map:
+                unit_sem_str = str(unit['sem_raw']).strip()
+                allowed_slots = [
+                    s for s in slots_to_try
+                    if not slot_semester_map.get(s) or unit_sem_str in slot_semester_map.get(s, [])
+                ]
+                if allowed_slots:
+                    slots_to_try = allowed_slots
+
+            # Business-school opt-in: extra gap days derived from this cohort's max Difficulty
+            # Score, on top of (not replacing) the existing 1-day gap logic. No-op elsewhere.
+            extra_gap_days = 0
+            if use_difficulty_gap and not is_two_credit:
+                for bs in unit['branch_sems']:
+                    extra_gap_days = max(extra_gap_days, int(round(branch_sem_max_difficulty.get(bs, 0) * difficulty_gap_days)))
+
             for date_obj in allowed_dates:
                 date_str = date_obj.strftime("%d-%m-%Y")
                 if not set(unit['branch_sems']).isdisjoint(daily_schedule_map.get(date_str, set())): continue
-                
+
                 apply_gap = (IS_LAW_SCHOOL or require_1_day_gap) and not is_two_credit
                 if apply_gap:
                     prev_date_str = (date_obj - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (date_obj + timedelta(days=1)).strftime("%d-%m-%Y")
-                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): continue 
+                    if prev_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[prev_date_str]): continue
                     if next_date_str in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[next_date_str]): continue
-                
+
+                if extra_gap_days > 0:
+                    conflict = False
+                    for offset in range(1, extra_gap_days + 1):
+                        chk_prev = (date_obj - timedelta(days=offset)).strftime("%d-%m-%Y")
+                        chk_next = (date_obj + timedelta(days=offset)).strftime("%d-%m-%Y")
+                        if chk_prev in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[chk_prev]):
+                            conflict = True; break
+                        if chk_next in daily_schedule_map and not set(unit['branch_sems']).isdisjoint(daily_schedule_map[chk_next]):
+                            conflict = True; break
+                    if conflict: continue
+
                 for slot_num in slots_to_try:
                     time_slot_str = get_time_slot_from_number(slot_num, time_slots_dict)
                     allowed, overloaded = check_campus_capacity(date_str, time_slot_str, unit['indices'])
@@ -1558,7 +1427,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         scheduled_ids = set()
         branch_sem_map = {}
         all_units = common_units_priority + common_units_normal + individual_units
-        
+
         for unit in all_units:
             for bs in unit['branch_sems']:
                 if bs not in branch_sem_map:
@@ -1570,17 +1439,17 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 else:
                     if unit not in branch_sem_map[bs]['individual']: branch_sem_map[bs]['individual'].append(unit)
                 branch_sem_map[bs]['score'] += unit['student_count']
-                
+
         sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
         priority_ids = set(u['id'] for u in common_units_priority)
-        
+
         for bs in sorted_bsems:
             branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
             for unit in branch_sem_map[bs]['common']:
                 if unit['id'] not in scheduled_ids:
                     if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True): unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
-                    
+
         for bs in sorted_bsems:
             branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
             for unit in branch_sem_map[bs]['individual']:
@@ -1594,16 +1463,16 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         temp_df, unsched = execute_pass(enforce_cap=True)
         if unsched:
             show_capacity_popup()
-            st.stop() 
+            st.stop()
         else:
             st.session_state.applied_capacity_mode = "NATURAL_FIT"
             st.success("✅ All Core subjects scheduled successfully within limits.")
             return temp_df
     else:
         choice = st.session_state.capacity_override_choice
-        st.session_state.applied_capacity_mode = choice  
-        del st.session_state['capacity_override_choice'] 
-        
+        st.session_state.applied_capacity_mode = choice
+        del st.session_state['capacity_override_choice']
+
         if choice == "YES":
             final_df, unsched = execute_pass(enforce_cap=False)
             st.warning("⚠️ Capacity Limits Ignored: Subjects that exceeded Mumbai limits have been flagged.")
@@ -1617,17 +1486,17 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 def validate_capacity_constraints(timetable_data, max_capacity=1250):
     """
     Validates that the number of students per session for the MUMBAI campus does not exceed max_capacity.
+    max_capacity may be a dict {slot_num: capacity} when business-school slot-wise capacity is on;
+    every other college always passes a scalar here, unchanged from before.
     """
     if not timetable_data:
         return True, []
 
-    # Combine all semester dataframes
     full_df = pd.concat(timetable_data.values(), ignore_index=True)
-    
-    # Filter only scheduled rows
+
     scheduled_df = full_df[
-        (full_df['Exam Date'].notna()) & 
-        (full_df['Exam Date'] != "") & 
+        (full_df['Exam Date'].notna()) &
+        (full_df['Exam Date'] != "") &
         (full_df['Exam Date'] != "Out of Range") &
         (full_df['Exam Date'] != "Not Scheduled")
     ].copy()
@@ -1635,31 +1504,40 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     if scheduled_df.empty:
         return True, []
 
-    # Ensure Campus column exists and fill nans
     if 'Campus' not in scheduled_df.columns:
         scheduled_df['Campus'] = 'Unknown'
-    
+
     scheduled_df['Campus'] = scheduled_df['Campus'].fillna('Unknown').astype(str).str.strip().str.upper()
-    
-    # Group by Date, Slot AND CAMPUS
+
     session_counts = scheduled_df.groupby(['Exam Date', 'Time Slot', 'Campus']).agg({
         'StudentCount': 'sum',
         'Subject': 'count'
     }).reset_index()
 
     violations = []
-    
+
+    is_dict_capacity = isinstance(max_capacity, dict)
+    time_slots_dict = st.session_state.get('time_slots', {}) if is_dict_capacity else {}
+
+    def _limit_for_time_slot(time_slot_str):
+        if not is_dict_capacity:
+            return max_capacity
+        for sn, cfg in time_slots_dict.items():
+            if f"{cfg['start']} - {cfg['end']}" == time_slot_str:
+                return max_capacity.get(sn, max(max_capacity.values()) if max_capacity else 1250)
+        return max(max_capacity.values()) if max_capacity else 1250
+
     for _, row in session_counts.iterrows():
         campus_name = str(row['Campus'])
-        # ONLY apply capacity limit to MUMBAI campus
-        if "MUMBAI" in campus_name and row['StudentCount'] > max_capacity:
+        limit = _limit_for_time_slot(row['Time Slot'])
+        if "MUMBAI" in campus_name and row['StudentCount'] > limit:
             violations.append({
                 'date': row['Exam Date'],
                 'time_slot': row['Time Slot'],
                 'campus': campus_name,
                 'student_count': int(row['StudentCount']),
                 'subjects_count': int(row['Subject']),
-                'excess': int(row['StudentCount'] - max_capacity)
+                'excess': int(row['StudentCount'] - limit)
             })
 
     return len(violations) == 0, violations
@@ -4003,10 +3881,10 @@ def main():
 
         st.markdown("---")
     
-        # NEW: Time Slot Configuration
+               # NEW: Time Slot Configuration
         st.markdown("#### ⏰ Time Slot Configuration")
         st.markdown("")
-    
+
         # Initialize session state for time slots with College Specific Defaults
         current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
         IS_LAW_SCHOOL = "Law" in current_college
@@ -4024,7 +3902,7 @@ def main():
             or "Anil Surendra Modi" in current_college
             or "Diploma in Textile Technology" in current_college
         )
-        
+
         # If the user switches colleges, reset the slots to the new defaults automatically
         if st.session_state.get('prev_college') != current_college:
             if 'time_slots' in st.session_state:
@@ -4032,7 +3910,6 @@ def main():
             st.session_state['prev_college'] = current_college
 
         # Semester / Trimester period label — only relevant for business-tagged colleges.
-        # Defaults to Trimester for SBM / Pravin Dalal, Semester for the rest (e.g. Liberal Arts).
         if is_business_school:
             _is_trimester_college = (
                 "School of Business Management" in current_college
@@ -4053,25 +3930,20 @@ def main():
             )
             st.session_state['period_label'] = period_choice
 
-            # Academic Year selector — shown on timetable header, Excel, and PDF.
             _current_year = datetime.today().year
             ay_col1, ay_col2 = st.columns(2)
             with ay_col1:
                 ay_start = st.number_input(
-                    "Academic Year Start",
-                    min_value=2000, max_value=2100,
+                    "Academic Year Start", min_value=2000, max_value=2100,
                     value=st.session_state.get('academic_year_start', _current_year),
-                    step=1,
-                    key="academic_year_start_input",
+                    step=1, key="academic_year_start_input",
                     help="Start year of the academic year (e.g. 2025 for AY 2025-26)"
                 )
             with ay_col2:
                 ay_end = st.number_input(
-                    "Academic Year End",
-                    min_value=2000, max_value=2100,
+                    "Academic Year End", min_value=2000, max_value=2100,
                     value=st.session_state.get('academic_year_end', _current_year + 1),
-                    step=1,
-                    key="academic_year_end_input",
+                    step=1, key="academic_year_end_input",
                     help="End year of the academic year (e.g. 2026 for AY 2025-26)"
                 )
             st.session_state['academic_year_start'] = ay_start
@@ -4086,7 +3958,6 @@ def main():
                     2: {"start": "02:30 PM", "end": "04:30 PM"}
                 }
             elif is_business_school:
-                # NEW STRICT PRIORITY SLOTS FOR SBM & PDSE
                 st.session_state.time_slots = {
                     1: {"start": "11:30 AM", "end": "01:30 PM"},
                     2: {"start": "03:00 PM", "end": "05:00 PM"},
@@ -4097,18 +3968,14 @@ def main():
                     1: {"start": "10:00 AM", "end": "01:00 PM"},
                     2: {"start": "02:00 PM", "end": "05:00 PM"}
                 }
-    
+
         # Number of time slots
         num_slots = st.number_input(
-            "Number of Time Slots",
-            min_value=1,
-            max_value=10,
-            value=len(st.session_state.time_slots),
-            step=1,
+            "Number of Time Slots", min_value=1, max_value=10,
+            value=len(st.session_state.time_slots), step=1,
             help="Define how many time slots are available per day"
         )
-    
-        # Adjust time slots dictionary if number changed
+
         if num_slots > len(st.session_state.time_slots):
             for i in range(len(st.session_state.time_slots) + 1, num_slots + 1):
                 st.session_state.time_slots[i] = {"start": "10:00 AM", "end": "1:00 PM"}
@@ -4116,68 +3983,130 @@ def main():
             keys_to_remove = [k for k in st.session_state.time_slots.keys() if k > num_slots]
             for k in keys_to_remove:
                 del st.session_state.time_slots[k]
-    
-        # Display time slot configuration
+
+        # --- Business School opt-in: multi-semester selector per slot ---
+        # Only shown/used for is_business_school. Everyone else sees the exact old expander.
+        available_semesters = []
+        if is_business_school and st.session_state.get('original_df') is not None:
+            try:
+                available_semesters = sorted(st.session_state.original_df['Semester'].dropna().astype(str).str.strip().unique().tolist())
+            except Exception:
+                available_semesters = []
+
+        if 'slot_semester_map' not in st.session_state:
+            st.session_state.slot_semester_map = {}
+
         with st.expander("⏰ Configure Time Slots", expanded=True):
             for slot_num in sorted(st.session_state.time_slots.keys()):
                 st.markdown(f"**Slot {slot_num}**")
                 col1, col2 = st.columns(2)
                 with col1:
                     start_time = st.text_input(
-                        f"Start Time",
-                        value=st.session_state.time_slots[slot_num]["start"],
-                        key=f"start_slot_{slot_num}",
-                        help="Format: HH:MM AM/PM"
+                        f"Start Time", value=st.session_state.time_slots[slot_num]["start"],
+                        key=f"start_slot_{slot_num}", help="Format: HH:MM AM/PM"
                     )
                     st.session_state.time_slots[slot_num]["start"] = start_time
                 with col2:
                     end_time = st.text_input(
-                        f"End Time",
-                        value=st.session_state.time_slots[slot_num]["end"],
-                        key=f"end_slot_{slot_num}",
-                        help="Format: HH:MM AM/PM"
+                        f"End Time", value=st.session_state.time_slots[slot_num]["end"],
+                        key=f"end_slot_{slot_num}", help="Format: HH:MM AM/PM"
                     )
                     st.session_state.time_slots[slot_num]["end"] = end_time
-            
-                # Display the full time slot
+
                 full_slot = f"{start_time} - {end_time}"
                 st.info(f"Slot {slot_num}: {full_slot}")
-    
+
+                # Opt-in only, business school only — everything else identical to before
+                if is_business_school and available_semesters:
+                    selected_sems = st.multiselect(
+                        f"Semesters allowed in Slot {slot_num} (leave empty = all semesters)",
+                        options=available_semesters,
+                        default=st.session_state.slot_semester_map.get(slot_num, []),
+                        key=f"slot_sem_select_{slot_num}",
+                        help="Restrict this time slot to only the ticked semesters. Leave empty to allow any semester."
+                    )
+                    st.session_state.slot_semester_map[slot_num] = selected_sems
+
         st.markdown("---")
         st.markdown("#### 👥 Capacity Configuration")
         st.markdown("")
 
-        # Capacity slider logic
-        # Capacity slider and text input logic
-        if "capacity_val" not in st.session_state:
-            st.session_state.capacity_val = st.session_state.get('capacity_slider', 1250)
-
-        def sync_num_to_slider():
-            st.session_state.capacity_val = st.session_state.cap_slide
-        def sync_slider_to_num():
-            st.session_state.capacity_val = st.session_state.cap_num
-
-        col_slide, col_text = st.columns([3, 1])
-        with col_slide:
-            st.slider(
-                "Maximum Students Per Session", 
-                min_value=100, max_value=5000, step=50, 
-                key="cap_slide", 
-                value=st.session_state.capacity_val, 
-                on_change=sync_num_to_slider
+        # Opt-in toggle — ONLY for business school. Default OFF, so nothing changes unless selected.
+        use_slotwise_capacity = False
+        if is_business_school:
+            use_slotwise_capacity = st.checkbox(
+                "Use slot-wise student capacity (set a separate limit per time slot)",
+                value=st.session_state.get('use_slotwise_capacity', False),
+                key="use_slotwise_capacity_cb",
+                help="When off, behaves exactly like the standard capacity slider below."
             )
-        with col_text:
-            st.number_input(
-                "Type Capacity", 
-                min_value=100, max_value=5000, step=50, 
-                key="cap_num", 
-                value=st.session_state.capacity_val, 
-                on_change=sync_slider_to_num,
-                label_visibility="visible"
-            )
+        st.session_state['use_slotwise_capacity'] = use_slotwise_capacity
 
-        st.session_state['capacity_slider'] = st.session_state.capacity_val
-        st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
+        if use_slotwise_capacity:
+            # New alternative UI: one number input per slot, no slider, no "type capacity" box.
+            if 'slot_capacity_map' not in st.session_state:
+                st.session_state.slot_capacity_map = {}
+            for slot_num in sorted(st.session_state.time_slots.keys()):
+                st.session_state.slot_capacity_map[slot_num] = st.number_input(
+                    f"Max Students — Slot {slot_num}",
+                    min_value=100, max_value=5000, step=50,
+                    value=st.session_state.slot_capacity_map.get(slot_num, st.session_state.get('capacity_slider', 1250)),
+                    key=f"slot_capacity_{slot_num}"
+                )
+            st.session_state['capacity_slider'] = st.session_state.slot_capacity_map  # dict, used only when flag is on
+            st.info("📊 **Slot-wise capacity active** — each slot uses its own limit above.")
+        else:
+            # ORIGINAL slider + text input, byte-for-byte unchanged behavior
+            if "capacity_val" not in st.session_state:
+                st.session_state.capacity_val = st.session_state.get('capacity_slider', 1250)
+                if isinstance(st.session_state.capacity_val, dict):
+                    st.session_state.capacity_val = 1250  # fell back from a prior slot-wise session
+
+            def sync_num_to_slider():
+                st.session_state.capacity_val = st.session_state.cap_slide
+            def sync_slider_to_num():
+                st.session_state.capacity_val = st.session_state.cap_num
+
+            col_slide, col_text = st.columns([3, 1])
+            with col_slide:
+                st.slider(
+                    "Maximum Students Per Session",
+                    min_value=100, max_value=5000, step=50,
+                    key="cap_slide", value=st.session_state.capacity_val,
+                    on_change=sync_num_to_slider
+                )
+            with col_text:
+                st.number_input(
+                    "Type Capacity", min_value=100, max_value=5000, step=50,
+                    key="cap_num", value=st.session_state.capacity_val,
+                    on_change=sync_slider_to_num, label_visibility="visible"
+                )
+
+            st.session_state['capacity_slider'] = st.session_state.capacity_val
+            st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
+
+        # --- Business School opt-in: alternating schedule with difficulty-based gap days ---
+        use_difficulty_gap = False
+        difficulty_gap_days = 1
+        if is_business_school:
+            st.markdown("---")
+            st.markdown("#### 🔁 Alternating Schedule (Difficulty-Based Gap)")
+            use_difficulty_gap = st.checkbox(
+                "Use difficulty-based gap days between exams (per branch-semester)",
+                value=st.session_state.get('use_difficulty_gap', False),
+                key="use_difficulty_gap_cb",
+                help="When off, scheduling behaves exactly as before."
+            )
+            if use_difficulty_gap:
+                difficulty_gap_days = st.number_input(
+                    "Gap days per Difficulty Score point",
+                    min_value=1, max_value=10, step=1,
+                    value=st.session_state.get('difficulty_gap_days', 1),
+                    key="difficulty_gap_days_input",
+                    help="Each branch-semester's gap = its highest Difficulty Score × this number of days."
+                )
+        st.session_state['use_difficulty_gap'] = use_difficulty_gap
+        st.session_state['difficulty_gap_days'] = difficulty_gap_days
         
     
         st.markdown("---")
@@ -4346,13 +4275,13 @@ def main():
                         )
 
                         if is_valid:
-                            st.success(f"✅ All sessions meet the {st.session_state.capacity_slider}-student capacity constraint!")
+                            st.success("✅ All sessions meet the configured capacity constraint(s)!")
                         else:
                             st.error(f"⚠️ {len(violations)} session(s) exceed capacity:")
                             for v in violations:
                                 st.warning(
                                     f"  • {v['date']} at {v['time_slot']}: "
-                                    f"{v['student_count']} students ({v['excess']} over {st.session_state.capacity_slider} limit, "
+                                    f"{v['student_count']} students ({v['excess']} over limit, "
                                     f"{v['subjects_count']} subjects)"
                                 )
 
