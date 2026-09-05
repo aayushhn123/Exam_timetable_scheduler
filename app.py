@@ -4487,19 +4487,23 @@ def main():
         # --- Business School opt-in: multi-semester selector per slot ---
         # Only shown/used for is_business_school. Everyone else sees the exact old expander.
         #
-        # Prefer the lightweight upload-time cache (available as soon as a
-        # file is chosen) over original_df (only populated after "Generate
-        # Timetable" runs), since the sidebar renders earlier in the script
-        # than both the file uploader and the Generate button. Falls back to
-        # original_df so behavior is unchanged if that cache isn't present.
-        available_semesters = []
+        # The sidebar renders before the file uploader appears later in the
+        # script, so there's no file to read from here yet on first load.
+        # Instead of guessing timing with auto-reruns, a simple button lets
+        # the user explicitly trigger the (cheap) read once they've uploaded
+        # their file. Clicking sets a flag; the actual lightweight parse runs
+        # in the upload section below (where uploaded_file is available) and
+        # stores the result back into session_state for this selector to use.
+        available_semesters = st.session_state.get('available_semesters_from_upload', [])
         if is_business_school:
-            available_semesters = st.session_state.get('available_semesters_from_upload', [])
-            if not available_semesters and st.session_state.get('original_df') is not None:
-                try:
-                    available_semesters = sorted(st.session_state.original_df['Semester'].dropna().astype(str).str.strip().unique().tolist())
-                except Exception:
-                    available_semesters = []
+            if st.button(
+                "📥 Click this to capture semester data — click only after uploading the input file",
+                use_container_width=True,
+                key="capture_semester_data_btn"
+            ):
+                st.session_state['_capture_semester_data_requested'] = True
+            if not available_semesters:
+                st.caption("Upload your file below, then click the button above to load semesters here.")
 
         if 'slot_semester_map' not in st.session_state:
             st.session_state.slot_semester_map = {}
@@ -4731,17 +4735,20 @@ def main():
             for key, value in file_details.items():
                 st.markdown(f"**{key}:** `{value}`")
 
-            # Cache the distinct semesters/trimesters present in the uploaded
-            # file as soon as it's available, keyed by filename+size so it
-            # only re-parses when the file actually changes. This lets the
-            # sidebar's per-slot semester selector (which runs earlier in the
-            # script than this upload section) see real semester data on the
-            # very next rerun, instead of waiting for "Generate Timetable" to
-            # populate st.session_state.original_df.
-            _upload_cache_key = (uploaded_file.name, uploaded_file.size)
-            if st.session_state.get('_available_semesters_key') != _upload_cache_key:
-                st.session_state['_available_semesters_key'] = _upload_cache_key
+            # Runs only when the sidebar's "Click this to capture semester
+            # data" button was clicked. Doing the read here (rather than in
+            # the sidebar) is necessary because uploaded_file only exists in
+            # this part of the script; the flag is how the button's click
+            # (handled up in the sidebar, which renders first) reaches this
+            # point. Cheap read — just pulls the Current Session column.
+            if st.session_state.get('_capture_semester_data_requested'):
                 st.session_state['available_semesters_from_upload'] = get_available_semesters_from_upload(uploaded_file)
+                st.session_state['_capture_semester_data_requested'] = False
+                # One rerun so the sidebar's semester selector (which already
+                # rendered earlier in this same run, before the read above
+                # happened) picks up the freshly captured list right away
+                # instead of waiting for the next unrelated interaction.
+                st.rerun()
 
     with col2:
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
