@@ -1995,6 +1995,33 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
 
     return len(violations) == 0, violations
 
+def get_available_semesters_from_upload(uploaded_file):
+    """
+    Lightweight, read-only peek at an uploaded verification/timetable Excel
+    to extract just the distinct 'Current Session' / 'Semester' values, so
+    the sidebar's per-slot semester selector can be populated as soon as a
+    file is chosen — without waiting for the full read_timetable() pipeline
+    or the "Generate Timetable" button, and without mutating any shared
+    state read by that pipeline. Returns a sorted list of strings, or [].
+    """
+    try:
+        uploaded_file.seek(0)
+        df = pd.read_excel(uploaded_file, engine='openpyxl')
+        uploaded_file.seek(0)
+        df.columns = df.columns.str.strip()
+        session_col = None
+        for candidate in ("Current Session", "Semester", "Academic Session", "Session"):
+            if candidate in df.columns:
+                session_col = candidate
+                break
+        if not session_col:
+            return []
+        vals = df[session_col].ffill().dropna().astype(str).str.strip()
+        vals = vals[vals != ""]
+        return sorted(vals.unique().tolist())
+    except Exception:
+        return []
+
 def read_timetable(uploaded_file):
     try:
         # Check if file is empty
@@ -4459,12 +4486,20 @@ def main():
 
         # --- Business School opt-in: multi-semester selector per slot ---
         # Only shown/used for is_business_school. Everyone else sees the exact old expander.
+        #
+        # Prefer the lightweight upload-time cache (available as soon as a
+        # file is chosen) over original_df (only populated after "Generate
+        # Timetable" runs), since the sidebar renders earlier in the script
+        # than both the file uploader and the Generate button. Falls back to
+        # original_df so behavior is unchanged if that cache isn't present.
         available_semesters = []
-        if is_business_school and st.session_state.get('original_df') is not None:
-            try:
-                available_semesters = sorted(st.session_state.original_df['Semester'].dropna().astype(str).str.strip().unique().tolist())
-            except Exception:
-                available_semesters = []
+        if is_business_school:
+            available_semesters = st.session_state.get('available_semesters_from_upload', [])
+            if not available_semesters and st.session_state.get('original_df') is not None:
+                try:
+                    available_semesters = sorted(st.session_state.original_df['Semester'].dropna().astype(str).str.strip().unique().tolist())
+                except Exception:
+                    available_semesters = []
 
         if 'slot_semester_map' not in st.session_state:
             st.session_state.slot_semester_map = {}
@@ -4695,6 +4730,18 @@ def main():
 
             for key, value in file_details.items():
                 st.markdown(f"**{key}:** `{value}`")
+
+            # Cache the distinct semesters/trimesters present in the uploaded
+            # file as soon as it's available, keyed by filename+size so it
+            # only re-parses when the file actually changes. This lets the
+            # sidebar's per-slot semester selector (which runs earlier in the
+            # script than this upload section) see real semester data on the
+            # very next rerun, instead of waiting for "Generate Timetable" to
+            # populate st.session_state.original_df.
+            _upload_cache_key = (uploaded_file.name, uploaded_file.size)
+            if st.session_state.get('_available_semesters_key') != _upload_cache_key:
+                st.session_state['_available_semesters_key'] = _upload_cache_key
+                st.session_state['available_semesters_from_upload'] = get_available_semesters_from_upload(uploaded_file)
 
     with col2:
         st.markdown('<div style="margin-top: 2rem;"></div>', unsafe_allow_html=True)
