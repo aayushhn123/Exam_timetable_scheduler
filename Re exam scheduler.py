@@ -5,6 +5,7 @@ from fpdf import FPDF
 import os
 import re
 import io
+import base64
 import traceback
 from PyPDF2 import PdfReader, PdfWriter
 
@@ -51,6 +52,27 @@ COLLEGES = [
 LOGO_PATH = "logo.png"
 wrap_text_cache = {}
 
+
+def _get_logo_data_uri():
+    """Load the NMIMS logo once and return it as a base64 data URI."""
+    for candidate in (
+        os.path.join(os.path.dirname(__file__), "app_logo.png"),
+        os.path.join(os.path.dirname(__file__), "assets", "app_logo.png"),
+        "app_logo.png",
+        "assets/app_logo.png",
+        LOGO_PATH,
+    ):
+        if os.path.exists(candidate):
+            with open(candidate, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode()
+            return f"data:image/png;base64,{encoded}"
+    return None
+
+
+_logo_uri = _get_logo_data_uri()
+_logo_html = f'<img src="{_logo_uri}" class="main-header-logo" alt="NMIMS Logo">' if _logo_uri else ""
+_divider_html = '<div class="main-header-divider"></div>' if _logo_uri else ""
+
 # ==========================================
 # 🎨 UI & CSS
 # ==========================================
@@ -58,20 +80,102 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { font-family: 'Inter', sans-serif; }
+
     .main-header {
         background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%);
         padding: 2.5rem; border-radius: 16px; margin-bottom: 2rem;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     }
-    .main-header h1 { color: white; text-align: center; margin: 0; font-size: 2.5rem; font-weight: 700; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); letter-spacing: -0.5px; }
-    .main-header p { color: #FFF; text-align: center; margin: 0.5rem 0 0 0; font-size: 1.1rem; opacity: 0.95; font-weight: 500; }
-    .upload-section { background: #f8f9fa; padding: 2.5rem; border-radius: 16px; border: 2px dashed #951C1C; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); text-align: center; }
-    @media (prefers-color-scheme: dark) {
-        .main-header { background: linear-gradient(135deg, #701515 0%, #A23217 100%); }
-        .upload-section { background: #2d2d2d; border-color: #A23217; }
+    .main-header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2rem;
+        flex-wrap: wrap;
     }
-    .stButton>button { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 12px; font-weight: 600; }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(149, 28, 28, 0.3); border-color: #951C1C; }
+    .main-header-logo {
+        height: 90px;
+        width: auto;
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 8px 12px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        flex-shrink: 0;
+    }
+    .main-header-divider {
+        width: 2px;
+        align-self: stretch;
+        background: rgba(255, 255, 255, 0.25);
+        flex-shrink: 0;
+    }
+    .main-header-text {
+        text-align: left;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .main-header h1 {
+        color: white; text-align: left; margin: 0; font-size: 2.5rem; font-weight: 700;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3); letter-spacing: -0.5px;
+        white-space: normal; overflow-wrap: break-word; word-break: break-word;
+    }
+    .main-header p {
+        color: #FFF; text-align: left; margin: 0.5rem 0 0 0; font-size: 1.1rem;
+        opacity: 0.95; font-weight: 500;
+        white-space: normal; overflow-wrap: break-word; word-break: break-word;
+    }
+
+    /* Theme-aware panels: follow Streamlit's actual active theme via CSS
+       variables instead of the OS-level prefers-color-scheme media query,
+       which doesn't track Streamlit's in-app light/dark toggle. Same
+       pattern as app.py / main_dashboard.py / Re_exam_scheduler /
+       verification_file_change_pdf_converter. */
+    .upload-section {
+        background: var(--secondary-background-color) !important;
+        color: var(--text-color) !important;
+        padding: 2.5rem; border-radius: 16px;
+        border: 2px dashed #951C1C; margin: 1rem 0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); text-align: center;
+    }
+    .upload-section * {
+        color: var(--text-color) !important;
+    }
+
+    /* System-wide button fix: follow Streamlit's active theme instead of
+       relying on default styling alone, which left low-contrast buttons
+       in dark mode. */
+    .stButton > button,
+    .stDownloadButton > button {
+        background: var(--secondary-background-color) !important;
+        color: var(--text-color) !important;
+        border: 2px solid rgba(128, 128, 128, 0.35) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 12px;
+        font-weight: 600;
+    }
+    .stButton > button *,
+    .stDownloadButton > button * {
+        color: var(--text-color) !important;
+    }
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(149, 28, 28, 0.3);
+        background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%) !important;
+        border: 2px solid #951C1C !important;
+        color: #ffffff !important;
+    }
+    .stButton > button:hover *,
+    .stDownloadButton > button:hover * {
+        color: #ffffff !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #951C1C 0%, #C73E1D 100%) !important;
+        color: #ffffff !important;
+        border: 2px solid #951C1C !important;
+    }
+    .stButton > button[kind="primary"] * {
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1381,10 +1485,16 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
 # ==========================================
 def main():
     st.markdown(
-        '<div class="main-header">'
-        '<h1>📄 Re-Exam Data to PDF Converter</h1>'
-        '<p>Generate Standardized Re-Examination Timetables Directly from Re-Exam Excel Data</p>'
-        '</div>',
+        f'<div class="main-header">'
+        f'<div class="main-header-inner">'
+        f'{_logo_html}'
+        f'{_divider_html}'
+        f'<div class="main-header-text">'
+        f'<h1>📄 Re-Exam Data to PDF Converter</h1>'
+        f'<p>Generate Standardized Re-Examination Timetables Directly from Re-Exam Excel Data</p>'
+        f'</div>'
+        f'</div>'
+        f'</div>',
         unsafe_allow_html=True
     )
 
@@ -1430,7 +1540,7 @@ def main():
         st.markdown(
             '<div class="upload-section">'
             '<h3 style="margin:0 0 1rem 0; color:#951C1C;">📁 Upload Re-Exam Excel File</h3>'
-            '<p style="margin:0; color:#666; font-size:1rem;">Drag and drop the Re-Exam scheduling Excel file</p>'
+            '<p style="margin:0; font-size:1rem;">Drag and drop the Re-Exam scheduling Excel file</p>'
             '</div>',
             unsafe_allow_html=True
         )
