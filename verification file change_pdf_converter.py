@@ -55,6 +55,38 @@ COLLEGES = [
 LOGO_PATH = "logo.png"
 wrap_text_cache = {}
 
+# Short, filesystem-safe identifiers for each IS_BUSINESS_SCH college, used in
+# output ZIP/PDF filenames so the file always reflects the college actually
+# selected instead of being hardcoded to "SBM" for every one of them.
+BUSINESS_SCH_SHORT_NAMES = [
+    ("Pravin Dalal", "PDSE"),
+    ("School of Business Management", "SBM"),
+    ("Anil Surendra Modi", "ASMSOC"),
+    ("School of Commerce", "ASMSOC"),
+    ("Sarla Anil Modi", "SAMSOE"),
+    ("School of Economics", "SAMSOE"),
+    ("Jyoti Dalal", "JDSLA"),
+    ("School of Liberal Arts", "JDSLA"),
+    ("School of Branding and Advertising", "SBA"),
+    ("Sunandan Divatia", "SDSOS"),
+    ("School of Science", "SDSOS"),
+    ("Diploma in Textile Technology", "DTT"),
+]
+
+
+def _get_college_short_name(college_name):
+    """
+    Resolve the actual selected college to a short, filesystem-safe label
+    for output filenames, instead of hardcoding "SBM" for every college in
+    IS_BUSINESS_SCH. Falls back to a cleaned-up version of the college name
+    itself if no specific mapping is found.
+    """
+    for needle, short in BUSINESS_SCH_SHORT_NAMES:
+        if needle in college_name:
+            return short
+    cleaned = re.sub(r'[^A-Za-z0-9]+', '_', college_name.split('/')[0]).strip('_')
+    return cleaned[:40] if cleaned else "Timetable"
+
 
 def _get_logo_data_uri():
     """Load the NMIMS logo once and return it as a base64 data URI."""
@@ -924,6 +956,20 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
 
+    def _detect_term_word(raw_text):
+        """
+        Detect the actual term word (Semester/Trimester/Sem/Tri) present in
+        the sheet name / input data, instead of assuming Trimester for every
+        IS_BUSINESS_SCH college. Falls back to "Trimester" only when no term
+        word is found, matching the app's prior default behavior.
+        """
+        s = str(raw_text).strip().lower()
+        if s.startswith("trimester") or s.startswith("tri"):
+            return "Trimester"
+        if s.startswith("semester") or s.startswith("sem"):
+            return "Semester"
+        return "Trimester"
+
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
@@ -1103,13 +1149,21 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             text_y += cell_h + LINE_GAP
 
             sem_roman = str(header_content.get('semester_roman', '')).upper()
+            term_word = str(header_content.get('term_word', 'Trimester')).upper()
             roman_map = {'XII':12,'XI':11,'X':10,'IX':9,'VIII':8,'VII':7,'VI':6,'V':5,'IV':4,'III':3,'II':2,'I':1}
             sem_int = roman_map.get(sem_roman, None)
             if sem_int is None:
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
-                
-            year_int = (sem_int + 2) // 3
+
+            # YEAR math depends on the actual term system: 3 terms/year for
+            # Trimester colleges (e.g. SBM), 2 terms/year for standard
+            # Semester colleges — instead of assuming trimester for everyone
+            # in IS_BUSINESS_SCH.
+            if term_word == "TRIMESTER":
+                year_int = (sem_int + 2) // 3
+            else:
+                year_int = (sem_int + 1) // 2
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
@@ -1121,7 +1175,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_font("Times", 'B', F_YEAR)
             cell_h = F_YEAR * 0.40
             pdf_obj.set_xy(10, text_y)
-            pdf_obj.cell(pdf_obj.w - 20, cell_h, f"YEAR: {_to_roman(year_int)}, TRIMESTER: {sem_roman}", 0, 1, 'C')
+            pdf_obj.cell(pdf_obj.w - 20, cell_h, f"YEAR: {_to_roman(year_int)}, {term_word}: {sem_roman}", 0, 1, 'C')
             text_y += cell_h + LINE_GAP
             pdf_obj.set_xy(pdf_obj.l_margin, text_y + 3)
 
@@ -1229,11 +1283,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                 semester_raw = sheet_name.split('_|_')[1] if '_|_' in sheet_name else sheet_name
                 display_sem  = semester_raw.strip()
+                term_word    = _detect_term_word(display_sem)
                 for pfx in ("trimester", "semester", "sem", "tri"):
                     if display_sem.lower().startswith(pfx):
                         display_sem = display_sem[len(pfx):].strip(); break
 
-                header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
+                header_content = {'main_branch_full': main_branch_full, 'semester_roman': display_sem, 'term_word': term_word}
                 timetable_data = st.session_state.get('processed_tt', {})
 
                 def _strip_sem_prefix(s):
@@ -1409,7 +1464,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
                 clean_branch = re.sub(r'[^A-Za-z0-9_\- ]', '', main_branch_full).strip().replace(" ", "_")
                 clean_sem    = re.sub(r'[^A-Za-z0-9_\- ]', '', display_sem).strip().replace(" ", "_")
-                filename     = f"{clean_branch}_Trimester_{clean_sem}.pdf"
+                filename     = f"{clean_branch}_{term_word}_{clean_sem}.pdf"
                 base_filename = filename
                 counter = 1
                 while filename in pdf_outputs:
@@ -1750,7 +1805,7 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
                 f.write(zip_buf.getvalue())
             st.success(f"✅ PDF generation complete — {len(final_pdfs)} PDF(s) in ZIP")
             _zip_college = st.session_state.get('selected_college', '')
-            _zip_prefix = "PDSE" if "Pravin Dalal" in _zip_college else "SBM"
+            _zip_prefix = _get_college_short_name(_zip_college)
             _zip_filename = f"{_zip_prefix}_Timetables_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
             with open(zip_path, "rb") as f:
                 st.download_button(
