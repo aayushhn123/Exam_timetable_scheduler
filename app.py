@@ -653,6 +653,11 @@ def show_college_selector():
             font-size: 0.85rem !important;
             line-height: 1.35 !important;
             overflow: visible !important;
+            background-color: #ffffff !important;
+            color: #1a1a1a !important;
+            border: 1px solid #e2e2e2 !important;
+            border-radius: 10px !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
         }
         .stButton > button p {
             white-space: pre-wrap !important;
@@ -661,11 +666,13 @@ def show_college_selector():
             overflow: visible !important;
             text-overflow: unset !important;
             margin: 0 !important;
+            color: #1a1a1a !important;
         }
         
         .stButton > button:hover {
             transform: translateY(-4px) !important;
-            box-shadow: 0 8px 20px rgba(149, 28, 28, 0.4) !important;
+            box-shadow: 0 8px 20px rgba(149, 28, 28, 0.25) !important;
+            border-color: #951c1c !important;
         }
         
         /* Ensure icon is displayed properly */
