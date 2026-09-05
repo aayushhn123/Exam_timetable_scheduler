@@ -381,28 +381,47 @@ def process_verification_file(uploaded_file):
             # same {slot_number: {"start":..., "end":...}} shape the scheduler
             # itself uses, so the existing multi-column PDF layout (Branch A)
             # picks it up unmodified and renders the real times/columns.
+            #
+            # Slots are grouped by START TIME ONLY: exams starting at the same
+            # time but with a shorter duration (e.g. 11:30 AM-12:30 PM vs.
+            # 11:30 AM-01:30 PM) belong in the same column/slot, not a
+            # separate one. The column header uses the widest (longest) end
+            # time seen for that start; shorter-duration subjects still get
+            # their own true end time shown in brackets via the existing
+            # ExamDuration-based bracket logic further down (duration == 1.0),
+            # which already keys off this same slot's start time.
             parsed = df['Exam Time'].apply(_parse_time_range)
 
-            distinct = {}
+            # start_time -> chosen end_str (the longest end time seen for
+            # that start), plus start_dt for chronological sorting.
+            by_start = {}
             for p in parsed:
-                if p is not None:
-                    key = (p[0], p[1])
-                    if key not in distinct:
-                        distinct[key] = p[2]
+                if p is None:
+                    continue
+                start_raw, end_raw, start_time = p
+                try:
+                    end_dt = datetime.strptime(end_raw, "%I:%M %p")
+                except Exception:
+                    continue
+                if start_raw not in by_start:
+                    by_start[start_raw] = {"end": end_raw, "end_dt": end_dt, "start_time": start_time}
+                elif end_dt > by_start[start_raw]["end_dt"]:
+                    by_start[start_raw]["end"] = end_raw
+                    by_start[start_raw]["end_dt"] = end_dt
 
-            if distinct:
-                ordered_keys = sorted(distinct.keys(), key=lambda k: distinct[k])
+            if by_start:
+                ordered_starts = sorted(by_start.keys(), key=lambda s: by_start[s]["start_time"])
                 dynamic_slot_map = {
-                    i + 1: {"start": start, "end": end}
-                    for i, (start, end) in enumerate(ordered_keys)
+                    i + 1: {"start": s, "end": by_start[s]["end"]}
+                    for i, s in enumerate(ordered_starts)
                 }
-                key_to_slot = {key: i + 1 for i, key in enumerate(ordered_keys)}
+                start_to_slot = {s: i + 1 for i, s in enumerate(ordered_starts)}
 
                 def _derive_slot_dynamic(exam_time):
                     p = _parse_time_range(exam_time)
                     if p is None:
                         return 1
-                    return key_to_slot.get((p[0], p[1]), 1)
+                    return start_to_slot.get(p[0], 1)
 
                 df['ExamSlotNumber'] = df['Exam Time'].apply(_derive_slot_dynamic)
                 st.session_state['time_slots'] = dynamic_slot_map
