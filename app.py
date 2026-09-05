@@ -6,10 +6,31 @@ import os
 import re
 import random
 import io
+import base64
 from PyPDF2 import PdfReader, PdfWriter
 from collections import deque, defaultdict
 # ... existing imports ...
 import pandas as pd
+
+@st.cache_data(show_spinner=False)
+def _get_logo_data_uri():
+    """Load app_logo.png (NMIMS logo) once and return it as a base64 data URI.
+    Looks next to this script first, then falls back to a couple of common
+    locations so it still resolves regardless of the working directory used
+    when the app is launched or deployed."""
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "app_logo.png"),
+        os.path.join(os.path.dirname(__file__), "assets", "app_logo.png"),
+        "app_logo.png",
+        "assets/app_logo.png",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+            return f"data:image/png;base64,{encoded}"
+    return None
+
 # Add this check to support older and newer Streamlit versions
 if hasattr(st, "dialog"):
     dialog_decorator = st.dialog
@@ -199,6 +220,28 @@ st.markdown("""
         border-radius: 16px;
         margin-bottom: 2rem;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .main-header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .main-header-logo {
+        height: 72px;
+        width: auto;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 6px 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        flex-shrink: 0;
+    }
+
+    .main-header-text {
+        text-align: center;
     }
 
     .main-header h1 {
@@ -623,11 +666,18 @@ COLLEGES = [
 
 def show_college_selector():
     """Display the college selector landing page"""
-    st.markdown("""
+    _logo_uri = _get_logo_data_uri()
+    _logo_html = f'<img src="{_logo_uri}" class="main-header-logo" alt="NMIMS Logo">' if _logo_uri else ""
+    st.markdown(f"""
     <div class="main-header">
-        <h1>Exam Timetable Generator</h1>
-        <p>SVKM's NMIMS University</p>
-        <p style="font-size: 1rem; margin-top: 1rem;">Select Your School/College</p>
+        <div class="main-header-inner">
+            {_logo_html}
+            <div class="main-header-text">
+                <h1>Exam Timetable Generator</h1>
+                <p>SVKM's NMIMS University</p>
+                <p style="font-size: 1rem; margin-top: 1rem;">Select Your School/College</p>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -730,6 +780,28 @@ st.markdown("""
         padding: 2rem;
         border-radius: 10px;
         margin-bottom: 2rem;
+    }
+
+    .main-header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .main-header-logo {
+        height: 72px;
+        width: auto;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 6px 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        flex-shrink: 0;
+    }
+
+    .main-header-text {
+        text-align: center;
     }
 
     .main-header h1 {
@@ -3976,10 +4048,17 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = default_value
         
+    _logo_uri = _get_logo_data_uri()
+    _logo_html = f'<img src="{_logo_uri}" class="main-header-logo" alt="NMIMS Logo">' if _logo_uri else ""
     st.markdown(f"""
     <div class="main-header">
-        <h1>📅 Exam Timetable Generator</h1>
-        <p>{current_college}</p>
+        <div class="main-header-inner">
+            {_logo_html}
+            <div class="main-header-text">
+                <h1>📅 Exam Timetable Generator</h1>
+                <p>{current_college}</p>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
