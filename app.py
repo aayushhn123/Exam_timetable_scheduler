@@ -247,7 +247,7 @@ st.markdown("""
 
     .main-header h1 {
         color: white;
-        text-align: center;
+        text-align: right;
         margin: 0;
         font-size: 2.5rem;
         font-weight: 700;
@@ -257,7 +257,7 @@ st.markdown("""
 
     .main-header p {
         color: #FFF;
-        text-align: center;
+        text-align: right;
         margin: 0.5rem 0 0 0;
         font-size: 1.1rem;
         opacity: 0.95;
@@ -808,7 +808,7 @@ st.markdown("""
 
     .main-header h1 {
         color: white;
-        text-align: center;
+        text-align: right;
         margin: 0;
         font-size: 2.5rem;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
@@ -816,7 +816,7 @@ st.markdown("""
 
     .main-header p {
         color: #FFF;
-        text-align: center;
+        text-align: right;
         margin: 0.5rem 0 0 0;
         font-size: 1.2rem;
         opacity: 0.9;
