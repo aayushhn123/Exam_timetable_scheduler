@@ -1823,9 +1823,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         if use_difficulty_gap:
             # --- Alternating hard/easy schedule with a fixed gap, per branch-sem, independently. ---
             def attempt_schedule_after(unit, allowed_dates, min_date):
-                # Same placement mechanics as the standard path, but only considers dates
-                # on/after min_date (the fixed gap floor), and never applies the old 1-day-gap
-                # logic on top — the fixed gap here replaces it for this branch-sem's own sequence.
                 preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
                 slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
 
@@ -1894,18 +1891,38 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         last_scheduled_date = placed_on
                     scheduled_ids.add(unit['id'])
         else:
+            # ─────────────────────────────────────────────────────────────
+            # STEP 1: SCHEDULE HIGH-PRIORITY UNITS GLOBALLY FIRST
+            # Guarantees MBA Tech Year 4 "WITHIN" units are scheduled first
+            # ─────────────────────────────────────────────────────────────
+            common_units_priority.sort(key=lambda x: x['student_count'], reverse=True)
+            for unit in common_units_priority:
+                if unit['id'] not in scheduled_ids:
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True):
+                        unscheduled_groups.append(unit)
+                    scheduled_ids.add(unit['id'])
+
+            # ─────────────────────────────────────────────────────────────
+            # STEP 2: SCHEDULE REMAINING STANDARD COMMON UNITS BY COHORT
+            # ─────────────────────────────────────────────────────────────
             for bs in sorted_bsems:
-                branch_sem_map[bs]['common'].sort(key=lambda x: (1 if x['id'] in priority_ids else 0, x['student_count']), reverse=True)
-                for unit in branch_sem_map[bs]['common']:
+                remaining_common = [u for u in branch_sem_map[bs]['common'] if u['id'] not in scheduled_ids]
+                remaining_common.sort(key=lambda x: x['student_count'], reverse=True)
+                for unit in remaining_common:
                     if unit['id'] not in scheduled_ids:
-                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True): unscheduled_groups.append(unit)
+                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True):
+                            unscheduled_groups.append(unit)
                         scheduled_ids.add(unit['id'])
                         
+            # ─────────────────────────────────────────────────────────────
+            # STEP 3: SCHEDULE INDIVIDUAL UNITS (GAP-FILL)
+            # ─────────────────────────────────────────────────────────────
             for bs in sorted_bsems:
                 branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
                 for unit in branch_sem_map[bs]['individual']:
                     if unit['id'] not in scheduled_ids:
-                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False): unscheduled_groups.append(unit)
+                        if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False):
+                            unscheduled_groups.append(unit)
                         scheduled_ids.add(unit['id'])
 
         return work_df, unscheduled_groups
@@ -2140,14 +2157,21 @@ def read_timetable(uploaded_file):
         # MBA TECH SPECIAL LOGIC
         # ---------------------------------------------------------------
         sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
+        # Year 4 = Semester VII or VIII (also supports Year 5 IX / X)
         target_sem_mask = (
+            sem_upper_series.str.endswith("VII")  | sem_upper_series.str.endswith(" 7")  | (sem_upper_series == "7") |
             sem_upper_series.str.endswith("VIII") | sem_upper_series.str.endswith(" 8") | (sem_upper_series == "8") |
+            sem_upper_series.str.endswith("IX")   | sem_upper_series.str.endswith(" 9")  | (sem_upper_series == "9") |
             sem_upper_series.str.endswith("X")    | sem_upper_series.str.endswith(" 10") | (sem_upper_series == "10") |
-            (sem_upper_series == "SEM VIII") | (sem_upper_series == "SEM X")
+            (sem_upper_series == "SEM VII") | (sem_upper_series == "SEM VIII") |
+            (sem_upper_series == "SEM IX")  | (sem_upper_series == "SEM X")
+        )
+        mba_prog_mask = df["Program"].astype(str).str.upper().str.contains(
+            "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT", na=False
         )
         is_common_within_mask = df["IsCommon"].astype(str).str.strip().str.upper() == "WITHIN"
 
-        priority_mask = target_sem_mask & is_common_within_mask
+        priority_mask = mba_prog_mask & target_sem_mask & is_common_within_mask
 
         if priority_mask.any():
             df_priority_target = df[priority_mask]
