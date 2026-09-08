@@ -1450,11 +1450,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     mba_tech_common_within_ids = set()
     if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
         mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains("MBA TECH", na=False)
-        sem_u = eligible_subjects['Semester'].astype(str).str.strip().str.upper()
-        target_sem = (
-            sem_u.str.endswith("VIII") | sem_u.str.endswith(" 8") | (sem_u == "8") |
-            sem_u.str.endswith("X")    | sem_u.str.endswith(" 10") | (sem_u == "10")
-        )
+        # MBA Tech Year 4 = Semester VII or VIII (2 semesters per year, Year 4 = Sems 7-8)
+        target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8))
         is_within = eligible_subjects['IsCommon'].astype(str).str.strip().str.upper() == "WITHIN"
         mba_within_rows = eligible_subjects[mba_mask & target_sem & is_within]
         mba_tech_common_within_ids = set(mba_within_rows['CMGroup_Clean'].unique()) - {""}
@@ -1806,7 +1803,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             for bs in unit['branch_sems']:
                 if bs not in branch_sem_map:
                     score = 0
-                    if "MBA TECH" in bs.upper() and ("VIII" in bs.upper() or " 8" in bs or "X" in bs.upper() or " 10" in bs): score = 1000000
+                    if "MBA TECH" in bs.upper():
+                        # bs is formatted as f"{Branch}_{Semester}" — pull the semester part back out
+                        bs_sem_part = bs.rsplit("_", 1)[-1]
+                        if extract_numeric_sem(bs_sem_part) in (7, 8):
+                            score = 1000000
                     branch_sem_map[bs] = {'score': score, 'common': [], 'individual': []}
                 if unit['type'] == 'COMMON':
                     if unit not in branch_sem_map[bs]['common']: branch_sem_map[bs]['common'].append(unit)
@@ -2151,7 +2152,7 @@ def read_timetable(uploaded_file):
             for (sem_val, mod_code), group_idx in df_priority_target.groupby(["Semester", "ModuleCode"]).groups.items():
                 synthetic_cm = f"MBATECH_PRIORITY_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}"
                 df.loc[group_idx, "CMGroup"] = synthetic_cm
-            st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for Sem VIII / X.")
+            st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII).")
 
         is_true_oe_mask = (df["OE"] != "")
         
