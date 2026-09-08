@@ -1452,8 +1452,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains(
             "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT", na=False
         )
-        # MBA Tech Year 4 = Semester VII or VIII (2 semesters per year, Year 4 = Sems 7-8)
-        target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8))
+        target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8, 9, 10))
         is_within = eligible_subjects['IsCommon'].astype(str).str.strip().str.upper() == "WITHIN"
         mba_within_rows = eligible_subjects[mba_mask & target_sem & is_within]
         mba_tech_common_within_ids = set(mba_within_rows['CMGroup_Clean'].unique()) - {""}
@@ -1482,8 +1481,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 'student_count': group['StudentCount'].sum(),
                 'is_two_credit': _all_two_credit(group),   
                 'max_difficulty': _max_difficulty(group),
+                'module_codes': group['ModuleCode'].dropna().unique().tolist(),
+                'subject_names': group['SubjectName'].dropna().unique().tolist() if 'SubjectName' in group.columns else []
             }
-            if cm_id in mba_tech_common_within_ids or "PRIORITY" in cm_id: 
+            if cm_id in mba_tech_common_within_ids or "PRIORITY" in str(cm_id): 
                 common_units_priority.append(unit)
             else: 
                 common_units_normal.append(unit)
@@ -1512,7 +1513,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         daily_branch_count = {d.strftime("%d-%m-%Y"): defaultdict(int) for d in all_valid_dates}
         session_capacity = {} 
 
-        # Per-branch-sem max difficulty, computed once — used only when use_difficulty_gap is on.
         branch_sem_max_difficulty = defaultdict(float)
         if use_difficulty_gap:
             for unit in common_units_priority + common_units_normal + individual_units:
@@ -1520,9 +1520,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     branch_sem_max_difficulty[bs] = max(branch_sem_max_difficulty[bs], unit.get('max_difficulty', 0))
 
         def _slot_capacity_limit(time_slot_str):
-            # MAX_STUDENTS_PER_SESSION is a dict {slot_num: capacity} only when slot-wise
-            # capacity is opted in for business school. Every other college keeps the
-            # original scalar behavior untouched.
             if use_slotwise_capacity and isinstance(MAX_STUDENTS_PER_SESSION, dict):
                 for sn, cfg in time_slots_dict.items():
                     slot_str = f"{cfg['start']} - {cfg['end']}"
@@ -1559,7 +1556,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
         # ══════════════════════════════════════════════════════════════════
-        # CRITICAL REFACTOR: GLOBAL ARRAYS FOR BUSINESS SCHOOL PHASES
+        # BUSINESS SCHOOL PHASES (PRESERVED)
         # ══════════════════════════════════════════════════════════════════
         if is_business_school:
             branch_sem_map = {}
@@ -1596,7 +1593,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             cohort_exam_count = defaultdict(int)
             num_days = len(core_valid_dates)
 
-            # ──── Pass 1: Slot 1 Consecutive Packing ────
             for unit in bs_units:
                 current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
                 if current_exam_idx < num_days:
@@ -1623,7 +1619,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             add_to_campus_capacity(date_str, time_slot_str, unit['indices'])
                             unit['scheduled'] = True
 
-            # ──── Pass 2: Slot 2 Isolated Spreading ────
             for unit in bs_units:
                 if unit.get('scheduled'): continue
                 current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
@@ -1668,7 +1663,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             unit['scheduled'] = True
                             break
 
-            # ──── Pass 3: Slot 3 Isolated Exception Spreading ────
             for unit in bs_units:
                 if unit.get('scheduled'): continue
                 current_exam_idx = max(cohort_exam_count[bs] for bs in unit['branch_sems']) if unit['branch_sems'] else 0
@@ -1713,13 +1707,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             unit['scheduled'] = True
                             break
 
-            # ──── Pass 4 & 5: Emergency Fallback Triggers ────
             def get_cohort_daily_max(date_str):
-                """Returns the highest exam count already scheduled on date_str
-                across any single branch-sem cohort (0 if none scheduled yet)."""
                 counts = daily_branch_count.get(date_str)
-                if not counts:
-                    return 0
+                if not counts: return 0
                 return max(counts.values())
 
             for unit in bs_units:
@@ -1748,24 +1738,12 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             return work_df, unscheduled_groups
 
         # ══════════════════════════════════════════════════════════════════
-        # STANDARD COLLEGE GENERATION PARADIGM (UNCHANGED)
+        # STANDARD COLLEGE GENERATION PARADIGM
         # ══════════════════════════════════════════════════════════════════
         def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             is_two_credit = unit.get('is_two_credit', False)
             slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
-
-            # Business-school opt-in: restrict slots to those whose ticked semesters include
-            # this unit's semester. A slot with an empty selection stays open to all semesters
-            # (identical to old behavior). No-op for every other college.
-            if is_business_school and slot_semester_map:
-                unit_sem_str = str(unit['sem_raw']).strip()
-                allowed_slots = [
-                    s for s in slots_to_try
-                    if not slot_semester_map.get(s) or unit_sem_str in slot_semester_map.get(s, [])
-                ]
-                if allowed_slots:
-                    slots_to_try = allowed_slots
             
             for date_obj in allowed_dates:
                 date_str = date_obj.strftime("%d-%m-%Y")
@@ -1804,13 +1782,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         for unit in all_units:
             for bs in unit['branch_sems']:
                 if bs not in branch_sem_map:
-                    score = 0
-                    if "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT" in bs.upper():
-                        # bs is formatted as f"{Branch}_{Semester}" — pull the semester part back out
-                        bs_sem_part = bs.rsplit("_", 1)[-1]
-                        if extract_numeric_sem(bs_sem_part) in (7, 8):
-                            score = 1000000
-                    branch_sem_map[bs] = {'score': score, 'common': [], 'individual': []}
+                    branch_sem_map[bs] = {'score': 0, 'common': [], 'individual': []}
                 if unit['type'] == 'COMMON':
                     if unit not in branch_sem_map[bs]['common']: branch_sem_map[bs]['common'].append(unit)
                 else:
@@ -1818,22 +1790,11 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 branch_sem_map[bs]['score'] += unit['student_count']
                 
         sorted_bsems = sorted(branch_sem_map.keys(), key=lambda x: branch_sem_map[x]['score'], reverse=True)
-        priority_ids = set(u['id'] for u in common_units_priority)
 
         if use_difficulty_gap:
-            # --- Alternating hard/easy schedule with a fixed gap, per branch-sem, independently. ---
             def attempt_schedule_after(unit, allowed_dates, min_date):
                 preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
                 slots_to_try = [preferred_slot_num] + [s for s in sorted(time_slots_dict.keys()) if s != preferred_slot_num]
-
-                if is_business_school and slot_semester_map:
-                    unit_sem_str = str(unit['sem_raw']).strip()
-                    allowed_slots = [
-                        s for s in slots_to_try
-                        if not slot_semester_map.get(s) or unit_sem_str in slot_semester_map.get(s, [])
-                    ]
-                    if allowed_slots:
-                        slots_to_try = allowed_slots
 
                 for date_obj in allowed_dates:
                     if date_obj < min_date: continue
@@ -1892,18 +1853,25 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                     scheduled_ids.add(unit['id'])
         else:
             # ─────────────────────────────────────────────────────────────
-            # STEP 1: SCHEDULE HIGH-PRIORITY UNITS GLOBALLY FIRST
-            # Guarantees MBA Tech Year 4 "WITHIN" units are scheduled first
+            # STEP 1: SCHEDULE HIGH-PRIORITY UNITS GLOBALLY FIRST (FROM DAY 1)
+            # Guarantees MBA Tech Year 4 "WITHIN" units are scheduled starting from base_date
+            # Business Statistics is explicitly sorted to the absolute front
             # ─────────────────────────────────────────────────────────────
-            common_units_priority.sort(key=lambda x: x['student_count'], reverse=True)
+            def _priority_sort_key(u):
+                # Put Business Statistics (703TM0C001) first, followed by remaining core management papers
+                is_bus_stat = 1 if ('703TM0C001' in u.get('module_codes', []) or 
+                                    any('BUSINESS' in str(sn).upper() for sn in u.get('subject_names', []))) else 0
+                return (is_bus_stat, u.get('student_count', 0))
+
+            common_units_priority.sort(key=_priority_sort_key, reverse=True)
             for unit in common_units_priority:
                 if unit['id'] not in scheduled_ids:
-                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=True):
+                    if not attempt_schedule(unit, core_valid_dates, require_1_day_gap=False):
                         unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
 
             # ─────────────────────────────────────────────────────────────
-            # STEP 2: SCHEDULE REMAINING STANDARD COMMON UNITS BY COHORT
+            # STEP 2: SCHEDULE REMAINING STANDARD COMMON UNITS
             # ─────────────────────────────────────────────────────────────
             for bs in sorted_bsems:
                 remaining_common = [u for u in branch_sem_map[bs]['common'] if u['id'] not in scheduled_ids]
@@ -2111,9 +2079,6 @@ def read_timetable(uploaded_file):
         for col in numeric_columns:
             if col in df.columns:
                 if col == "Exam Duration":
-                    # Preserve whether the value was genuinely provided before the
-                    # fallback fill below overwrites blanks. Additive column only —
-                    # does not change existing fillna behavior for any college.
                     df["Exam Duration_WasProvided"] = pd.to_numeric(df[col], errors='coerce').notna()
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0 if col != "Exam Duration" else 3)
         
@@ -2154,10 +2119,9 @@ def read_timetable(uploaded_file):
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
 
         # ---------------------------------------------------------------
-        # MBA TECH SPECIAL LOGIC
+        # MBA TECH SPECIAL LOGIC (YEAR 4 SEM VII & VIII INCLUDED)
         # ---------------------------------------------------------------
         sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
-        # Year 4 = Semester VII or VIII (also supports Year 5 IX / X)
         target_sem_mask = (
             sem_upper_series.str.endswith("VII")  | sem_upper_series.str.endswith(" 7")  | (sem_upper_series == "7") |
             sem_upper_series.str.endswith("VIII") | sem_upper_series.str.endswith(" 8") | (sem_upper_series == "8") |
@@ -2178,7 +2142,7 @@ def read_timetable(uploaded_file):
             for (sem_val, mod_code), group_idx in df_priority_target.groupby(["Semester", "ModuleCode"]).groups.items():
                 synthetic_cm = f"MBATECH_PRIORITY_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}"
                 df.loc[group_idx, "CMGroup"] = synthetic_cm
-            st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII).")
+            st.info("ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII).")
 
         is_true_oe_mask = (df["OE"] != "")
         
