@@ -1449,7 +1449,9 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     mba_tech_common_within_ids = set()
     if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
-        mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains("MBA TECH", na=False)
+        mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains(
+            "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT", na=False
+        )
         # MBA Tech Year 4 = Semester VII or VIII (2 semesters per year, Year 4 = Sems 7-8)
         target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8))
         is_within = eligible_subjects['IsCommon'].astype(str).str.strip().str.upper() == "WITHIN"
@@ -1803,7 +1805,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             for bs in unit['branch_sems']:
                 if bs not in branch_sem_map:
                     score = 0
-                    if "MBA TECH" in bs.upper():
+                    if "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT" in bs.upper():
                         # bs is formatted as f"{Branch}_{Semester}" — pull the semester part back out
                         bs_sem_part = bs.rsplit("_", 1)[-1]
                         if extract_numeric_sem(bs_sem_part) in (7, 8):
