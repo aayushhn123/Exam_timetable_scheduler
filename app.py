@@ -1449,10 +1449,15 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     mba_tech_common_within_ids = set()
     if IS_MPSTME and 'IsCommon' in eligible_subjects.columns:
-        mba_mask = eligible_subjects['Program'].astype(str).str.upper().str.contains(
-            "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT", na=False
+        _program_norm = eligible_subjects['Program'].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip().str.upper()
+        mba_mask = (
+            _program_norm.str.contains("MBA TECH", na=False) |
+            (
+                _program_norm.str.contains("BUSINESS ADMINISTRATION", na=False) &
+                _program_norm.str.contains("TECHNOLOGY MANAGEMENT", na=False)
+            )
         )
-        target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8, 9, 10))
+        target_sem = eligible_subjects['Semester'].apply(lambda s: extract_numeric_sem(s) in (7, 8))
         is_within = eligible_subjects['IsCommon'].astype(str).str.strip().str.upper() == "WITHIN"
         mba_within_rows = eligible_subjects[mba_mask & target_sem & is_within]
         mba_tech_common_within_ids = set(mba_within_rows['CMGroup_Clean'].unique()) - {""}
@@ -2130,8 +2135,17 @@ def read_timetable(uploaded_file):
             (sem_upper_series == "SEM VII") | (sem_upper_series == "SEM VIII") |
             (sem_upper_series == "SEM IX")  | (sem_upper_series == "SEM X")
         )
-        mba_prog_mask = df["Program"].astype(str).str.upper().str.contains(
-            "MASTER OF BUSINESS ADMINISTRATION IN TECHNOLOGY MANAGEMENT", na=False
+        # Normalize whitespace (collapse double/multiple spaces, strip) before matching, and
+        # match on the distinctive "MBA TECH" / "BUSINESS ADMINISTRATION" + "TECHNOLOGY MANAGEMENT"
+        # keyword pair instead of one long exact phrase, so stray double-spaces or minor wording
+        # differences in the input file don't silently break detection.
+        _program_norm = df["Program"].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip().str.upper()
+        mba_prog_mask = (
+            _program_norm.str.contains("MBA TECH", na=False) |
+            (
+                _program_norm.str.contains("BUSINESS ADMINISTRATION", na=False) &
+                _program_norm.str.contains("TECHNOLOGY MANAGEMENT", na=False)
+            )
         )
         is_common_within_mask = df["IsCommon"].astype(str).str.strip().str.upper() == "WITHIN"
 
@@ -2142,7 +2156,17 @@ def read_timetable(uploaded_file):
             for (sem_val, mod_code), group_idx in df_priority_target.groupby(["Semester", "ModuleCode"]).groups.items():
                 synthetic_cm = f"MBATECH_PRIORITY_{str(sem_val).strip().upper().replace(' ', '_')}_{str(mod_code).strip()}"
                 df.loc[group_idx, "CMGroup"] = synthetic_cm
-            st.info("ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII).")
+            st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII). ({priority_mask.sum()} rows)")
+        else:
+            # Diagnostic aid: tells you exactly which of the three conditions is failing,
+            # instead of silently doing nothing.
+            _mba_count = mba_prog_mask.sum()
+            if _mba_count == 0:
+                st.warning("⚠️ MBA Tech priority check: no rows matched the MBA Tech program name. Check the 'Program' column values.")
+            elif (mba_prog_mask & target_sem_mask).sum() == 0:
+                st.warning("⚠️ MBA Tech priority check: MBA Tech rows found, but none in Semester VII/VIII. Check the 'Semester' column values for those rows.")
+            elif is_common_within_mask.sum() == 0:
+                st.warning("⚠️ MBA Tech priority check: MBA Tech Sem VII/VIII rows found, but none have 'Is Common' = WITHIN. Check that column's values.")
 
         is_true_oe_mask = (df["OE"] != "")
         
