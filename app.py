@@ -2422,7 +2422,10 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         # Program Name — Size 10, Bold
         pdf.set_font("Times", 'B', 10)
         pdf.set_xy(10, current_y)
-        pdf.cell(pdf.w - 20, 4, f"{header_content['main_branch_full']}".upper(), 0, 1, 'C')
+        _prog_title = f"{header_content['main_branch_full']}".upper()
+        if "Law" in st.session_state.get('selected_college', ''):
+            _prog_title = re.sub(r'HONS\.', 'Hons.', _prog_title, flags=re.IGNORECASE)
+        pdf.cell(pdf.w - 20, 4, _prog_title, 0, 1, 'C')
         current_y += 4
 
         # Year and Semester — Size 10, Bold
@@ -2739,6 +2742,8 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             text_y += cell_h + LINE_GAP
 
             prog_name = str(header_content.get('main_branch_full', '')).upper()
+            if "Law" in st.session_state.get('selected_college', ''):
+                prog_name = re.sub(r'HONS\.', 'Hons.', prog_name, flags=re.IGNORECASE)
             pdf_obj.set_font("Times", 'B', F_PROG)
             cell_h = F_PROG * 0.40
             pdf_obj.set_xy(10, text_y)
