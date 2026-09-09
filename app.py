@@ -1338,8 +1338,10 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
 
     # Opt-in flags — no-ops for every non-business-school college
     use_slotwise_capacity = is_business_school and st.session_state.get('use_slotwise_capacity', False)
-    use_difficulty_gap = is_business_school and st.session_state.get('use_difficulty_gap', False)
-    difficulty_gap_days = st.session_state.get('difficulty_gap_days', 1)
+    # SOL always needs the hard/easy alternating gap logic — Law School has its own
+    # mandatory 1-day gap rule between difficult subjects; business schools stay opt-in.
+    use_difficulty_gap = (is_business_school and st.session_state.get('use_difficulty_gap', False)) or IS_LAW_SCHOOL
+    difficulty_gap_days = max(1, st.session_state.get('difficulty_gap_days', 1)) if IS_LAW_SCHOOL else st.session_state.get('difficulty_gap_days', 1)
     slot_semester_map = st.session_state.get('slot_semester_map', {}) if is_business_school else {}
 
     if IS_LAW_SCHOOL:
@@ -1846,15 +1848,35 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         sequence.append(easy_units[ei]); ei += 1
                     turn_hard = not turn_hard
 
-                last_scheduled_date = None
+                # Gap is enforced specifically between two DIFFICULT subjects.
+                # An easy subject may still be placed on the very next day; it must
+                # not "use up" the required gap between the hard subject before it
+                # and the hard subject after it.
+                # NOTE: "gap of N days" means N full rest day(s) between the two hard
+                # exams, so the next hard exam must be at least (N + 1) calendar days
+                # after the previous one — e.g. hard on Mon, gap=1 -> next hard exam
+                # no earlier than Wed (Tue is the rest day). Using +N alone would only
+                # forbid the same day, not guarantee an actual gap.
+                last_scheduled_date = None       # date of the most recently scheduled unit (any difficulty)
+                last_hard_date = None             # date of the most recently scheduled HARD unit
                 for unit in sequence:
                     if unit['id'] in scheduled_ids: continue
-                    min_date = core_valid_dates[0] if last_scheduled_date is None else last_scheduled_date + timedelta(days=difficulty_gap_days)
+                    is_hard = unit.get('max_difficulty', 0) >= 1
+
+                    if is_hard and last_hard_date is not None:
+                        min_date = last_hard_date + timedelta(days=difficulty_gap_days + 1)
+                    elif last_scheduled_date is not None:
+                        min_date = last_scheduled_date + timedelta(days=1)
+                    else:
+                        min_date = core_valid_dates[0]
+
                     placed_on = attempt_schedule_after(unit, core_valid_dates, min_date)
                     if placed_on is None:
                         unscheduled_groups.append(unit)
                     else:
                         last_scheduled_date = placed_on
+                        if is_hard:
+                            last_hard_date = placed_on
                     scheduled_ids.add(unit['id'])
         else:
             # ─────────────────────────────────────────────────────────────
@@ -2601,6 +2623,39 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
         except:
             return f"{time_slots_dict[1]['start']} - {time_slots_dict[1]['end']}"
 
+    def get_header_time_from_sheet(sheet_df, sem_str):
+        """
+        SOL-only: the header must reflect the slot actually assigned to this
+        semester's subjects (per the input file's ExamSlotNumber / scheduled
+        Time Slot), not a guess based on semester-number parity — the input
+        file's slot assignment does not always follow the odd/even pattern.
+        Falls back to the parity-based guess if no slot data is present.
+        """
+        try:
+            slot_num = None
+            if sheet_df is not None and 'ExamSlotNumber' in sheet_df.columns:
+                vals = pd.to_numeric(sheet_df['ExamSlotNumber'], errors='coerce').dropna()
+                vals = vals[vals > 0]
+                if not vals.empty:
+                    slot_num = int(vals.mode().iloc[0])
+            if slot_num is None and sheet_df is not None and 'Time Slot' in sheet_df.columns:
+                def _norm(t):
+                    return re.sub(r'\s+', '', str(t)).upper().replace('.', '')
+                for ts in sheet_df['Time Slot'].dropna().astype(str):
+                    ts = ts.strip()
+                    if not ts or ts in ('TBD', 'Not Scheduled'): continue
+                    start_part = ts.split(' - ')[0].strip() if ' - ' in ts else ts
+                    for sn, cfg in time_slots_dict.items():
+                        if _norm(start_part) == _norm(cfg['start']):
+                            slot_num = sn; break
+                    if slot_num: break
+            if slot_num is not None:
+                slot_cfg = time_slots_dict.get(slot_num, time_slots_dict.get(1))
+                return f"{slot_cfg['start']} - {slot_cfg['end']}"
+        except Exception:
+            pass
+        return get_header_time_for_semester(sem_str)
+
     sheets_processed = 0
     pdf_outputs = {}
 
@@ -3090,7 +3145,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         display_sem = display_sem[len(prefix):].strip(); break
 
                 header_content  = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-                header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
+                # SOL: header must reflect the slot actually assigned to this semester's
+                # subjects (input file's slot assignment doesn't always follow parity).
+                if IS_LAW_SCHOOL:
+                    header_exam_time = get_header_time_from_sheet(sheet_df, f"Sem {display_sem}")
+                else:
+                    header_exam_time = get_header_time_for_semester(f"Sem {display_sem}")
 
                 if not is_elective:
                     if 'Exam Date' not in sheet_df.columns: continue
@@ -3724,10 +3784,11 @@ def save_to_excel(semester_wise_timetable):
         Runs once per semester-df BEFORE the main_branch grouping loop.
         - Matched rows (B.A./B.B.A. LL.B only, never LL.M) get:
             SubBranch  <- prefixed with original MainBranch so pivot creates 2 columns
-                          (EXCEPT for Year V / Sem IX & X, where all subjects are
-                          common across B.A. and B.B.A., so SubBranch is left as just
-                          the specialization name — no program prefix — so the pivot
-                          collapses both programs into a single shared column.)
+                          (EXCEPT for Year IV & V / Sem VII, VIII, IX & X, where all
+                          subjects are common across B.A. and B.B.A., so SubBranch is
+                          left as just the specialization name — no program prefix —
+                          so the pivot collapses both programs into a single shared
+                          column.)
             MainBranch <- overwritten to SOL_MERGED_BRANCH
         - OE rows are kept in the dataframe (not separated) so they fold into the
           same pivot as core subjects; their Subject string gets an [OE:...] tag.
@@ -3740,9 +3801,11 @@ def save_to_excel(semester_wise_timetable):
         if not mask.any():
             return df_out
 
-        # Year V (Sem IX & X): subjects are common across B.A. and B.B.A., so the
-        # specialization column should be shown only once (no program prefix).
-        is_year_5 = sem_num in (9, 10)
+        # Year IV & V (Sem VII, VIII, IX & X): subjects are common across B.A. and
+        # B.B.A. due to the current 4th-year batch changes, so the specialization
+        # column should be shown only once (no program prefix) — same merged-column
+        # treatment as Sem IX & X.
+        is_year_5 = sem_num in (7, 8, 9, 10)
 
         def _build_sub(row):
             orig_prog = str(row['MainBranch']).strip()
@@ -3832,8 +3895,18 @@ def save_to_excel(semester_wise_timetable):
                 except:
                     sem_num = 1
 
-                slot_indicator = ((sem_num + 1) // 2) % 2
-                primary_slot_num = 1 if slot_indicator == 1 else 2
+                # SOL: derive the semester's primary slot from what was actually
+                # assigned in the input file, not from a parity guess — the input
+                # file's slot assignment does not always follow the odd/even pattern.
+                primary_slot_num = None
+                if IS_LAW_SCHOOL and 'ExamSlotNumber' in df_sem.columns:
+                    _sn_vals = pd.to_numeric(df_sem['ExamSlotNumber'], errors='coerce').dropna()
+                    _sn_vals = _sn_vals[_sn_vals > 0]
+                    if not _sn_vals.empty:
+                        primary_slot_num = int(_sn_vals.mode().iloc[0])
+                if primary_slot_num is None:
+                    slot_indicator = ((sem_num + 1) // 2) % 2
+                    primary_slot_num = 1 if slot_indicator == 1 else 2
                 primary_slot_config = time_slots_dict.get(primary_slot_num, time_slots_dict.get(1))
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
