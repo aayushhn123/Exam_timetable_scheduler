@@ -4094,7 +4094,9 @@ def save_to_excel(semester_wise_timetable):
                                 summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                                 sheets_created += 1
                         except Exception as e:
-                            pass
+                            st.error(f"OE SHEET FAILED for {main_branch} / {raw_sem_str}: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
 
             if sheets_created == 0:
                 pd.DataFrame({'Message': ['No data available']}).to_excel(writer, sheet_name="No_Data", index=False)
