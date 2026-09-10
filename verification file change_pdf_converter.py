@@ -494,7 +494,7 @@ def _build_program_key_map(all_program_names):
     return key_map
 
 
- def save_to_excel(semester_wise_timetable):
+def save_to_excel(semester_wise_timetable):
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
