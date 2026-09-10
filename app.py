@@ -3193,7 +3193,13 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     if ('Subjects' in sheet_df.columns and 'Open Elective (All Applicable Streams)' not in sheet_df.columns):
                         sheet_df.rename(columns={'Subjects': 'Open Elective (All Applicable Streams)'}, inplace=True)
 
-                    target_cols    = ['Exam Date','OE Type', 'Open Elective (All Applicable Streams)']
+                    _oe_college_ctx = st.session_state.get('selected_college', '')
+                    _is_mpstme_oe = "Mukesh Patel" in _oe_college_ctx or "Technology Management" in _oe_college_ctx
+
+                    if _is_mpstme_oe and 'Exam Time' in sheet_df.columns:
+                        target_cols = ['Exam Date', 'Exam Time', 'Open Elective (All Applicable Streams)']
+                    else:
+                        target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
                     available_cols = [c for c in target_cols if c in sheet_df.columns]
 
                     if len(available_cols) >= 3:
@@ -3750,6 +3756,7 @@ def save_to_excel(semester_wise_timetable):
     # SOL detection
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college_context
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
     is_business_school = (
         "School of Business Management" in current_college_context
         or "Pravin Dalal" in current_college_context
@@ -4028,23 +4035,62 @@ def save_to_excel(semester_wise_timetable):
                             df_elec_scheduled = df_elec[df_elec['Exam Date'].notna() & (df_elec['Exam Date'] != "") & (df_elec['Exam Date'] != "Not Scheduled")].copy()
                             
                             if not df_elec_scheduled.empty:
-                                df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject']
-                                
-                                summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
-                                    'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
-                                }).reset_index()
-                                
-                                summary_df.rename(columns={'DisplaySubject': 'Open Elective (All Applicable Streams)', 'OE': 'OE Type'}, inplace=True)
-                                
+                                if IS_MPSTME and 'Time Slot' in df_elec_scheduled.columns:
+                                    # MPSTME OE pages: instead of a single "OE Type"
+                                    # column, split subjects into sub-rows grouped by
+                                    # their actual Time Slot. Any bracketed [time]
+                                    # suffix already on the subject name is stripped
+                                    # since the row itself now conveys the time.
+                                    bracket_re = re.compile(r'\s*\[[^\]]*\]\s*$')
+
+                                    def _clean_subject(s):
+                                        return bracket_re.sub('', str(s)).strip()
+
+                                    df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject'].apply(_clean_subject)
+                                    df_elec_scheduled['TimeSlotClean'] = df_elec_scheduled['Time Slot'].fillna('').astype(str).str.strip()
+
+                                    def _build_time_split(group):
+                                        # One sub-row per distinct Time Slot, in start-time order
+                                        slot_groups = (
+                                            group.groupby('TimeSlotClean')['DisplaySubject']
+                                            .apply(lambda x: ", ".join(sorted(set(x))))
+                                        )
+
+                                        def _sort_key(slot_str):
+                                            try:
+                                                return datetime.strptime(slot_str.split(" - ")[0].strip(), "%I:%M %p")
+                                            except Exception:
+                                                return datetime.max
+
+                                        ordered_slots = sorted(slot_groups.index, key=_sort_key)
+
+                                        exam_time_str = " <hr> ".join(s if s else "---" for s in ordered_slots)
+                                        subjects_str = " <hr> ".join(slot_groups[s] for s in ordered_slots)
+                                        return pd.Series({'Exam Time': exam_time_str, 'Open Elective (All Applicable Streams)': subjects_str})
+
+                                    summary_df = (
+                                        df_elec_scheduled.groupby('Exam Date')
+                                        .apply(_build_time_split)
+                                        .reset_index()
+                                    )
+                                else:
+                                    df_elec_scheduled['DisplaySubject'] = df_elec_scheduled['Subject']
+
+                                    summary_df = df_elec_scheduled.groupby(['Exam Date', 'Time Slot', 'OE']).agg({
+                                        'DisplaySubject': lambda x: ", ".join(sorted(set(x)))
+                                    }).reset_index()
+
+                                    summary_df.rename(columns={'DisplaySubject': 'Open Elective (All Applicable Streams)', 'OE': 'OE Type'}, inplace=True)
+
+                                    if 'Time Slot' in summary_df.columns:
+                                        summary_df = summary_df.drop('Time Slot', axis=1)
+
                                 summary_df['DateObj'] = pd.to_datetime(summary_df['Exam Date'], format="%d-%m-%Y", errors='coerce')
                                 summary_df = summary_df.sort_values('DateObj').drop('DateObj', axis=1)
-                                
-                                if 'Time Slot' in summary_df.columns:
-                                    summary_df = summary_df.drop('Time Slot', axis=1)
-                                
+
                                 summary_df['Program'] = main_branch
                                 summary_df['Semester'] = raw_sem_str
-                                
+
                                 summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                                 sheets_created += 1
                         except Exception as e:
@@ -4059,7 +4105,6 @@ def save_to_excel(semester_wise_timetable):
     except Exception as e:
         st.error(f"Error creating Excel file: {e}")
         return None
-
 
 def find_next_valid_day_for_electives(start_day, holidays):
     """Find the next valid day for scheduling electives (skip weekends and holidays)"""
