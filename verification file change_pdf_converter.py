@@ -502,6 +502,7 @@ def save_to_excel(semester_wise_timetable):
 
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
 
     if IS_LAW_SCHOOL:
         time_slots_dict = {
@@ -663,33 +664,70 @@ def save_to_excel(semester_wise_timetable):
 
                 if not df_elec.empty:
                     e_displays = []
+                    e_times = []
                     for _, row in df_elec.iterrows():
                         subj        = row['Subject']
                         actual_time = str(row.get('Exam Time', '')).strip()
 
-                        time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
-                            time_suffix = f" [{actual_time}]"
+                        if IS_MPSTME:
+                            # MPSTME OE pages: no bracket suffix on the subject —
+                            # the row's own Exam Time sub-cell conveys the time.
+                            e_displays.append(subj)
+                            e_times.append(actual_time if actual_time.lower() not in ('', 'nan', 'tbd') else header_norm)
+                        else:
+                            time_suffix = ""
+                            if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
+                                time_suffix = f" [{actual_time}]"
 
-                        txt = f"{subj}"
-                        txt += time_suffix
-                        e_displays.append(txt)
+                            txt = f"{subj}"
+                            txt += time_suffix
+                            e_displays.append(txt)
 
                     df_elec['DisplaySubject'] = e_displays
+                    if IS_MPSTME:
+                        df_elec['ExamTimeClean'] = e_times
 
                     try:
                         df_elec["Exam Date"] = pd.to_datetime(df_elec["Exam Date"], format="%d-%m-%Y", dayfirst=True, errors='coerce')
                         df_elec = df_elec.sort_values(by="Exam Date", ascending=True)
                         df_elec['Exam Date'] = df_elec['Exam Date'].apply(lambda x: x.strftime("%d-%m-%Y") if pd.notna(x) else "")
 
-                        ep = df_elec.groupby(['Exam Date', 'OE']).agg({'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}).reset_index()
-                        ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Open Elective (All Applicable Streams)'}, inplace=True)
+                        if IS_MPSTME:
+                            # Split subjects into sub-rows grouped by their actual
+                            # Exam Time instead of a single "OE Type" column.
+                            def _build_time_split(group):
+                                slot_groups = (
+                                    group.groupby('ExamTimeClean')['DisplaySubject']
+                                    .apply(lambda x: ", ".join(sorted(set(x))))
+                                )
+
+                                def _sort_key(slot_str):
+                                    try:
+                                        return datetime.strptime(slot_str.split(" - ")[0].strip(), "%I:%M %p")
+                                    except Exception:
+                                        return datetime.max
+
+                                ordered_slots = sorted(slot_groups.index, key=_sort_key)
+
+                                exam_time_str = " <hr> ".join(s if s else "---" for s in ordered_slots)
+                                subjects_str = " <hr> ".join(slot_groups[s] for s in ordered_slots)
+                                return pd.Series({'Exam Time': exam_time_str, 'Open Elective (All Applicable Streams)': subjects_str})
+
+                            ep = (
+                                df_elec.groupby('Exam Date')
+                                .apply(_build_time_split)
+                                .reset_index()
+                            )
+                        else:
+                            ep = df_elec.groupby(['Exam Date', 'OE']).agg({'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}).reset_index()
+                            ep.rename(columns={'OE': 'OE Type', 'DisplaySubject': 'Open Elective (All Applicable Streams)'}, inplace=True)
+
                         ep['_prog_'] = main_branch
                         ep['_sem_']  = roman_sem
                         ep.to_excel(writer, sheet_name=elec_sheet, index=False)
                         sheets_created += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not build OE sheet for {main_branch} / Sem {roman_sem}: {e}")
 
         if sheets_created == 0:
             pd.DataFrame({'Info': ['No valid data']}).to_excel(writer, sheet_name="Empty")
@@ -1728,7 +1766,13 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     if ('Subjects' in sheet_df.columns and 'Open Elective (All Applicable Streams)' not in sheet_df.columns):
                         sheet_df.rename(columns={'Subjects': 'Open Elective (All Applicable Streams)'}, inplace=True)
 
-                    target_cols    = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
+                    _oe_college_ctx = st.session_state.get('selected_college', '')
+                    _is_mpstme_oe = "Mukesh Patel" in _oe_college_ctx or "Technology Management" in _oe_college_ctx
+
+                    if _is_mpstme_oe and 'Exam Time' in sheet_df.columns:
+                        target_cols = ['Exam Date', 'Exam Time', 'Open Elective (All Applicable Streams)']
+                    else:
+                        target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
                     available_cols = [c for c in target_cols if c in sheet_df.columns]
 
                     if len(available_cols) >= 3:
@@ -1809,6 +1853,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
     return pdf_outputs
 
+
+# ==========================================
+# 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
+# ==========================================
 
 # ==========================================
 # 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
