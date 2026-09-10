@@ -1818,9 +1818,15 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         original_college = st.session_state.get('selected_college')
                         st.session_state['selected_college'] = sheet_college_name
 
+                        # MPSTME OE pages already show a dedicated EXAM TIME
+                        # column per row — a single blanket header time would
+                        # be redundant (and can be misleading if it doesn't
+                        # match every row), so omit it here only.
+                        _oe_header_time = None if _is_mpstme_oe else header_exam_time
+
                         print_table_custom(pdf, sheet_df, available_cols, col_widths, line_height=5,
                                            header_content=header_content, Programs=["Electives"],
-                                           time_slot=header_exam_time, actual_time_slots=None,
+                                           time_slot=_oe_header_time, actual_time_slots=None,
                                            declaration_date=declaration_date)
 
                         if original_college: st.session_state['selected_college'] = original_college
@@ -1879,6 +1885,10 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
     return pdf_outputs
 
+
+# ==========================================
+# 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
+# ==========================================
 
 # ==========================================
 # 🔄 GENERATE PDF TIMETABLE (ORCHESTRATOR)
