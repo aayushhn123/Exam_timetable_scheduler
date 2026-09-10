@@ -9,7 +9,6 @@ import io
 import base64
 from PyPDF2 import PdfReader, PdfWriter
 from collections import deque, defaultdict
-# ... existing imports ...
 import pandas as pd
 
 @st.cache_data(show_spinner=False)
@@ -31,11 +30,9 @@ def _get_logo_data_uri():
             return f"data:image/png;base64,{encoded}"
     return None
 
-# Add this check to support older and newer Streamlit versions
 if hasattr(st, "dialog"):
     dialog_decorator = st.dialog
 else:
-    # Fallback for older versions (approx < 1.34)
     dialog_decorator = st.experimental_dialog
 
 if hasattr(st, "dialog"):
@@ -55,9 +52,6 @@ def show_capacity_popup():
     if col2.button("No, adhere to limits"):
         st.session_state.capacity_override_choice = "NO"
         st.rerun()
-# ==========================================
-# 📊 STATISTICS BREAKDOWN DIALOGS (Place at TOP of file)
-# ==========================================
 
 @dialog_decorator("📚 Total Exams Breakdown")
 def show_exams_breakdown(df):
@@ -66,14 +60,12 @@ def show_exams_breakdown(df):
     tab1, tab2 = st.tabs(["📊 By Category", "🌿 By Branch"])
     
     with tab1:
-        # Breakdown by Category
         if 'Category' in df.columns:
             st.markdown("#### Core vs Elective")
             cat_counts = df['Category'].value_counts().reset_index()
             cat_counts.columns = ['Category', 'Count']
             st.dataframe(cat_counts, use_container_width=True, hide_index=True)
 
-        # Common vs Uncommon
         st.markdown("#### Commonality")
         if 'CommonAcrossSems' in df.columns:
             common = df[df['CommonAcrossSems'] == True].shape[0]
@@ -112,35 +104,28 @@ def show_semesters_breakdown(df):
 
 @dialog_decorator("🏫 Programs & Streams Breakdown")
 def show_programs_streams_breakdown(df):
-    # Get lists of programs and streams
     programs = sorted(df['MainBranch'].unique()) if 'MainBranch' in df.columns else []
     
-    # Filter out empty streams for the count
     if 'SubBranch' in df.columns:
         streams = df['SubBranch'].dropna().astype(str)
         streams = sorted(streams[streams.str.strip() != ''].unique())
     else:
         streams = []
 
-    # Summary Metrics
     col1, col2 = st.columns(2)
     col1.metric("Total Programs", len(programs))
     col2.metric("Total Streams", len(streams))
     
     st.markdown("---")
     
-    # Tabs for detailed view
     tab1, tab2 = st.tabs(["📂 Grouped by Program", "💧 All Streams List"])
     
     with tab1:
         if 'MainBranch' in df.columns and 'SubBranch' in df.columns:
             for prog in programs:
-                # Find streams belonging to this program
                 prog_streams = df[df['MainBranch'] == prog]['SubBranch'].dropna().unique()
-                # Clean up empty strings
                 prog_streams = [s for s in prog_streams if str(s).strip() != '']
                 
-                # Create an expander for each program
                 with st.expander(f"**{prog}** ({len(prog_streams)} Streams)"):
                     if len(prog_streams) > 0:
                         for s in sorted(prog_streams):
@@ -153,7 +138,6 @@ def show_programs_streams_breakdown(df):
         filtered = [s for s in streams if search.lower() in s.lower()]
         
         if filtered:
-            # Display in columns for better density
             sc1, sc2 = st.columns(2)
             for i, s in enumerate(filtered):
                 if i % 2 == 0:
@@ -191,7 +175,6 @@ def show_span_breakdown(df, holidays_set):
     
     st.bar_chart(data=daily, x='Date', y='Count')
 
-# Set page configuration
 st.set_page_config(
     page_title="Exam Timetable Generator - College Selector",
     page_icon="calendar",
@@ -199,12 +182,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Initialize session state for college selection
 if 'selected_college' not in st.session_state:
     st.session_state.selected_college = None
 
-# Custom CSS for college selector
-# Custom CSS for consistent dark and light mode styling
 st.markdown("""
 <style>
     /* Import Google Fonts */
@@ -655,8 +635,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# List of colleges with icons
-# List of colleges with icons
 COLLEGES = [
     {"name": "Mukesh Patel School of Technology Management & Engineering / School of Technology Management & Engineering", "icon": "🖥️"},
     {"name": "Mukesh Patel School of Technology Management & Engineering Centre for Textile Functions", "icon": "🧵"},
@@ -702,7 +680,6 @@ def show_college_selector():
     st.markdown("### Choose Your School")
     st.markdown("Select the school for which you want to generate the exam timetable:")
 
-    # Add custom CSS for uniform college selector buttons
     st.markdown("""
     <style>
         /* Target all buttons in the college selector section */
@@ -751,7 +728,6 @@ def show_college_selector():
     </style>
     """, unsafe_allow_html=True)
 
-    # Create columns for better layout (3 colleges per row)
     cols_per_row = 3
     num_colleges = len(COLLEGES)
     
@@ -770,7 +746,6 @@ def show_college_selector():
                         st.session_state.selected_college = college['name']
                         st.rerun()
 
-    # Footer
     st.markdown("---")
     st.markdown("""
     <div class="footer">
@@ -782,7 +757,6 @@ def show_college_selector():
     </div>
     """, unsafe_allow_html=True)
 
-# Set page configuration
 st.set_page_config(
     page_title="Exam Timetable Generator",
     page_icon="📅",
@@ -790,7 +764,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for consistent dark and light mode styling
 st.markdown("""
 <style>
     /* Base styles */
@@ -1146,7 +1119,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Define the mapping of main branch abbreviations to full forms
 BRANCH_FULL_FORM = {
     "B TECH": "BACHELOR OF TECHNOLOGY",
     "B TECH INTG": "BACHELOR OF TECHNOLOGY SIX YEAR INTEGRATED PROGRAM",
@@ -1156,24 +1128,20 @@ BRANCH_FULL_FORM = {
     "DIPLOMA": "DIPLOMA IN ENGINEERING"
 }
 
-# Define logo path (adjust as needed for your environment)
-LOGO_PATH = "logo.png"  # Ensure this path is valid in your environment
+LOGO_PATH = "logo.png"
 
-# Cache for text wrapping results
 wrap_text_cache = {}
 
 def get_friendly_error_message(e):
     """Translates technical Python errors into user-friendly advice."""
     error_str = str(e)
     
-    # 1. File Access/Permission Errors
     if "Permission denied" in error_str:
         return "🔒 **File is Open:** It looks like the Excel or PDF file is currently open in another program. Please close the file and try again."
     
     if "No such file or directory" in error_str:
         return "📂 **File Not Found:** The system couldn't locate a required file. If you are uploading a file, please try removing it and uploading it again."
 
-    # 2. Excel Format/Corrupt File Errors
     if "BadZipFile" in error_str:
         return "⚠️ **Corrupt File:** The uploaded Excel file seems to be damaged or is not a valid .xlsx file. Please try saving it again in Excel and re-uploading."
     
@@ -1183,29 +1151,24 @@ def get_friendly_error_message(e):
     if "Worksheet" in error_str and "does not exist" in error_str:
         return "⚠️ **Missing Sheet:** A required sheet (like 'Sheet1') is missing from your Excel file. Please check the template format."
         
-    # 3. Data/Column Errors (KeyErrors)
     if isinstance(e, KeyError):
         return f"⚠️ **Missing Column:** Your Excel file is missing the column **'{e.args[0]}'**. Please check the Input Template to ensure all headers match exactly."
         
-    # 4. Data Type Errors
     if "could not convert string to float" in error_str:
         return "🔢 **Number Error:** We found text where a number was expected (likely in 'Student Count', 'Duration', or 'Semester'). Please check for non-numeric values or typos in these columns."
     
     if "int() argument must be a string" in error_str:
         return "🔢 **Calculation Error:** A calculation failed because of empty or invalid data. Please ensure all cells in required columns (like Semester, Student Count) are filled."
 
-    # 5. Date Errors
     if "day is out of range" in error_str or "month must be in" in error_str:
         return "📅 **Date Error:** An invalid date was found. Please check that your Holiday dates and Semester Start/End dates are valid calendar dates."
     
     if "unconverted data remains" in error_str or "does not match format" in error_str:
         return "📅 **Date Format Error:** One of the dates in your Excel file is not in the correct format (DD-MM-YYYY). Please check the 'Exam Date' column."
 
-    # 6. PDF/Font Errors
     if "Latin-1" in error_str or "codec" in error_str:
         return "🔤 **Character Error:** Your data contains special characters (like emojis or complex symbols) that cannot be printed to the PDF. Please try removing special symbols from Subject Names."
 
-    # Default fallback for unknown errors
     return f"⚠️ **Unexpected Error:** Something went wrong. \n\n**Technical hint:** {str(e)}"
 
 def get_valid_dates_in_range(start_date, end_date, holidays_set):
@@ -1225,7 +1188,6 @@ def get_valid_dates_in_range(start_date, end_date, holidays_set):
     current_date = start_date
     
     while current_date <= end_date:
-        # Skip Sundays (weekday 6) and holidays
         if current_date.weekday() != 6 and current_date.date() not in holidays_set:
             valid_dates.append(current_date.strftime("%d-%m-%Y"))
         current_date += timedelta(days=1)
@@ -1262,7 +1224,6 @@ def get_time_slot_from_number(slot_number, time_slots_dict):
     Returns:
         str: Time slot string in format "HH:MM AM - HH:MM PM"
     """
-    # Default to slot 1 if invalid or missing
     if pd.isna(slot_number) or slot_number == 0 or slot_number not in time_slots_dict:
         slot_number = 1
     
@@ -1285,20 +1246,17 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
     Returns:
         str: Time slot string or None if no capacity available
     """
-    # Get preferred time slot based on slot number
     preferred_slot = get_time_slot_from_number(slot_number, time_slots_dict)
     
     if date_str not in session_capacity:
         return preferred_slot
     
-    # Get slot key for capacity tracking
     slot_key = f"slot_{int(slot_number) if not pd.isna(slot_number) else 1}"
     current_capacity = session_capacity[date_str].get(slot_key, 0)
     
     if current_capacity + student_count <= max_capacity:
         return preferred_slot
     
-    # Try other available slots
     for alt_slot_num in sorted(time_slots_dict.keys()):
         if alt_slot_num == slot_number:
             continue
@@ -1310,7 +1268,6 @@ def get_time_slot_with_capacity(slot_number, date_str, session_capacity, student
         if alt_capacity + student_count <= max_capacity:
             return alt_slot
     
-    # If no slot fits, return None
     return None
                                      
 def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX_STUDENTS_PER_SESSION=1250):
@@ -1336,10 +1293,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
     
     st.info(f"🚀 SCHEDULING STRATEGY: Stream-by-Stream -> Common (Alternate Day) -> Individual (Gap Fill)")
 
-    # Opt-in flags — no-ops for every non-business-school college
     use_slotwise_capacity = is_business_school and st.session_state.get('use_slotwise_capacity', False)
-    # SOL always needs the hard/easy alternating gap logic — Law School has its own
-    # mandatory 1-day gap rule between difficult subjects; business schools stay opt-in.
     use_difficulty_gap = (is_business_school and st.session_state.get('use_difficulty_gap', False)) or IS_LAW_SCHOOL
     difficulty_gap_days = max(1, st.session_state.get('difficulty_gap_days', 1)) if IS_LAW_SCHOOL else st.session_state.get('difficulty_gap_days', 1)
     slot_semester_map = st.session_state.get('slot_semester_map', {}) if is_business_school else {}
@@ -1359,7 +1313,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             2: {"start": "2:00 PM", "end": "5:00 PM"}
         })
     
-    # 1. Define Valid Dates
     all_valid_strings = get_valid_dates_in_range(base_date, end_date, holidays)
     all_valid_dates = []
     for d_str in all_valid_strings:
@@ -1370,7 +1323,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
         except ValueError:
             continue
 
-    # 2. Check for Open Electives to determine if last 2 days actually need reserving
     has_oe = False
     if 'OE' in df.columns:
         has_oe = (df['OE'].notna() & (df['OE'].str.strip() != "")).any()
@@ -1562,9 +1514,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                 campus = str(work_df.loc[idx, 'Campus']).strip().upper() if pd.notna(work_df.loc[idx, 'Campus']) else "UNKNOWN"
                 session_capacity[date_str][time_slot][campus] = session_capacity[date_str][time_slot].get(campus, 0) + work_df.loc[idx, 'StudentCount']
 
-        # ══════════════════════════════════════════════════════════════════
-        # BUSINESS SCHOOL PHASES (PRESERVED)
-        # ══════════════════════════════════════════════════════════════════
         if is_business_school:
             branch_sem_map = {}
             all_units = common_units_priority + common_units_normal + individual_units
@@ -1744,9 +1693,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
             unscheduled_groups = [u for u in bs_units if not u.get('scheduled')]
             return work_df, unscheduled_groups
 
-        # ══════════════════════════════════════════════════════════════════
-        # STANDARD COLLEGE GENERATION PARADIGM
-        # ══════════════════════════════════════════════════════════════════
         def attempt_schedule(unit, allowed_dates, require_1_day_gap=False):
             preferred_slot_num = int(unit['fixed_slot']) if unit['fixed_slot'] > 0 else (1 if ((extract_numeric_sem(unit['sem_raw']) + 1) // 2) % 2 == 1 else 2)
             is_two_credit = unit.get('is_two_credit', False)
@@ -1848,17 +1794,8 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         sequence.append(easy_units[ei]); ei += 1
                     turn_hard = not turn_hard
 
-                # Gap is enforced specifically between two DIFFICULT subjects.
-                # An easy subject may still be placed on the very next day; it must
-                # not "use up" the required gap between the hard subject before it
-                # and the hard subject after it.
-                # NOTE: "gap of N days" means N full rest day(s) between the two hard
-                # exams, so the next hard exam must be at least (N + 1) calendar days
-                # after the previous one — e.g. hard on Mon, gap=1 -> next hard exam
-                # no earlier than Wed (Tue is the rest day). Using +N alone would only
-                # forbid the same day, not guarantee an actual gap.
-                last_scheduled_date = None       # date of the most recently scheduled unit (any difficulty)
-                last_hard_date = None             # date of the most recently scheduled HARD unit
+                last_scheduled_date = None
+                last_hard_date = None
                 for unit in sequence:
                     if unit['id'] in scheduled_ids: continue
                     is_hard = unit.get('max_difficulty', 0) >= 1
@@ -1879,13 +1816,7 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             last_hard_date = placed_on
                     scheduled_ids.add(unit['id'])
         else:
-            # ─────────────────────────────────────────────────────────────
-            # STEP 1: SCHEDULE HIGH-PRIORITY UNITS GLOBALLY FIRST (FROM DAY 1)
-            # Guarantees MBA Tech Year 4 "WITHIN" units are scheduled starting from base_date
-            # Business Statistics is explicitly sorted to the absolute front
-            # ─────────────────────────────────────────────────────────────
             def _priority_sort_key(u):
-                # Put Business Statistics (703TM0C001) first, followed by remaining core management papers
                 is_bus_stat = 1 if ('703TM0C001' in u.get('module_codes', []) or 
                                     any('BUSINESS' in str(sn).upper() for sn in u.get('subject_names', []))) else 0
                 return (is_bus_stat, u.get('student_count', 0))
@@ -1897,9 +1828,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                         unscheduled_groups.append(unit)
                     scheduled_ids.add(unit['id'])
 
-            # ─────────────────────────────────────────────────────────────
-            # STEP 2: SCHEDULE REMAINING STANDARD COMMON UNITS
-            # ─────────────────────────────────────────────────────────────
             for bs in sorted_bsems:
                 remaining_common = [u for u in branch_sem_map[bs]['common'] if u['id'] not in scheduled_ids]
                 remaining_common.sort(key=lambda x: x['student_count'], reverse=True)
@@ -1909,9 +1837,6 @@ def schedule_all_subjects_comprehensively(df, holidays, base_date, end_date, MAX
                             unscheduled_groups.append(unit)
                         scheduled_ids.add(unit['id'])
                         
-            # ─────────────────────────────────────────────────────────────
-            # STEP 3: SCHEDULE INDIVIDUAL UNITS (GAP-FILL)
-            # ─────────────────────────────────────────────────────────────
             for bs in sorted_bsems:
                 branch_sem_map[bs]['individual'].sort(key=lambda x: x['student_count'], reverse=True)
                 for unit in branch_sem_map[bs]['individual']:
@@ -1955,10 +1880,8 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     if not timetable_data:
         return True, []
 
-    # Combine all semester dataframes
     full_df = pd.concat(timetable_data.values(), ignore_index=True)
     
-    # Filter only scheduled rows
     scheduled_df = full_df[
         (full_df['Exam Date'].notna()) & 
         (full_df['Exam Date'] != "") & 
@@ -1969,13 +1892,11 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     if scheduled_df.empty:
         return True, []
 
-    # Ensure Campus column exists and fill nans
     if 'Campus' not in scheduled_df.columns:
         scheduled_df['Campus'] = 'Unknown'
     
     scheduled_df['Campus'] = scheduled_df['Campus'].fillna('Unknown').astype(str).str.strip().str.upper()
     
-    # Group by Date, Slot AND CAMPUS
     session_counts = scheduled_df.groupby(['Exam Date', 'Time Slot', 'Campus']).agg({
         'StudentCount': 'sum',
         'Subject': 'count'
@@ -1997,7 +1918,6 @@ def validate_capacity_constraints(timetable_data, max_capacity=1250):
     for _, row in session_counts.iterrows():
         campus_name = str(row['Campus'])
         limit = _limit_for_time_slot(row['Time Slot'])
-        # ONLY apply capacity limit to MUMBAI campus
         if "MUMBAI" in campus_name and row['StudentCount'] > limit:
             violations.append({
                 'date': row['Exam Date'],
@@ -2039,7 +1959,6 @@ def get_available_semesters_from_upload(uploaded_file):
 
 def read_timetable(uploaded_file):
     try:
-        # Check if file is empty
         uploaded_file.seek(0, os.SEEK_END)
         if uploaded_file.tell() == 0:
             st.error("⚠️ **Empty File:** The uploaded file appears to be empty.")
@@ -2048,10 +1967,8 @@ def read_timetable(uploaded_file):
 
         df = pd.read_excel(uploaded_file, engine='openpyxl')
         
-        # --- Clean Headers ---
         df.columns = df.columns.str.strip()
         
-        # 1. Map Columns
         column_mapping = {
             "Program": "Program", "Programme": "Program", 
             "Stream": "Stream", "Specialization": "Stream", "Branch": "Stream",
@@ -2072,14 +1989,12 @@ def read_timetable(uploaded_file):
         
         df = df.rename(columns=column_mapping)
         
-        # 2. Check Required Cols
         required_cols = ["Program", "Semester", "ModuleCode", "SubjectName"]
         missing_required = [col for col in required_cols if col not in df.columns]
         if missing_required:
             st.error(f"❌ **Missing Required Columns:** {', '.join(missing_required)}")
             return None, None, None
 
-        # --- CRITICAL FIX FOR MERGED CELLS ---
         cols_to_fill = ["Program", "Semester"]
         if "Stream" in df.columns: cols_to_fill.append("Stream")
         
@@ -2087,13 +2002,11 @@ def read_timetable(uploaded_file):
             if col in df.columns:
                 df[col] = df[col].ffill()
 
-        # 3. Clean Strings (Now removes non-breaking spaces \xa0)
         string_columns = ["Program", "Stream", "SubjectName", "ModuleCode", "Campus", "Semester"]
         for col in string_columns:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.replace(r'\xa0', ' ', regex=True).str.strip()
 
-        # 4. Clean CMGroup (STRICT "0" HANDLING)
         if "CMGroup" in df.columns:
             df["CMGroup"] = df["CMGroup"].fillna("").astype(str)
             df["CMGroup"] = df["CMGroup"].apply(lambda x: str(x).split('.')[0].strip())
@@ -2101,7 +2014,6 @@ def read_timetable(uploaded_file):
         else:
             df["CMGroup"] = ""
 
-        # 5. Clean Numerics
         numeric_columns = ["Exam Duration", "StudentCount", "Difficulty"]
         for col in numeric_columns:
             if col in df.columns:
@@ -2109,7 +2021,6 @@ def read_timetable(uploaded_file):
                     df["Exam Duration_WasProvided"] = pd.to_numeric(df[col], errors='coerce').notna()
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0 if col != "Exam Duration" else 3)
         
-        # 6. Branch Creation
         def create_branch_identifier(row):
             prog = row.get("Program", "")
             stream = row.get("Stream", "")
@@ -2121,33 +2032,26 @@ def read_timetable(uploaded_file):
         df["Branch"] = df.apply(create_branch_identifier, axis=1)
         df["Subject"] = df["SubjectName"] + " (" + df["ModuleCode"] + ")"
         
-        # Defaults
         if "ExamSlotNumber" not in df.columns: df["ExamSlotNumber"] = 0
         else: df["ExamSlotNumber"] = pd.to_numeric(df["ExamSlotNumber"], errors='coerce').fillna(0).astype(int)
             
         if "Category" not in df.columns: df["Category"] = "COMP"
         
-        # 7. Clean OE Column
         if "OE" not in df.columns: 
             df["OE"] = ""
         else: 
             df["OE"] = df["OE"].fillna("").astype(str).replace(['nan', 'NaN', 'None'], '').str.strip()
 
-        # 8. Read and clean IsCommon column
         if "IsCommon" not in df.columns:
             df["IsCommon"] = "NO"
         else:
             df["IsCommon"] = df["IsCommon"].fillna("NO").astype(str).str.strip()
 
-        # Reset/Initialize CommonAcrossSems
         if "CommonAcrossSems" not in df.columns:
             df["CommonAcrossSems"] = False
         else:
             df["CommonAcrossSems"] = df["CommonAcrossSems"].fillna(False).astype(bool)
 
-        # ---------------------------------------------------------------
-        # MBA TECH SPECIAL LOGIC (YEAR 4 SEM VII & VIII INCLUDED)
-        # ---------------------------------------------------------------
         sem_upper_series = df["Semester"].astype(str).str.strip().str.upper()
         target_sem_mask = (
             sem_upper_series.str.endswith("VII")  | sem_upper_series.str.endswith(" 7")  | (sem_upper_series == "7") |
@@ -2157,10 +2061,6 @@ def read_timetable(uploaded_file):
             (sem_upper_series == "SEM VII") | (sem_upper_series == "SEM VIII") |
             (sem_upper_series == "SEM IX")  | (sem_upper_series == "SEM X")
         )
-        # Normalize whitespace (collapse double/multiple spaces, strip) before matching, and
-        # match on the distinctive "MBA TECH" / "BUSINESS ADMINISTRATION" + "TECHNOLOGY MANAGEMENT"
-        # keyword pair instead of one long exact phrase, so stray double-spaces or minor wording
-        # differences in the input file don't silently break detection.
         _program_norm = df["Program"].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip().str.upper()
         mba_prog_mask = (
             _program_norm.str.contains("MBA TECH", na=False) |
@@ -2180,8 +2080,6 @@ def read_timetable(uploaded_file):
                 df.loc[group_idx, "CMGroup"] = synthetic_cm
             st.info(f"ℹ️ Priority Common-Within subjects detected: Assigned independent priority queues for MBA Tech Year 4 (Sem VII / VIII). ({priority_mask.sum()} rows)")
         else:
-            # Diagnostic aid: tells you exactly which of the three conditions is failing,
-            # instead of silently doing nothing.
             _mba_count = mba_prog_mask.sum()
             if _mba_count == 0:
                 st.warning("⚠️ MBA Tech priority check: no rows matched the MBA Tech program name. Check the 'Program' column values.")
@@ -2195,7 +2093,6 @@ def read_timetable(uploaded_file):
         df_ele = df[is_true_oe_mask].copy()
         df_non = df[~is_true_oe_mask].copy()
 
-        # Use raw Program/Stream for Main/Sub branch
         for d in [df_non, df_ele]:
             if not d.empty:
                 d["MainBranch"] = d["Program"]
@@ -2309,10 +2206,8 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         wrapped_cells.append(lines)
         max_lines = max(max_lines, len(lines))
 
-    # Outer row height is strictly line_height * max_lines
     row_h = line_height * max_lines
 
-    # Tighter line spacing internally for text rendering
     text_line_height = line_height * 0.75
 
     x0, y0 = pdf.get_x(), pdf.get_y()
@@ -2324,7 +2219,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
     for i, lines in enumerate(wrapped_cells):
         cx = pdf.get_x()
 
-        # Split lines by <hr> into distinct subjects to partition the cell
         subjects_lines = []
         current_subject = []
         for ln in lines:
@@ -2339,7 +2233,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
         part_h = row_h / num_subjects if num_subjects > 0 else row_h
 
         for sub_idx, subj_lines in enumerate(subjects_lines):
-            # Vertically center each subject inside its designated horizontal partition
             total_text_h = len(subj_lines) * text_line_height
             pad_v = (part_h - total_text_h) / 2
 
@@ -2373,7 +2266,6 @@ def print_row_custom(pdf, row_data, col_widths, line_height=5, header=False):
 
                     pdf.set_font(base_font, base_style, base_size)
 
-            # Draw the horizontal partition border exactly on the boundary between subjects
             if sub_idx < num_subjects - 1:
                 line_y = y0 + ((sub_idx + 1) * part_h)
                 pdf.line(cx, line_y, cx + col_widths[i], line_y)
@@ -2389,7 +2281,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     setattr(pdf, '_row_counter', 0)
 
     footer_height = 14
-    header_end_y = 60     # LOCKED: compact header ends exactly at y=60
+    header_end_y = 60
 
     def render_footer():
         pdf.set_xy(10, pdf.h - footer_height)
@@ -2420,20 +2312,17 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
             pdf.set_xy(pdf.w - 80, 8)
             pdf.cell(70, 10, decl_str, 0, 0, 'R')
 
-        # Logo
         logo_width = 45
         logo_x = (pdf.w - logo_width) / 2
         if os.path.exists(LOGO_PATH):
             pdf.image(LOGO_PATH, x=logo_x, y=5, w=logo_width)
 
-        # College Name — Size 12, Bold
         pdf.set_text_color(0, 0, 0)
         college_name = st.session_state.get('selected_college', "SVKM's NMIMS University").upper()
         pdf.set_font("Times", 'B', 12)
         pdf.set_xy(10, 25)
         pdf.cell(pdf.w - 20, 6, college_name, 0, 1, 'C')
 
-        # Main Title — Size 10, Bold
         pdf.set_font("Times", 'B', 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
@@ -2441,7 +2330,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 
         current_y = 38
 
-        # Program Name — Size 10, Bold
         pdf.set_font("Times", 'B', 10)
         pdf.set_xy(10, current_y)
         _prog_title = f"{header_content['main_branch_full']}".upper()
@@ -2450,7 +2338,6 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         pdf.cell(pdf.w - 20, 4, _prog_title, 0, 1, 'C')
         current_y += 4
 
-        # Year and Semester — Size 10, Bold
         sem_roman = str(header_content['semester_roman']).upper()
         roman_map = {'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8, 'VII': 7,
                      'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1}
@@ -2477,13 +2364,11 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
         current_y += 4
 
         if time_slot:
-            # Exam Time — Size 9, Bold
             pdf.set_font("Times", 'B', 9)
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, f"EXAM TIME: {time_slot}".upper(), 0, 1, 'C')
             current_y += 4
 
-            # Subtitle — Size 9, Bold & Italic
             pdf.set_font("Times", 'BI', 9)
             pdf.set_xy(10, current_y)
             pdf.cell(pdf.w - 20, 4, "(CHECK THE SUBJECT EXAM TIME)".upper(), 0, 1, 'C')
@@ -2500,17 +2385,14 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
     def _header_case(c):
         s = str(c).upper()
         if _is_law_school_ctx:
-            # Preserve "Hons." casing (e.g. "B.A., LL.B. (Hons.)") instead of "(HONS.)"
             s = re.sub(r'HONS\.', 'Hons.', s, flags=re.IGNORECASE)
         return s
 
     upper_columns = [_header_case(c) for c in columns]
 
-    # Table Headers — Size 9.5, Bold
     pdf.set_font("Times", 'B', 9.5)
     print_row_custom(pdf, upper_columns, col_widths, line_height=line_height, header=True)
 
-    # Table Row Content — Size 9.5, Regular
     pdf.set_font("Times", '', 9.5)
 
     for idx in range(len(df)):
@@ -2541,35 +2423,21 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5, header_conte
 def calculate_end_time(start_time, duration_hours):
     """Calculate the end time given a start time and duration in hours."""
     try:
-        # Handle different time formats
         start_time = str(start_time).strip()
         
-        # Try to parse the time
         if "AM" in start_time.upper() or "PM" in start_time.upper():
             start = datetime.strptime(start_time, "%I:%M %p")
         else:
-            # Try 24-hour format
             start = datetime.strptime(start_time, "%H:%M")
         
         duration = timedelta(hours=float(duration_hours))
         end = start + duration
         return end.strftime("%I:%M %p").replace("AM", "AM").replace("PM", "PM")
     except Exception as e:
-        #st.write(f"⚠️ Error calculating end time for {start_time}, duration {duration_hours}: {e}")
         return f"{start_time} + {duration_hours}h"
         
 
         
-## ─────────────────────────────────────────────────────────────────────────────
-##  DROP-IN REPLACEMENT  —  convert_excel_to_pdf
-##
-##  • School of Business Management  &  Pravin Dalal School of …
-##    → Portrait A4, 4 columns: DAY & DATE | TIMING & SUBJECT (×3)
-##      Time ranges appear in a bold sub-header row under the column headers.
-##      No "EXAM TIME:" line in the page header.
-##
-##  • All other colleges → existing Landscape Legal logic (unchanged).
-## ─────────────────────────────────────────────────────────────────────────────
 
 def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, declaration_date=None):
     import uuid
@@ -2659,9 +2527,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
     sheets_processed = 0
     pdf_outputs = {}
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  BRANCH A — School of Business Management / Pravin Dalal (MULTIPLE PDFs)
-    # ══════════════════════════════════════════════════════════════════════════
     if IS_BUSINESS_SCH:
         footer_height    = 14
         header_end_y     = 68   
@@ -2811,8 +2676,12 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             if sem_int is None:
                 m = re.search(r'(\d+)', sem_roman)
                 sem_int = int(m.group(1)) if m else 1
-                
-            year_int = (sem_int + 2) // 3
+
+            _period_label = st.session_state.get('period_label', 'Trimester').upper()
+            if _period_label == "SEMESTER":
+                year_int = (sem_int + 1) // 2
+            else:
+                year_int = (sem_int + 2) // 3
 
             def _to_roman(n):
                 val = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),(50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
@@ -2824,7 +2693,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
             pdf_obj.set_font("Times", 'B', F_YEAR)
             cell_h = F_YEAR * 0.40
             pdf_obj.set_xy(10, text_y)
-            _period_label = st.session_state.get('period_label', 'Trimester').upper()
             pdf_obj.cell(pdf_obj.w - 20, cell_h, f"YEAR: {_to_roman(year_int)}, {_period_label}: {sem_roman}", 0, 1, 'C')
             text_y += cell_h + LINE_GAP
             pdf_obj.set_xy(pdf_obj.l_margin, text_y + 3)
@@ -2865,11 +2733,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
 
             if fill_color: pdf_obj.rect(x0, y0, sum(col_widths), row_h, 'F')
 
-            # FIX: Fragment-aware regex pattern. It checks for full time brackets first,
-            # then safely fallbacks to catching broken left-brackets and right-brackets
-            # independently -- including lines that wrap mid-number (e.g. ending in
-            # "...to 1:30" with no trailing paren yet) or that are just the leftover
-            # "p.m.)" / "a.m.)" suffix with no digits on that line at all.
             time_pattern = re.compile(
                 r'('
                 r'\(\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\s*(?:to|-)\s*\d{1,2}:\d{2}\s*(?:[ap]\.m\.|[AMP]{2})\)'
@@ -3000,11 +2863,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         except:
                             pass
 
-                        # Only show the subject's own start-to-end time inline when an
-                        # Exam Duration was actually provided for that subject in the
-                        # input AND it differs from the slot's configured width. If no
-                        # duration was provided, always fall back to the configured
-                        # slot's time (no bracket annotation).
                         if duration_was_provided and slot_duration_hours is not None and abs(duration - slot_duration_hours) > 0.01:
                             try:
                                 start_dt = datetime.strptime(slot_cfg['start'].strip(), "%I:%M %p")
@@ -3098,9 +2956,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                 st.warning(f"Error processing sheet {sheet_name}: {e}")
                 continue
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  BRANCH B — All other colleges (SINGLE COMBINED PDF)
-    # ══════════════════════════════════════════════════════════════════════════
     else:
         pdf = FPDF(orientation='L', unit='mm', format='Legal')
         pdf.set_auto_page_break(auto=False, margin=15)
@@ -3145,8 +3000,6 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                         display_sem = display_sem[len(prefix):].strip(); break
 
                 header_content  = {'main_branch_full': main_branch_full, 'semester_roman': display_sem}
-                # SOL: header must reflect the slot actually assigned to this semester's
-                # subjects (input file's slot assignment doesn't always follow parity).
                 if IS_LAW_SCHOOL:
                     header_exam_time = get_header_time_from_sheet(sheet_df, f"Sem {display_sem}")
                 else:
@@ -3289,7 +3142,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
             return
             
         try:
-            # We now receive a DICTIONARY of PDFs from the converter
             pdf_dict = convert_excel_to_pdf(temp_excel, declaration_date=declaration_date)
         except Exception as e:
             st.error(f"❌ Error during Excel to PDF conversion: {e}")
@@ -3312,7 +3164,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
         final_pdfs = {}
         page_number_pattern = re.compile(r'^[\s\n]*(?:Page\s*)?\d+[\s\n]*$')
 
-        # Post-process every PDF in the dictionary to remove blank pages
         for filename, pdf_bytes in pdf_dict.items():
             reader = PdfReader(io.BytesIO(pdf_bytes))
             writer = PdfWriter()
@@ -3337,7 +3188,6 @@ def generate_pdf_timetable(semester_wise_timetable, output_pdf, declaration_date
             st.error("❌ All PDF pages were blank after processing.")
             return
 
-        # Check if we need to ZIP or just return a single PDF
         if len(final_pdfs) == 1:
             st.session_state.pdf_data = list(final_pdfs.values())[0]
             st.session_state.is_zip_download = False
@@ -3362,27 +3212,22 @@ def save_verification_excel(original_df, semester_wise_timetable):
         st.error("No timetable data provided for verification")
         return None
 
-    # Get time slots configuration
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM", "end": "5:00 PM"}
     })
 
-    # Combine all scheduled data first
     scheduled_data = pd.concat(semester_wise_timetable.values(), ignore_index=True)
 
-    # Clean ModuleCode in scheduled data for lookup
     if 'ModuleCode' in scheduled_data.columns:
         scheduled_data["LookupModuleCode"] = scheduled_data["ModuleCode"].astype(str).str.strip()
     else:
         scheduled_data["LookupModuleCode"] = scheduled_data["Subject"].str.extract(r'\(([^)]+)\)$', expand=False).str.strip()
 
-    # Bulletproof string cleaner for keys
     def clean_key(s):
         import re
         return re.sub(r'\s+', '', str(s)).upper()
 
-    # Create a robust lookup dictionary
     scheduled_lookup = {}
     for idx, row in scheduled_data.iterrows():
         mod_code = row.get('LookupModuleCode', '')
@@ -3393,7 +3238,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
             scheduled_lookup[key] = []
         scheduled_lookup[key].append(row)
     
-    # Handle different possible column names in original data
     column_mapping = {
         "Module Abbreviation": ["Module Abbreviation", "ModuleCode", "Module Code", "Code"],
         "Current Session": ["Current Session", "Semester", "Current Academic Session"],
@@ -3409,7 +3253,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     
     original_df.columns = original_df.columns.str.strip()
 
-    # Find actual column names
     actual_columns = {}
     for standard_name, possible_names in column_mapping.items():
         for possible_name in possible_names:
@@ -3417,19 +3260,16 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 actual_columns[standard_name] = possible_name
                 break
     
-    # Create verification dataframe with available columns
     columns_to_include = list(actual_columns.values())
     verification_df = original_df[columns_to_include].copy()
     
-    # Standardize column names
     reverse_mapping = {v: k for k, v in actual_columns.items()}
     verification_df = verification_df.rename(columns=reverse_mapping)
 
-    # Initialize new columns with standard object dtype to prevent strict string enforcement errors
     verification_df["Exam Date"] = ""
     verification_df["Exam Time"] = ""
     verification_df["Exam Slot Number"] = ""
-    verification_df["Time Slot"] = ""  # Kept internally for stat tracking, removed before export
+    verification_df["Time Slot"] = ""
     verification_df["Is Common Status"] = ""
     verification_df["Scheduling Status"] = "Not Scheduled"
     verification_df["Capacity Exceeded Limit"] = "No" 
@@ -3443,7 +3283,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     unique_subjects_matched = set()
     unique_subjects_unmatched = set()
     
-    # Process each row for matching
     for idx, row in verification_df.iterrows():
         try:
             module_code = str(row.get("Module Abbreviation", "")).strip()
@@ -3454,7 +3293,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_subjects_unmatched.add(f"Unknown_{idx}")
                 continue
             
-            # 1. Build Verification Branch Name
             program = str(row.get("Program", "")).replace('\xa0', ' ').strip()
             stream = str(row.get("Stream", "")).replace('\xa0', ' ').strip()
             if not stream or stream == program or stream == "nan":
@@ -3467,7 +3305,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                 unique_subjects_unmatched.add(module_code)
                 continue
             
-            # 2. Look up using only Module + Semester (Broad Search)
             lookup_key = f"{clean_key(module_code)}_{clean_key(semester_val)}"
             
             match_found = False
@@ -3476,11 +3313,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
             if lookup_key in scheduled_lookup:
                 candidates = scheduled_lookup[lookup_key]
                 
-                # 3. Narrow down by Branch (Soft Match)
                 for candidate in candidates:
                     sched_branch = str(candidate.get('Branch', '')).replace('\xa0', ' ').strip()
                     
-                    # Case insensitive and robust match
                     v_branch_clean = clean_key(verify_branch)
                     s_branch_clean = clean_key(sched_branch)
                     
@@ -3489,7 +3324,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                         match_found = True
                         break
                         
-                    # Check if common subject
                     if str(candidate.get('CMGroup', '')).strip() != '' or str(candidate.get('IsCommon', '')).strip().upper() == 'YES':
                         matched_subject = candidate
                         match_found = True
@@ -3511,7 +3345,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
                     try: exam_slot_number = int(float(exam_slot_number))
                     except: exam_slot_number = 1
                     
-                    # FIX: Cast to string to prevent Strict Pandas TypeErrors
                     verification_df.at[idx, "Exam Slot Number"] = str(exam_slot_number)
                     verification_df.at[idx, "Time Slot"] = str(assigned_time_slot) if assigned_time_slot else "TBD"
                     
@@ -3562,13 +3395,9 @@ def save_verification_excel(original_df, semester_wise_timetable):
 
     st.success(f"✅ **Enhanced Verification Results:** {matched_count} instances matched.")
 
-    # ---------------------------------------------------------
-    # STATISTICS & ANALYSIS GENERATION
-    # ---------------------------------------------------------
     
     scheduled_subjects = verification_df[verification_df["Scheduling Status"] == "Scheduled"].copy()
     
-    # 1. Clean Student Count
     if 'Student count' in scheduled_subjects.columns:
         scheduled_subjects['Student Count Clean'] = pd.to_numeric(
             scheduled_subjects['Student count'], 
@@ -3577,7 +3406,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     else:
         scheduled_subjects['Student Count Clean'] = 0
     
-    # 2. Daily Statistics
     daily_stats = []
     if not scheduled_subjects.empty:
         campuses = scheduled_subjects['Campus'].unique()
@@ -3598,7 +3426,6 @@ def save_verification_excel(original_df, semester_wise_timetable):
     
     daily_stats_df = pd.DataFrame(daily_stats).sort_values('Exam Date') if daily_stats else pd.DataFrame()
 
-    # 3. Enhanced Utilization, Detailed Breakdown & Overload Analysis
     utilization_df = pd.DataFrame()
     detailed_schedule_df = pd.DataFrame()
     overload_analysis_df = pd.DataFrame()
@@ -3673,18 +3500,13 @@ def save_verification_excel(original_df, semester_wise_timetable):
         if not overload_analysis_df.empty:
             overload_analysis_df = overload_analysis_df.sort_values(['Exam Date', 'Slot', 'Campus', 'Subject Student Count'], ascending=[True, True, True, False])
 
-    # ---------------------------------------------------------
-    # EXCEL EXPORT
-    # ---------------------------------------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         
-        # 1. Redefined base_cols to place Exam Date and Exam Time side-by-side, removing Configured Slot
         base_cols = ['Module Abbreviation', 'Module Description', 'Program', 'Stream', 'Current Session',
                      'Exam Date', 'Exam Time', 'Exam Slot Number',
                      'Student count', 'Campus', 'Scheduling Status', 'Capacity Exceeded Limit', 'Subject Type', 'Is Common Status']
         
-        # 2. Exclude 'Time Slot' and 'Configured Slot' completely from final export
         remaining_cols = [col for col in verification_df.columns 
                          if col not in base_cols 
                          and col not in ['Student Count Clean', 'Exam Date Parsed', 'Time Slot', 'Configured Slot']]
@@ -3753,7 +3575,6 @@ def save_to_excel(semester_wise_timetable):
         st.warning("No timetable data to save")
         return None
 
-    # SOL detection
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "Law" in current_college_context
     IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
@@ -3772,10 +3593,8 @@ def save_to_excel(semester_wise_timetable):
         or "Diploma in Textile Technology" in current_college_context
     )
 
-    # The combined header string that replaces both individual program headers
     SOL_MERGED_BRANCH = "B.A., LL.B. (Hons.) / B.B.A., LL.B. (Hons.)"
 
-    # Strict regex: must start with B.A. or B.B.A. AND contain LL.B; must NOT match LL.M/Master
     import re as _re
     _sol_ba_bba_re = _re.compile(r'^(B\.A\.|B\.B\.A\.)[,\s].*LL\.B', _re.IGNORECASE)
     _sol_llm_re    = _re.compile(r'(LL\.M|master\s+of\s+law|llm)', _re.IGNORECASE)
@@ -3808,10 +3627,6 @@ def save_to_excel(semester_wise_timetable):
         if not mask.any():
             return df_out
 
-        # Year IV & V (Sem VII, VIII, IX & X): subjects are common across B.A. and
-        # B.B.A. due to the current 4th-year batch changes, so the specialization
-        # column should be shown only once (no program prefix) — same merged-column
-        # treatment as Sem IX & X.
         is_year_5 = sem_num in (7, 8, 9, 10)
 
         def _build_sub(row):
@@ -3902,9 +3717,6 @@ def save_to_excel(semester_wise_timetable):
                 except:
                     sem_num = 1
 
-                # SOL: derive the semester's primary slot from what was actually
-                # assigned in the input file, not from a parity guess — the input
-                # file's slot assignment does not always follow the odd/even pattern.
                 primary_slot_num = None
                 if IS_LAW_SCHOOL and 'ExamSlotNumber' in df_sem.columns:
                     _sn_vals = pd.to_numeric(df_sem['ExamSlotNumber'], errors='coerce').dropna()
@@ -3918,20 +3730,16 @@ def save_to_excel(semester_wise_timetable):
                 primary_slot_str = f"{primary_slot_config['start']} - {primary_slot_config['end']}"
                 primary_slot_norm = normalize_time(primary_slot_str)
 
-                # ── SOL MERGE: run before iterating main_branch ──────────────
                 df_sem_working = _apply_sol_merge(df_sem, sem_num=sem_num) if IS_LAW_SCHOOL else df_sem
 
                 for main_branch in df_sem_working["MainBranch"].unique():
                     df_mb = df_sem_working[df_sem_working["MainBranch"] == main_branch].copy()
                     if df_mb.empty: continue
 
-                    # ── SOL: fold OE rows inline; suppress separate elective sheet ──
                     if IS_LAW_SCHOOL and main_branch == SOL_MERGED_BRANCH:
-                        # Treat ALL rows as core for this merged branch
                         df_non_elec = df_mb.copy()
                         df_elec = pd.DataFrame()
 
-                        # Tag OE rows so they are identifiable in the cell text
                         oe_mask = (
                             df_non_elec['OE'].notna() &
                             (df_non_elec['OE'].astype(str).str.strip() != "")
@@ -3959,11 +3767,6 @@ def save_to_excel(semester_wise_timetable):
                             assigned_slot_str = str(row.get('Time Slot', '')).strip()
 
                             if is_business_school:
-                                # Only treat duration as "real" when it was actually
-                                # provided for this subject. If blank, fall back to the
-                                # assigned slot's own width (no artificial mismatch,
-                                # so no bracket gets shown for subjects with no
-                                # explicit Exam Duration in the input).
                                 _raw_duration = row.get('Exam Duration', None)
                                 duration_provided = pd.notna(_raw_duration) and str(_raw_duration).strip() not in ('', 'nan')
                                 if duration_provided:
@@ -4036,11 +3839,6 @@ def save_to_excel(semester_wise_timetable):
                             
                             if not df_elec_scheduled.empty:
                                 if IS_MPSTME and 'Time Slot' in df_elec_scheduled.columns:
-                                    # MPSTME OE pages: instead of a single "OE Type"
-                                    # column, split subjects into sub-rows grouped by
-                                    # their actual Time Slot. Any bracketed [time]
-                                    # suffix already on the subject name is stripped
-                                    # since the row itself now conveys the time.
                                     bracket_re = _re.compile(r'\s*\[[^\]]*\]\s*$')
 
                                     def _clean_subject(s):
@@ -4050,7 +3848,6 @@ def save_to_excel(semester_wise_timetable):
                                     df_elec_scheduled['TimeSlotClean'] = df_elec_scheduled['Time Slot'].fillna('').astype(str).str.strip()
 
                                     def _build_time_split(group):
-                                        # One sub-row per distinct Time Slot, in start-time order
                                         slot_groups = (
                                             group.groupby('TimeSlotClean')['DisplaySubject']
                                             .apply(lambda x: ", ".join(sorted(set(x))))
@@ -4126,48 +3923,35 @@ def schedule_electives_globally(df_ele, max_non_elec_date, holidays_set):
     
     st.info("🎓 Scheduling electives (Targeting Reserved OE Days)...")
     
-    # 1. Identify Unique OE Groups
     unique_oes = df_ele['OE'].unique()
     unique_oes = [oe for oe in unique_oes if pd.notna(oe) and str(oe).strip() != ""]
-    unique_oes.sort() # Ensure consistent order
+    unique_oes.sort()
     
     if not unique_oes:
         return df_ele
 
-    # Determine Start Date for OE
-    # We prefer the date passed as 'max_non_elec_date' which should ideally be the start of the reserved block
-    # However, we calculate strictly next valid day to be safe.
     
-    # In the main flow, we should pass the START of the reserved block as max_non_elec_date.
-    # Let's verify we find valid days from there.
     
     current_date = datetime.combine(max_non_elec_date, datetime.min.time())
-    # If max_non_elec_date was the last core exam, we start checking from next day
-    # But if the main function logic worked, max_non_elec_date IS the first reserved day.
-    # Let's assume current_date is the first candidate.
     
     scheduled_count = 0
     
-    # Time slot settings (Default Electives to Morning/Slot 1)
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"}
     })
     slot_1 = time_slots_dict[1]['start'] + " - " + time_slots_dict[1]['end']
 
     for oe_group in unique_oes:
-        # Find next valid day
-        while current_date.date() in holidays_set or current_date.weekday() == 6: # Skip Sundays/Holidays
+        while current_date.date() in holidays_set or current_date.weekday() == 6:
             current_date += timedelta(days=1)
             
         exam_day_str = current_date.strftime("%d-%m-%Y")
         
-        # Apply schedule
         mask = df_ele['OE'] == oe_group
         df_ele.loc[mask, 'Exam Date'] = exam_day_str
         df_ele.loc[mask, 'Time Slot'] = slot_1
         df_ele.loc[mask, 'ExamSlotNumber'] = 1
         
-        # Move to next day for next OE group
         current_date += timedelta(days=1)
         scheduled_count += 1
         
@@ -4199,8 +3983,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
         or "Diploma in Textile Technology" in current_college
     )
     
-    # SBM requested an even spread across the entire date range.
-    # Gap-filling moves exams backwards to compress the schedule, which completely undoes the even spread.
     if is_business_school:
         st.info("💼 Skipping backward gap-fill to maintain an even spread across the full date range for Business School.")
         return sem_dict, 0, []
@@ -4208,10 +3990,8 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
     moves_made = 0
     optimization_log = []
     
-    # Get capacity limit from session state
     MAX_CAPACITY = st.session_state.get('capacity_slider', 1250)
     
-    # Pre-calculate campus loads for all currently scheduled slots
     schedule_load_map = {}
     
     def refresh_load_map():
@@ -4233,10 +4013,8 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 schedule_load_map[d][t][c] = schedule_load_map[d][t].get(c, 0) + cnt
 
-    # Initial build
     refresh_load_map()
 
-    # Iterate through semesters to find gaps
     for sem, df in sem_dict.items():
         scheduled_dates = pd.to_datetime(df[df['Exam Date'].notna()]['Exam Date'], format="%d-%m-%Y", errors='coerce').dropna()
         if scheduled_dates.empty:
@@ -4244,14 +4022,13 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             
         sem_start = min(scheduled_dates)
         
-        # Ensure CMGroup column handles nans/empty strings correctly for boolean indexing
         cm_col = df['CMGroup'].fillna("").astype(str).str.strip().replace(["0", "0.0", "nan"], "")
         
         candidates = df[
             (df['Exam Date'].notna()) & 
             (df['Category'] != 'INTD') & 
             (df['OE'].isna() | (df['OE'] == "")) &
-            (cm_col == "") & # Only move subjects that do NOT have a CM Group
+            (cm_col == "") &
             (pd.to_datetime(df['Exam Date'], format="%d-%m-%Y") > sem_start)
         ].sort_values('Exam Date', ascending=False)
         
@@ -4259,25 +4036,20 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
             current_date_str = subject['Exam Date']
             current_date_obj = datetime.strptime(current_date_str, "%d-%m-%Y")
 
-            # ── 2-credit detection (Difficulty == 0) ─────────────────────────
-            # 2-credit subjects bypass the alternate-day rule during gap-filling too.
             diff_val = subject.get('Difficulty', -1)
             try:
                 is_two_credit = (float(diff_val) == 0.0)
             except (TypeError, ValueError):
                 is_two_credit = False
             
-            # Try to find an earlier gap
             check_date = sem_start
             while check_date < current_date_obj:
                 check_date_str = check_date.strftime("%d-%m-%Y")
                 
-                # SKIP if check_date is a holiday OR SUNDAY
                 if check_date.date() in holidays or check_date.weekday() == 6:
                     check_date += timedelta(days=1)
                     continue
 
-                # Check student conflict (Same Branch Same Day)
                 sub_branch = subject['SubBranch']
                 busy_on_date = df[
                     (df['Exam Date'] == check_date_str) & 
@@ -4286,8 +4058,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                 
                 conflict_found = not busy_on_date.empty
                 
-                # --- LAW SCHOOL ALTERNATE DAY CHECK FOR GAP FILLING ---
-                # Skipped entirely for 2-credit subjects (Difficulty == 0).
                 if not conflict_found and IS_LAW_SCHOOL and not is_two_credit:
                     prev_date_str = (check_date - timedelta(days=1)).strftime("%d-%m-%Y")
                     next_date_str = (check_date + timedelta(days=1)).strftime("%d-%m-%Y")
@@ -4299,7 +4069,6 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                         conflict_found = True
                 
                 if not conflict_found:
-                    # Check CAPACITY Constraints per Campus (ONLY FOR MUMBAI)
                     target_time_slot = subject['Time Slot']
                     campus = str(subject.get('Campus', 'Unknown')).strip().upper()
                     student_count = int(subject.get('StudentCount', 0))
@@ -4307,11 +4076,8 @@ def optimize_schedule_by_filling_gaps(sem_dict, holidays, base_date, end_date):
                     current_load = schedule_load_map.get(check_date_str, {}).get(target_time_slot, {}).get(campus, 0)
                     
                     if "MUMBAI" not in campus or (current_load + student_count) <= MAX_CAPACITY:
-                        # VALID MOVE!
-                        # 1. Update DataFrame
                         sem_dict[sem].at[idx, 'Exam Date'] = check_date_str
                         
-                        # 2. Update Load Map
                         old_load = schedule_load_map[current_date_str][target_time_slot][campus]
                         schedule_load_map[current_date_str][target_time_slot][campus] = old_load - student_count
                         
@@ -4335,10 +4101,8 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays):
     moves_made = 0
     log = []
     
-    # Get capacity limit
     MAX_CAPACITY = st.session_state.get('capacity_slider', 1250)
     
-    # 1. Collect all OE subjects from all semesters
     all_oes = []
     for sem, df in sem_dict.items():
         oes = df[df['OE'].notna() & (df['OE'] != "")].copy()
@@ -4351,7 +4115,6 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays):
         
     combined_oes = pd.concat(all_oes)
     
-    # 2. Build Load Map (Global view of current schedule)
     schedule_load_map = {}
     for s, df in sem_dict.items():
         scheduled = df[
@@ -4369,62 +4132,38 @@ def optimize_oe_subjects_after_scheduling(sem_dict, holidays):
             if t not in schedule_load_map[d]: schedule_load_map[d][t] = {}
             schedule_load_map[d][t][c] = schedule_load_map[d][t].get(c, 0) + cnt
 
-    # 3. Group by OE Type (e.g., "OE-1") to move them as a block
     for oe_type, group in combined_oes.groupby('OE'):
-        # Check current placement
         current_dates = group['Exam Date'].unique()
-        if len(current_dates) != 1: continue # Skip if split across days (complex case)
+        if len(current_dates) != 1: continue
         
         current_date_str = current_dates[0]
         current_slot = group['Time Slot'].iloc[0]
         
-        # Calculate total students per campus for this OE Group
-        # We need to ensure the NEW slot can handle these
         campus_requirements = group.groupby('Campus')['StudentCount'].sum().to_dict()
         
-        # Try to find a better slot (e.g., earlier?)
-        # For OEs, usually "Optimization" means ensuring they don't clash or are compacted.
-        # If they are already scheduled validly, we might just validate capacity here 
-        # or leave them be. 
-        # Assuming this function is meant to compress schedule:
         
-        # (Simplified: Just ensure existing placement respects capacity. 
-        # If we wanted to move them, we'd replicate the logic from fill_gaps.
-        # Given the prompt, let's just return current dict as the Main Scheduler
-        # usually places OEs at the end safely. Moving them earlier is risky 
-        # for student conflicts. We will just return to avoid breaking things).
         
         pass 
 
-    # Since OE optimization is complex and risky with capacity constraints 
-    # (moving a massive OE block can easily trigger overload), 
-    # we effectively disable the *moves* but keep the function signature.
-    # The Main Scheduler's placement is usually safest for OEs.
     
     return sem_dict, 0, []
 
 
 def main():
-    # Check if college is selected
     if st.session_state.selected_college is None:
         show_college_selector()
         return
     
-    # -----------------------------------------------------------
-    # 1. DETECT COLLEGE CONTEXT
-    # -----------------------------------------------------------
     current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
     IS_LAW_SCHOOL = "Law" in current_college or "Law" in current_college 
     IS_MPSTME = "Mukesh Patel" in current_college or "Technology Management" in current_college
     
-    # Display selected college in sidebar
     with st.sidebar:
         st.markdown(f"### 🏫 Selected School")
         st.info(current_college)
         
         if st.button("🔙 Change School", use_container_width=True):
             st.session_state.selected_college = None
-            # Clear all timetable data when changing school
             for key in list(st.session_state.keys()):
                 if key != 'selected_college':
                     del st.session_state[key]
@@ -4432,7 +4171,6 @@ def main():
         
         st.markdown("---")
 
-    # Initialize ALL session state variables at the start
     session_defaults = {
         'num_custom_holidays': 1,
         'custom_holidays': [None],
@@ -4446,12 +4184,11 @@ def main():
         'total_branches': 0,
         'overall_date_range': 0,
         'unique_exam_days': 0,
-        'capacity_slider': 1250 if IS_MPSTME else (449 if IS_LAW_SCHOOL else 2000), # Default capacity switching
+        'capacity_slider': 1250 if IS_MPSTME else (449 if IS_LAW_SCHOOL else 2000),
         'holidays_set': set(),
         'original_df': None
     }
 
-    # Initialize any missing session state variables
     for key, default_value in session_defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default_value
@@ -4479,7 +4216,6 @@ def main():
         st.markdown("#### 📅 Examination Period")
         st.markdown("")
     
-       # Default Dates Logic: Current date and Current date + 10 days for ALL colleges
         def_start = datetime.today()
         def_end = datetime.today() + timedelta(days=10)
 
@@ -4492,13 +4228,11 @@ def main():
             end_date = st.date_input("📆 End Date", value=def_end)
             end_date = datetime.combine(end_date, datetime.min.time())
 
-        # Validate date range
         if end_date <= base_date:
             st.error("⚠️ End date must be after start date!")
             end_date = base_date + timedelta(days=30)
             st.warning(f"⚠️ Auto-corrected end date to: {end_date.strftime('%Y-%m-%d')}")
 
-        # Declaration Date Selector
         st.markdown("")
         declaration_date = st.date_input(
             "📆 Declaration Date (Optional)",
@@ -4508,11 +4242,9 @@ def main():
 
         st.markdown("---")
     
-        # NEW: Time Slot Configuration
         st.markdown("#### ⏰ Time Slot Configuration")
         st.markdown("")
     
-        # Initialize session state for time slots with College Specific Defaults
         current_college = st.session_state.get('selected_college', "SVKM's NMIMS University")
         IS_LAW_SCHOOL = "Law" in current_college
         is_business_school = (
@@ -4530,14 +4262,11 @@ def main():
             or "Diploma in Textile Technology" in current_college
         )
         
-        # If the user switches colleges, reset the slots to the new defaults automatically
         if st.session_state.get('prev_college') != current_college:
             if 'time_slots' in st.session_state:
                 del st.session_state['time_slots']
             st.session_state['prev_college'] = current_college
 
-        # Semester / Trimester period label — only relevant for business-tagged colleges.
-        # Defaults to Trimester for SBM / Pravin Dalal, Semester for the rest (e.g. Liberal Arts).
         if is_business_school:
             _is_trimester_college = (
                 "School of Business Management" in current_college
@@ -4558,7 +4287,6 @@ def main():
             )
             st.session_state['period_label'] = period_choice
 
-            # Academic Year selector — shown on timetable header, Excel, and PDF.
             _current_year = datetime.today().year
             ay_col1, ay_col2 = st.columns(2)
             with ay_col1:
@@ -4583,7 +4311,6 @@ def main():
             st.session_state['academic_year_end'] = ay_end
             st.session_state['academic_year_str'] = f"{ay_start}-{str(ay_end)[-2:]}"
 
-        # Initialize session state for time slots with College Specific Defaults
         if 'time_slots' not in st.session_state:
             if IS_LAW_SCHOOL:
                 st.session_state.time_slots = {
@@ -4591,7 +4318,6 @@ def main():
                     2: {"start": "02:30 PM", "end": "04:30 PM"}
                 }
             elif is_business_school:
-                # NEW STRICT PRIORITY SLOTS FOR SBM & PDSE
                 st.session_state.time_slots = {
                     1: {"start": "11:30 AM", "end": "01:30 PM"},
                     2: {"start": "03:00 PM", "end": "05:00 PM"},
@@ -4603,7 +4329,6 @@ def main():
                     2: {"start": "02:00 PM", "end": "05:00 PM"}
                 }
     
-        # Number of time slots
         num_slots = st.number_input(
             "Number of Time Slots",
             min_value=1,
@@ -4613,7 +4338,6 @@ def main():
             help="Define how many time slots are available per day"
         )
     
-        # Adjust time slots dictionary if number changed
         if num_slots > len(st.session_state.time_slots):
             for i in range(len(st.session_state.time_slots) + 1, num_slots + 1):
                 st.session_state.time_slots[i] = {"start": "10:00 AM", "end": "1:00 PM"}
@@ -4622,16 +4346,6 @@ def main():
             for k in keys_to_remove:
                 del st.session_state.time_slots[k]
 
-        # --- Business School opt-in: multi-semester selector per slot ---
-        # Only shown/used for is_business_school. Everyone else sees the exact old expander.
-        #
-        # The sidebar renders before the file uploader appears later in the
-        # script, so there's no file to read from here yet on first load.
-        # Instead of guessing timing with auto-reruns, a simple button lets
-        # the user explicitly trigger the (cheap) read once they've uploaded
-        # their file. Clicking sets a flag; the actual lightweight parse runs
-        # in the upload section below (where uploaded_file is available) and
-        # stores the result back into session_state for this selector to use.
         available_semesters = st.session_state.get('available_semesters_from_upload', [])
         if is_business_school:
             if st.button(
@@ -4646,7 +4360,6 @@ def main():
         if 'slot_semester_map' not in st.session_state:
             st.session_state.slot_semester_map = {}
 
-        # Display time slot configuration
         with st.expander("⏰ Configure Time Slots", expanded=True):
             for slot_num in sorted(st.session_state.time_slots.keys()):
                 st.markdown(f"**Slot {slot_num}**")
@@ -4668,11 +4381,9 @@ def main():
                     )
                     st.session_state.time_slots[slot_num]["end"] = end_time
             
-                # Display the full time slot
                 full_slot = f"{start_time} - {end_time}"
                 st.info(f"Slot {slot_num}: {full_slot}")
 
-                # Opt-in only, business school only — everything else identical to before
                 if is_business_school and available_semesters:
                     selected_sems = st.multiselect(
                         f"Semesters allowed in Slot {slot_num} (leave empty = all semesters)",
@@ -4687,7 +4398,6 @@ def main():
         st.markdown("#### 👥 Capacity Configuration")
         st.markdown("")
 
-        # Opt-in toggle — ONLY for business school. Default OFF, so nothing changes unless selected.
         use_slotwise_capacity = False
         if is_business_school:
             use_slotwise_capacity = st.checkbox(
@@ -4699,7 +4409,6 @@ def main():
         st.session_state['use_slotwise_capacity'] = use_slotwise_capacity
 
         if use_slotwise_capacity:
-            # New alternative UI: one number input per slot, no slider, no "type capacity" box.
             if 'slot_capacity_map' not in st.session_state:
                 st.session_state.slot_capacity_map = {}
             for slot_num in sorted(st.session_state.time_slots.keys()):
@@ -4709,14 +4418,13 @@ def main():
                     value=st.session_state.slot_capacity_map.get(slot_num, st.session_state.get('capacity_slider', 1250) if not isinstance(st.session_state.get('capacity_slider', 1250), dict) else 1250),
                     key=f"slot_capacity_{slot_num}"
                 )
-            st.session_state['capacity_slider'] = st.session_state.slot_capacity_map  # dict, used only when flag is on
+            st.session_state['capacity_slider'] = st.session_state.slot_capacity_map
             st.info("📊 **Slot-wise capacity active** — each slot uses its own limit above.")
         else:
-            # ORIGINAL slider + text input, byte-for-byte unchanged behavior
             if "capacity_val" not in st.session_state:
                 st.session_state.capacity_val = st.session_state.get('capacity_slider', 1250)
                 if isinstance(st.session_state.capacity_val, dict):
-                    st.session_state.capacity_val = 1250  # fell back from a prior slot-wise session
+                    st.session_state.capacity_val = 1250
 
             def sync_num_to_slider():
                 st.session_state.capacity_val = st.session_state.cap_slide
@@ -4745,7 +4453,6 @@ def main():
             st.session_state['capacity_slider'] = st.session_state.capacity_val
             st.info(f"📊 **Current Capacity:** {st.session_state.capacity_slider} students per session")
 
-        # --- Business School opt-in: alternating schedule with a fixed gap between exams ---
         use_difficulty_gap = False
         difficulty_gap_days = 1
         if is_business_school:
@@ -4873,19 +4580,9 @@ def main():
             for key, value in file_details.items():
                 st.markdown(f"**{key}:** `{value}`")
 
-            # Runs only when the sidebar's "Click this to capture semester
-            # data" button was clicked. Doing the read here (rather than in
-            # the sidebar) is necessary because uploaded_file only exists in
-            # this part of the script; the flag is how the button's click
-            # (handled up in the sidebar, which renders first) reaches this
-            # point. Cheap read — just pulls the Current Session column.
             if st.session_state.get('_capture_semester_data_requested'):
                 st.session_state['available_semesters_from_upload'] = get_available_semesters_from_upload(uploaded_file)
                 st.session_state['_capture_semester_data_requested'] = False
-                # One rerun so the sidebar's semester selector (which already
-                # rendered earlier in this same run, before the read above
-                # happened) picks up the freshly captured list right away
-                # instead of waiting for the next unrelated interaction.
                 st.rerun()
 
     with col2:
@@ -4913,11 +4610,9 @@ def main():
     if uploaded_file is not None:
         st.markdown("")
         
-        # --- AUTO-RESUME LOGIC & DASHBOARD CAPACITY MODE INDICATOR ---
         resume_processing = 'capacity_override_choice' in st.session_state
         generate_btn = st.button("🔄 Generate Timetable", type="primary", use_container_width=True)
         
-        # Determine the display mode instantly (even mid-rerun from the popup)
         display_mode = st.session_state.get('applied_capacity_mode')
         if 'capacity_override_choice' in st.session_state:
             display_mode = st.session_state.capacity_override_choice
@@ -4928,7 +4623,6 @@ def main():
             st.info("🔒 **Active Scheduling Mode:** Strict Mumbai Capacity Limits ENFORCED")
         elif display_mode == "NATURAL_FIT":
             st.success("✅ **Active Scheduling Mode:** All subjects fit naturally within capacity limits")
-        # -------------------------------------------------------------
 
         if generate_btn or resume_processing:
             with st.spinner("⏳ Processing your timetable... Please wait..."):
@@ -5078,10 +4772,8 @@ def main():
 
                             try:
                                 if sem_dict:
-                                    # The updated generate_pdf_timetable handles ZIPs and Session State natively in-memory!
                                     generate_pdf_timetable(sem_dict, "temp_timetable.pdf", declaration_date=declaration_date)
                                     
-                                    # Verify if the function successfully populated the session state
                                     if not st.session_state.get('pdf_data'):
                                         st.warning("⚠️ PDF generation failed to return data.")
                                 else:
@@ -5102,7 +4794,6 @@ def main():
                             date_range_utilization = (unique_exam_days / valid_exam_days) * 100 if valid_exam_days > 0 else 0
                             st.info(f"📅 **Date Range Utilization: {date_range_utilization:.1f}%** ({unique_exam_days}/{valid_exam_days} valid days used)")
                             
-                            # --- FIXED SUMMARY STATISTICS (Check for column existence) ---
                             if 'CommonAcrossSems' in final_all_data.columns:
                                 common_across_count = len(final_all_data[final_all_data['CommonAcrossSems'] == True])
                             else:
@@ -5180,7 +4871,6 @@ def main():
 
         with col2:
             if st.session_state.pdf_data:
-                # Check if the data is a ZIP file or a single PDF
                 if st.session_state.get('is_zip_download', False):
                     st.download_button(
                         label="📦 ZIP (PDFs)",
