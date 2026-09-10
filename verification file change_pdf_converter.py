@@ -494,7 +494,7 @@ def _build_program_key_map(all_program_names):
     return key_map
 
 
-def save_to_excel(semester_wise_timetable):
+ def save_to_excel(semester_wise_timetable):
     time_slots_dict = st.session_state.get('time_slots', {
         1: {"start": "10:00 AM", "end": "1:00 PM"},
         2: {"start": "2:00 PM",  "end": "5:00 PM"}
@@ -583,6 +583,23 @@ def save_to_excel(semester_wise_timetable):
                     df_elec = df_mb[df_mb['OE'].notna()].copy()
 
                 if not df_core.empty:
+                    branch_header_norm = header_norm
+                    if IS_MPSTME:
+                        # Use the actual majority Exam Time for this branch/semester
+                        # as the header, instead of trusting the configured
+                        # time_slots_dict alternation — a single outlier-duration
+                        # subject (e.g. a 4-hour exam) should never become the
+                        # header while the true majority gets bracketed instead.
+                        _valid_times = (
+                            df_mb['Exam Time'].astype(str).str.strip()
+                        )
+                        _valid_times = _valid_times[
+                            ~_valid_times.str.lower().isin(['', 'nan', 'tbd'])
+                        ]
+                        if not _valid_times.empty:
+                            _norm_times = _valid_times.apply(normalize_time)
+                            branch_header_norm = _norm_times.mode().iloc[0]
+
                     displays = []
                     sort_times = []
                     for _, row in df_core.iterrows():
@@ -595,7 +612,7 @@ def save_to_excel(semester_wise_timetable):
                         if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
                             if IS_LAW_SCHOOL:
                                 time_suffix = f" [{actual_time}]"
-                            elif normalize_time(actual_time) != header_norm:
+                            elif normalize_time(actual_time) != branch_header_norm:
                                 time_suffix = f" [{actual_time}]"
 
                         prefix = ""
@@ -657,6 +674,8 @@ def save_to_excel(semester_wise_timetable):
 
                         pivot['_prog_'] = main_branch
                         pivot['_sem_']  = roman_sem
+                        if IS_MPSTME:
+                            pivot['_hdr_time_'] = branch_header_norm
                         pivot.to_excel(writer, sheet_name=core_sheet, index=False)
                         sheets_created += 1
                     except Exception:
@@ -734,7 +753,6 @@ def save_to_excel(semester_wise_timetable):
 
     output.seek(0)
     return output
-
 
 # ==========================================
 # 📄 FPDF ENGINE — VERBATIM FROM REFERENCE APP
@@ -1068,6 +1086,7 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
     import uuid
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
     IS_BUSINESS_SCH = (
     "School of Business Management" in current_college_context
     or "Pravin Dalal" in current_college_context
@@ -1682,12 +1701,19 @@ def convert_excel_to_pdf(excel_path, pdf_path=None, sub_branch_cols_per_page=6, 
                     sheet_df = sheet_df.dropna(how='all').reset_index(drop=True)
                     fixed_cols = ["Exam Date"]
                     _meta_pattern = re.compile(
-                        r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\d+)?$',
+                        r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_|_hdr_time_)(\d+)?$',
                         re.IGNORECASE)
                     sub_branch_cols = [c for c in sheet_df.columns if c not in fixed_cols
                                        and not _meta_pattern.match(str(c))
                                        and pd.notna(c) and str(c).strip() != '']
                     if not sub_branch_cols: continue
+
+                    if IS_MPSTME and '_hdr_time_' in sheet_df.columns and not sheet_df['_hdr_time_'].dropna().empty:
+                        # Trust the majority Exam Time already resolved in
+                        # save_to_excel over the generic parity-based guess —
+                        # avoids a single outlier-duration subject becoming
+                        # the page header.
+                        header_exam_time = str(sheet_df['_hdr_time_'].dropna().iloc[0]).strip()
 
                     cols_per_page = 6
                     for start in range(0, len(sub_branch_cols), cols_per_page):
