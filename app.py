@@ -4041,7 +4041,7 @@ def save_to_excel(semester_wise_timetable):
                                     # their actual Time Slot. Any bracketed [time]
                                     # suffix already on the subject name is stripped
                                     # since the row itself now conveys the time.
-                                    bracket_re = re.compile(r'\s*\[[^\]]*\]\s*$')
+                                    bracket_re = _re.compile(r'\s*\[[^\]]*\]\s*$')
 
                                     def _clean_subject(s):
                                         return bracket_re.sub('', str(s)).strip()
@@ -4094,9 +4094,7 @@ def save_to_excel(semester_wise_timetable):
                                 summary_df.to_excel(writer, sheet_name=sheet_name_elec, index=False)
                                 sheets_created += 1
                         except Exception as e:
-                            st.error(f"OE SHEET FAILED for {main_branch} / {raw_sem_str}: {e}")
-                            import traceback
-                            st.code(traceback.format_exc())
+                            st.warning(f"⚠️ Could not build OE sheet for {main_branch} / {raw_sem_str}: {e}")
 
             if sheets_created == 0:
                 pd.DataFrame({'Message': ['No data available']}).to_excel(writer, sheet_name="No_Data", index=False)
