@@ -1010,7 +1010,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_font("Times", 'B', 12)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
 
         if all_semesters:
             _roman_map = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII',
