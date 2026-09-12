@@ -756,7 +756,7 @@ def print_table_custom(pdf, df, columns, col_widths, line_height=5,
         pdf.set_font("Times", 'B', 11.5 if _hdr_is_law else 10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
 
         current_y = 38
 
@@ -873,7 +873,7 @@ def _ordinal_suffix(day):
     return {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
 
 def _format_portal_date(d, t=""):
-    """Format a date object as e.g. '28th October, 2025 (4:00 pm)'"""
+    """Format a date object as e.g. '28th October, 2026 (4:00 pm)'"""
     day = d.day
     suffix = _ordinal_suffix(day)
     base = f"{day}{suffix} {d.strftime('%B, %Y')}"
@@ -962,7 +962,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_font("Times", 'B', 12)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
 
         if all_semesters:
             _roman_map = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII',
