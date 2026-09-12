@@ -317,6 +317,7 @@ def save_to_excel(semester_wise_timetable):
 
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
 
     if IS_LAW_SCHOOL:
         time_slots_dict = {
@@ -395,6 +396,16 @@ def save_to_excel(semester_wise_timetable):
 
                 if not df_core.empty:
 
+                    branch_header_norm = header_norm
+                    if IS_MPSTME:
+                        _valid_times = df_mb['Exam Time'].astype(str).str.strip()
+                        _valid_times = _valid_times[
+                            ~_valid_times.str.lower().isin(['', 'nan', 'tbd'])
+                        ]
+                        if not _valid_times.empty:
+                            _norm_times = _valid_times.apply(normalize_time)
+                            branch_header_norm = _norm_times.mode().iloc[0]
+
                     def shorten_year(y):
                         y = str(y).strip()
                         m = re.findall(r'\d{4}', y)
@@ -423,7 +434,7 @@ def save_to_excel(semester_wise_timetable):
                         if actual_time and actual_time.lower() not in ['tbd', 'nan', '']:
                             if IS_LAW_SCHOOL:
                                 time_suffix = f" [{actual_time}]"
-                            elif normalize_time(actual_time) != header_norm:
+                            elif normalize_time(actual_time) != branch_header_norm:
                                 time_suffix = f" [{actual_time}]"
 
                         code = ''
@@ -479,6 +490,8 @@ def save_to_excel(semester_wise_timetable):
                         )
                         pivot['_prog_'] = main_branch
                         pivot['_sem_']  = roman_sem
+                        if IS_MPSTME:
+                            pivot['_hdr_time_'] = branch_header_norm
                         pivot.to_excel(writer, sheet_name=core_sheet, index=False)
                         sheets_created += 1
                     except Exception:
@@ -486,19 +499,26 @@ def save_to_excel(semester_wise_timetable):
 
                 if not df_elec.empty:
                     e_displays = []
+                    e_times = []
                     for _, row in df_elec.iterrows():
                         subj        = row['Subject']
                         actual_time = str(row.get('Exam Time', '')).strip()
 
-                        time_suffix = ""
-                        if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
-                            time_suffix = f" [{actual_time}]"
+                        if IS_MPSTME:
+                            e_displays.append(subj)
+                            e_times.append(actual_time if actual_time.lower() not in ('', 'nan', 'tbd') else header_norm)
+                        else:
+                            time_suffix = ""
+                            if actual_time and normalize_time(actual_time) != header_norm and actual_time.lower() not in ['tbd', 'nan', '']:
+                                time_suffix = f" [{actual_time}]"
 
-                        ay_col_oe = 'Academic Year' if 'Academic Year' in row.index else None
-                        txt = f"{subj}{time_suffix}"
-                        e_displays.append(txt)
+                            ay_col_oe = 'Academic Year' if 'Academic Year' in row.index else None
+                            txt = f"{subj}{time_suffix}"
+                            e_displays.append(txt)
 
                     df_elec['DisplaySubject'] = e_displays
+                    if IS_MPSTME:
+                        df_elec['ExamTimeClean'] = e_times
 
                     try:
                         df_elec['Exam Date'] = pd.to_datetime(
@@ -508,20 +528,47 @@ def save_to_excel(semester_wise_timetable):
                         df_elec['Exam Date'] = df_elec['Exam Date'].apply(
                             lambda x: x.strftime('%d-%m-%Y') if pd.notna(x) else ""
                         )
-                        ep = df_elec.groupby(['Exam Date', 'OE']).agg(
-                            {'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}
-                        ).reset_index()
-                        ep.rename(
-                            columns={'OE': 'OE Type',
-                                     'DisplaySubject': 'Open Elective (All Applicable Streams)'},
-                            inplace=True
-                        )
+
+                        if IS_MPSTME:
+                            def _build_time_split(group):
+                                slot_groups = (
+                                    group.groupby('ExamTimeClean')['DisplaySubject']
+                                    .apply(lambda x: ", ".join(sorted(set(x))))
+                                )
+
+                                def _sort_key(slot_str):
+                                    try:
+                                        return datetime.strptime(slot_str.split(" - ")[0].strip(), "%I:%M %p")
+                                    except Exception:
+                                        return datetime.max
+
+                                ordered_slots = sorted(slot_groups.index, key=_sort_key)
+
+                                exam_time_str = " <hr> ".join(s if s else "---" for s in ordered_slots)
+                                subjects_str = " <hr> ".join(slot_groups[s] for s in ordered_slots)
+                                return pd.Series({'Exam Time': exam_time_str, 'Open Elective (All Applicable Streams)': subjects_str})
+
+                            ep = (
+                                df_elec.groupby('Exam Date')
+                                .apply(_build_time_split)
+                                .reset_index()
+                            )
+                        else:
+                            ep = df_elec.groupby(['Exam Date', 'OE']).agg(
+                                {'DisplaySubject': lambda x: ", ".join(sorted(set(x)))}
+                            ).reset_index()
+                            ep.rename(
+                                columns={'OE': 'OE Type',
+                                         'DisplaySubject': 'Open Elective (All Applicable Streams)'},
+                                inplace=True
+                            )
+
                         ep['_prog_'] = main_branch
                         ep['_sem_']  = roman_sem
                         ep.to_excel(writer, sheet_name=elec_sheet, index=False)
                         sheets_created += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not build OE sheet for {main_branch} / Sem {roman_sem}: {e}")
 
         if sheets_created == 0:
             pd.DataFrame({'Info': ['No valid data']}).to_excel(writer, sheet_name="Empty")
@@ -893,6 +940,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
 
     current_college_context = st.session_state.get('selected_college', '')
     IS_LAW_SCHOOL = "LAW" in current_college_context.upper()
+    IS_MPSTME = "Mukesh Patel" in current_college_context or "Technology Management" in current_college_context
 
     if IS_LAW_SCHOOL:
         time_slots_dict = {
@@ -962,7 +1010,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
         pdf.set_font("Times", 'B', 12)
         pdf.set_text_color(0, 0, 0)
         pdf.set_xy(10, 33)
-        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2026-27)", 0, 1, 'C')
+        pdf.cell(pdf.w - 20, 4, "RE-EXAMINATION TIMETABLE (ACADEMIC YEAR: 2025-26)", 0, 1, 'C')
 
         if all_semesters:
             _roman_map = {1:'I',2:'II',3:'III',4:'IV',5:'V',6:'VI',7:'VII',
@@ -1182,7 +1230,7 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
 
                 fixed_cols = ["Exam Date"]
                 _meta_pattern = re.compile(
-                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_)(\.\d+)?$',
+                    r'^(Program|Semester|MainBranch|Note|Message|_prog_|_sem_|_hdr_time_)(\.\d+)?$',
                     re.IGNORECASE
                 )
                 sub_branch_cols = [
@@ -1193,6 +1241,9 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                     and str(c).strip() != ''
                 ]
                 if not sub_branch_cols: continue
+
+                if IS_MPSTME and '_hdr_time_' in sheet_df.columns and not sheet_df['_hdr_time_'].dropna().empty:
+                    header_exam_time = str(sheet_df['_hdr_time_'].dropna().iloc[0]).strip()
 
                 cols_per_page = 6
 
@@ -1282,7 +1333,13 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                     sheets_processed += 1
 
             else:
-                target_cols   = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
+                _oe_college_ctx = st.session_state.get('selected_college', '')
+                _is_mpstme_oe = "Mukesh Patel" in _oe_college_ctx or "Technology Management" in _oe_college_ctx
+
+                if _is_mpstme_oe and 'Exam Time' in sheet_df.columns:
+                    target_cols = ['Exam Date', 'Exam Time', 'Open Elective (All Applicable Streams)']
+                else:
+                    target_cols = ['Exam Date', 'OE Type', 'Open Elective (All Applicable Streams)']
                 available_cols = [c for c in target_cols if c in sheet_df.columns]
 
                 if len(available_cols) >= 3:
@@ -1305,10 +1362,12 @@ def convert_excel_to_pdf(excel_path, pdf_path, declaration_date=None, portal_dat
                     original_college = st.session_state.get('selected_college')
                     st.session_state['selected_college'] = sheet_college_name
 
+                    _oe_header_time = None if _is_mpstme_oe else header_exam_time
+
                     print_table_custom(
                         pdf, sheet_df, available_cols, col_widths, line_height=5,
                         header_content=header_content, Programs=["Electives"],
-                        time_slot=header_exam_time, actual_time_slots=None,
+                        time_slot=_oe_header_time, actual_time_slots=None,
                         declaration_date=declaration_date
                     )
 
